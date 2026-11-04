@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/donate", "destination": "/index.html" },
+    { "source": "/clinic", "destination": "/index.html" },
+    { "source": "/streetcat", "destination": "/index.html" },
+    { "source": "/status", "destination": "/status.html" }
+  ]
+}

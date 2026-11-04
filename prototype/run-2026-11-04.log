@@ -1,0 +1,23 @@
+== mint info: {"name":"Cashu mint","pubkey":"0383d94c15127638d98a5653ee1d0d3e343bcd610840ae9757bc29d4f8fa0e876a","version":"Nutshell/0.21.0","contact":[],"time":1793754569,"max_array_length":1000,"nuts":{"4":{"meth
+donor funded: 256 sat sat (fake lightning)
+
+== A. HTLC: clinic code + Streetcat signature, refund to donor after deadline
+   clinic keeps code 1649ab595ce5... publishes hash b7d5b59634a2...
+   donation token (21 sat, locked): cashuBo2F0gaJhaUgBqK_xASO8KGFwg6NhYQFhc3kBTlsiSFRMQyIsIHsiZG... 1592 chars
+   secret of first proof: ["HTLC", {"data": "b7d5b59634a2189aad1260668f91a02893cc5dda196c5d5845f7e973da26d532", "nonce": "027416f1a8535eb9951ad8d1160592b7", "tags": [["locktime", "179375
+   Streetcat without code: REFUSED -> Mint Error: no HTLC preimage provided (Code: 11000)
+   Streetcat with a WRONG code + signature: REFUSED -> Mint Error: HTLC preimage does not match. (Code: 11000)
+   Streetcat with clinic code + signature: OK, balance now 21 sat sat
+   Donor refund attempt before deadline (already spent anyway): REFUSED -> Mint Error: proofs already spent (Code: 11001)
+
+== A2. same lock with a 3-second deadline: nobody certifies -> donor takes it back
+   Donor refund BEFORE deadline: REFUSED -> Mint Error: no HTLC preimage provided (Code: 11000)
+   Donor refund AFTER deadline: OK, balance now 256 sat sat
+
+== B. P2PK 2-of-2: Streetcat + clinic must both sign, refund to donor after deadline
+   secret: ["P2PK", {"data": "03582a80542d8a84949b11a4e7bd883636f1cc8411648f756ea12c118a57603a36", "nonce": "336daf493c5879b3936ddefafd20fe6f", "tags": [["pubkeys", "03dba0a7b498b05cf41de6da5d67038efd74911cf990c
+   Streetcat alone: REFUSED -> Mint Error: not enough pubkeys (2) or signatures (1) present for n_sigs (2). (Code: 11000)
+   Streetcat + clinic signatures: OK, balance now 37 sat sat
+
+== balances: donor 256 sat streetcat 37 sat vet 0 sat
+== DONE
