@@ -1,0 +1,302 @@
+// Streetcat's donation protocol, with no interface: what travels between donor, Streetcat and clinic, and how each side checks it.
+// - Keys derived from a campaign key: one signs declarations, one carries messages. The spending keys sign nothing but spends.
+// - DON- codes for donations.
+// - The request Streetcat sends the clinic, and the clinic's answer: its signatures and its signed declaration, or a signed report.
+// - One packing for every way they travel: a link, a file, a relay message.
+// - The published ledger, donation by donation (version 2).
+// - Split donations: the part of a proof that is not released goes back under the same lock, in proofs derived from that proof,
+//   so the donor (or anyone holding the published token) can find it at the mint with NUT-09 restore.
+// - The signed acknowledgment a volunteer gives a donor who hands a donation over in person.
+// Used by the pages in the browser and by the tests in Node. Needs cashu-bundle.js loaded first (window.cashu).
+(function (root) {
+'use strict';
+const cashu = root.cashu; if (!cashu) throw new Error('core.js needs cashu-bundle.js first');
+const enc = new TextEncoder(), dec = new TextDecoder();
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+const unhex = s => { s = String(s || ''); if (s.length % 2 || /[^0-9a-f]/i.test(s)) throw new Error('not hex'); return Uint8Array.from(s.match(/../g) || [], h => parseInt(h, 16)); };
+const concat = (...a) => { const out = new Uint8Array(a.reduce((n, x) => n + x.length, 0)); let i = 0; for (const x of a) { out.set(x, i); i += x.length; } return out; };
+const sha256 = async b => new Uint8Array(await root.crypto.subtle.digest('SHA-256', typeof b === 'string' ? enc.encode(b) : b));
+const sha256hex = async b => hex(await sha256(b));
+// canonical JSON: keys sorted, no spaces, so the same statement always gives the same bytes to sign
+const canon = v => Array.isArray(v) ? '[' + v.map(canon).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).filter(k => v[k] !== undefined).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v);
+const amt = a => (a && typeof a === 'object' && typeof a.toNumber === 'function') ? a.toNumber() : Number(a);  // cashu-ts may hand back Amount objects
+const lc = k => String(k || '').toLowerCase();
+const PUB = /^0[23][0-9a-f]{64}$/i, SK = /^[0-9a-f]{64}$/i, DAY = /^\d{4}-\d{2}-\d{2}$/;
+const yOf = secret => cashu.hashToCurve(enc.encode(secret)).toHex(true).toLowerCase();
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;  // the order of secp256k1
+const G = () => cashu.pointFromHex('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+const big = b => BigInt('0x' + (hex(b) || '0'));
+const pubOf = sk => hex(cashu.getPubKeyFromPrivKey(unhex(sk)));
+const verify = (sig, msg, pk) => { try { return !!cashu.schnorrVerifyMessage(sig, msg, pk); } catch (_) { return false; } };
+
+// ---------- keys derived from a campaign key ----------
+// k' = k + t and K' = K + t·G, with t = SHA-256(tag ‖ K) mod n and K the compressed public key in the campaign. Anyone who knows K
+// can compute K' (so a campaign needs no new keys announced); only the holder of k can compute k'. The spending key k itself then
+// signs nothing but NUT-11 spends: declarations, reports, acknowledgments and messages are signed with derived keys, one per tag.
+const TAG = { statement: 'streetcat/statement/v1', messaging: 'streetcat/messaging/v1', ledger: 'streetcat/ledger/v1' };
+async function tweak(tag, pk){ if (!PUB.test(pk)) throw new Error('not a public key'); const t = big(await sha256(concat(enc.encode(tag), unhex(lc(pk))))) % N; if (t === 0n) throw new Error('unusable key'); return t; }
+async function derivedPub(tag, pk){ return cashu.pointFromHex(lc(pk)).add(G().multiply(await tweak(tag, pk))).toHex(true); }
+async function derivedSk(tag, sk){ if (!SK.test(sk)) throw new Error('not a private key'); const d = (BigInt('0x' + sk) + await tweak(tag, pubOf(sk))) % N; if (d === 0n) throw new Error('unusable key'); return d.toString(16).padStart(64, '0'); }
+
+// ---------- DON- codes ----------
+// a donation's code comes from its proofs' Y values (which reveal nothing that could spend them): the same donation always has the same code
+const donRef = async ys => 'DON-' + (await sha256hex([...ys].map(lc).sort().join(''))).slice(0, 8).toUpperCase();
+
+// ---------- locks ----------
+function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { return null; } if (!Array.isArray(s) || s[0] !== 'P2PK' || !s[1] || typeof s[1].data !== 'string') return null;
+  const d = s[1], t = Object.fromEntries((d.tags || []).map(x => [x[0], x.slice(1)]));
+  return { main: [d.data, ...(t.pubkeys || [])].map(lc), n: Number((t.n_sigs || ['1'])[0]), refund: (t.refund || []).map(lc), nRefund: Number((t.n_sigs_refund || ['1'])[0]), locktime: Number((t.locktime || ['0'])[0]), sigflag: (t.sigflag || ['SIG_INPUTS'])[0] }; }
+// what a campaign promises: Streetcat and the clinic sign together; one refund key opens after the deadline
+function lockProblem(l, c){ if (!l) return 'not a P2PK lock'; const want = [c.streetcat, c.clinic].map(lc).sort().join();
+  if (l.main.slice().sort().join() !== want) return 'locked to other keys than Streetcat + the clinic'; if (l.n !== 2) return `needs ${l.n} signature(s), not 2`;
+  if (l.locktime !== Number(c.deadline)) return 'its deadline is not the campaign deadline'; if (!l.refund.length) return 'no refund key: anyone could take it after the deadline';
+  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule'; return ''; }
+const CAMP = ['name', 'op', 'mint', 'streetcat', 'clinic', 'deadline'];
+function campaignOf(c){ if (!c || typeof c !== 'object') throw new Error('no campaign'); const o = {}; for (const k of CAMP) if (c[k] != null && c[k] !== '') o[k] = c[k];
+  o.name = String(o.name || '').trim(); if (o.op != null) o.op = String(o.op); o.mint = String(o.mint || '').trim().replace(/\/+$/, ''); o.deadline = Number(o.deadline); o.streetcat = lc(o.streetcat); o.clinic = lc(o.clinic);
+  if (!o.name || !o.mint || !PUB.test(o.streetcat) || !PUB.test(o.clinic) || !Number.isInteger(o.deadline)) throw new Error('the campaign is incomplete'); return o; }
+const campShort = c => ({ name: c.name, mint: c.mint, streetcat: c.streetcat, clinic: c.clinic, deadline: c.deadline });
+// Streetcat's published key: a donation link and a ledger must name it (both pages check). Confirmed by StreetCat on 5 Nov (it is also in
+// campaigns/tnr2.json). Another key, if there is ever one, is added in this one line.
+const STREETCAT_KEYS = ['0294637dacb6799343eacb4654700ad781694838b8b6db80551d17af001b194121'];
+const published = k => !STREETCAT_KEYS.length || STREETCAT_KEYS.includes(lc(k));
+// a campaign's id: a hash of what makes it (its name, mint, both keys and deadline). The ledger is published under it (relay.js).
+const campaignId = async c => 'streetcat:' + (await sha256hex(canon(campShort(campaignOf(c))))).slice(0, 20);
+// ---------- campaigns signed by Streetcat ----------
+// A donation link is text anyone can write: one carrying someone else's keys would lock donors' sats to them. So a campaign carries a
+// BIP-340 signature over "streetcat/campaign/v1", a newline and its canonical JSON (name, op, mint, Streetcat's and the clinic's keys,
+// the deadline, its colour, where to send tokens), made with the statement key derived from the campaign's Streetcat key: only the
+// holder of that key can make it, and anyone can check it from the link alone. Links made before carry none: they open, unsigned.
+const CAMP_SIG = 'streetcat/campaign/v1\n';
+const campSigned = c => { const o = campaignOf(c); if (c.hue != null && c.hue !== '') o.hue = Number(c.hue); if (c.to != null && String(c.to).trim()) o.to = String(c.to).trim(); return o; };
+async function signCampaign(c, sk){ const o = campSigned(c); if (!SK.test(sk || '') || pubOf(sk) !== o.streetcat) throw new Error('this is not the campaign\'s Streetcat key');
+  return { ...o, sig: cashu.schnorrSignMessage(CAMP_SIG + canon(o), await derivedSk(TAG.statement, lc(sk))) }; }
+// 'signed', 'unsigned' (no signature at all) or 'broken' (a signature that does not match: the link was changed after it was signed)
+async function campaignSig(c){ if (!c || c.sig == null || c.sig === '') return 'unsigned';
+  try { const o = campSigned(c); return /^[0-9a-f]{128}$/i.test(String(c.sig)) && verify(String(c.sig), CAMP_SIG + canon(o), await derivedPub(TAG.statement, o.streetcat)) ? 'signed' : 'broken'; } catch (_) { return 'broken'; } }
+
+// ---------- the request: Streetcat → clinic ----------
+// One procedure, and what of each donation pays for it: all of it, or a part (a split donation). Only the proofs that pay are sent,
+// and of each only what signing needs (its secret, amount and keyset): the clinic signs them, and Streetcat keeps the full tokens.
+const newId = () => 'R-' + hex(root.crypto.getRandomValues(new Uint8Array(5))).toUpperCase();
+const slim = p => ({ id: String(p.id), amount: amt(p.amount), secret: String(p.secret) });
+async function makeRequest({ campaign, patient, procedure, date, note = '', contributions, id = newId(), created = new Date().toISOString() }){
+  const c = campaignOf(campaign); if (!String(patient || '').trim() || !String(procedure || '').trim() || !DAY.test(String(date || ''))) throw new Error('a request needs the cat, the procedure and the date');
+  if (!Array.isArray(contributions) || !contributions.length) throw new Error('a request needs at least one donation');
+  const out = [], seen = new Set();
+  for (const k of contributions) { const proofs = (k.proofs || []).map(slim); if (!proofs.length) throw new Error('a donation without proofs');
+    for (const p of proofs) { const bad = lockProblem(lockOf(p.secret), c); if (bad) throw new Error(`a donation is not this campaign's: ${bad}`); const y = yOf(p.secret); if (seen.has(y)) throw new Error('the same proof twice'); seen.add(y); }
+    const total = proofs.reduce((s, p) => s + p.amount, 0), release = k.release == null ? total : Number(k.release);
+    if (!Number.isInteger(release) || release < 1 || release > total) throw new Error(`proofs of ${total} sat cannot pay ${k.release} sat`);
+    out.push({ ref: k.ref || await donRef(proofs.map(p => yOf(p.secret))), release, proofs }); }
+  return { t: 'streetcat.request', v: 1, id, campaign: c, patient: String(patient).trim(), procedure: String(procedure).trim(), date: String(date), ...(note ? { note: String(note) } : {}), contributions: out, created }; }
+// what a clinic's app checks before it shows a request (it is just text anyone could write)
+function requestProblems(q){ if (!q || q.t !== 'streetcat.request') return ['this is not a Streetcat request']; if (q.v !== 1) return [`it was made by another version of the app (format ${q.v})`];
+  let c; try { c = campaignOf(q.campaign); } catch (e) { return [e.message]; } const p = [];
+  if (!/^R-[0-9A-F]{10}$/.test(String(q.id))) p.push('it has no valid request number');
+  if (!String(q.patient || '').trim() || !String(q.procedure || '').trim() || !DAY.test(String(q.date || ''))) p.push('the cat, the procedure or the date is missing');
+  if (!Array.isArray(q.contributions) || !q.contributions.length) p.push('it names no donation');
+  const seen = new Set();
+  for (const k of q.contributions || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; if (!ps.length) { p.push(`${k.ref || 'a donation'} has no proofs`); continue; }
+    const bad = [...new Set(ps.map(x => lockProblem(lockOf(x.secret), c)).filter(Boolean))]; if (bad.length) p.push(`${k.ref || 'a donation'}: ${bad.join('; ')}`);
+    for (const x of ps) { let y = ''; try { y = yOf(x.secret); } catch (_) {} if (!y || seen.has(y)) p.push(`${k.ref || 'a donation'}: a proof listed twice`); seen.add(y); }
+    const total = ps.reduce((s, x) => s + amt(x.amount), 0); if (!Number.isInteger(k.release) || k.release < 1 || k.release > total) p.push(`${k.ref || 'a donation'}: it cannot pay ${k.release} sat out of ${total}`); }
+  return [...new Set(p)]; }
+const requestAmount = q => q.contributions.reduce((s, k) => s + Number(k.release), 0);
+
+// ---------- the answer: clinic → Streetcat ----------
+// "certified": the clinic's NUT-11 signature on every proof (its half of the 2-of-2), and a declaration signed apart, with its derived
+// statement key, naming the campaign, the request, the cat, the procedure, the date and exactly those proofs. Or "report": a signed
+// note that the procedure was not done as asked. Either way the clinic's app signs only what it was shown.
+const STMT = 'streetcat/clinic-certificate/v1\n', REPORT = 'streetcat/clinic-report/v1\n', REASONS = ['postponed', 'wrong-data', 'other'];
+// The vet's invoice or a photo can back the declaration: only the file's SHA-256 goes in (evidence: { sha256, kind }); the file itself
+// never leaves the clinic's device, and anyone given it later can check it against the published declaration. Older declarations have none.
+const EVIDENCE = ['invoice', 'photo'];
+const evidenceOk = e => !!e && typeof e === 'object' && Object.keys(e).sort().join() === 'kind,sha256' && /^[0-9a-f]{64}$/.test(e.sha256) && EVIDENCE.includes(e.kind);
+const statementOf = (q, signed, evidence) => ({ type: 'streetcat/clinic-certificate', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, patient: q.patient, procedure: q.procedure, date: q.date,
+  contributions: q.contributions.map(k => ({ ref: k.ref, release: Number(k.release), proofs: k.proofs.map(p => yOf(p.secret)) })), amount: requestAmount(q), clinic: lc(q.campaign.clinic), signed, ...(evidence ? { evidence: { sha256: evidence.sha256, kind: evidence.kind } } : {}) });
+async function certify(q, clinicSk, signed = new Date().toISOString(), evidence = null){ const bad = requestProblems(q); if (bad.length) throw new Error('not a valid request: ' + bad.join('; '));
+  if (pubOf(clinicSk) !== lc(q.campaign.clinic)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`); if (evidence && !evidenceOk(evidence)) throw new Error('the file\'s fingerprint is not a SHA-256 of an invoice or a photo');
+  const statement = statementOf(q, signed, evidence), sig = cashu.schnorrSignMessage(STMT + canon(statement), await derivedSk(TAG.statement, clinicSk));
+  const sigs = q.contributions.flatMap(k => k.proofs.map(p => cashu.schnorrSignMessage(p.secret, clinicSk)));  // NUT-11 signs the proof's secret
+  return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'certified', statement, sig, sigs }; }
+async function report(q, clinicSk, reason, note = '', signed = new Date().toISOString()){ if (pubOf(clinicSk) !== lc(q.campaign.clinic)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`);
+  if (!REASONS.includes(reason)) throw new Error('reason: ' + REASONS.join(', '));
+  const statement = { type: 'streetcat/clinic-report', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, reason, note: String(note || '').slice(0, 500), clinic: lc(q.campaign.clinic), signed };
+  return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'report', statement, sig: cashu.schnorrSignMessage(REPORT + canon(statement), await derivedSk(TAG.statement, clinicSk)) }; }
+// Streetcat's check of an answer to its own request q: "certified" only when every proof carries a valid signature from the campaign's
+// clinic key AND the declaration is signed with the clinic's statement key and names exactly this request and these proofs
+async function checkAnswer(q, a){ const v = { ok: false, kind: a && a.kind, proofs: 0, signed: 0, other: 0, statement: 'missing', text: '' };
+  if (!a || a.t !== 'streetcat.answer' || a.v !== 1 || a.id !== q.id) { v.text = '✗ this is not the answer to this request'; return v; }
+  const c = campaignOf(q.campaign), spk = await derivedPub(TAG.statement, c.clinic), st = a.statement;
+  if (a.kind === 'report') { const good = !!st && st.type === 'streetcat/clinic-report' && st.request === q.id && lc(st.clinic) === c.clinic && canon(st.campaign) === canon(campShort(c)) && verify(a.sig, REPORT + canon(st), spk);
+    v.statement = good ? 'ok' : 'badsig'; v.ok = good; v.text = good ? `the clinic reports a problem (${st.reason})${st.note ? ': ' + st.note : ''}` : `✗ a report that is not signed with ${c.name}'s clinic key`; return v; }
+  if (a.kind !== 'certified') { v.text = '✗ an answer of an unknown kind'; return v; }
+  const want = statementOf(q, st && st.signed, st && evidenceOk(st.evidence) ? st.evidence : null), signedBy = !!st && verify(a.sig, STMT + canon(st), spk), same = !!st && canon(st) === canon(want);
+  v.statement = !st ? 'missing' : !signedBy ? (lc(st.clinic) !== c.clinic ? 'otherkey' : 'badsig') : !same ? 'mismatch' : 'ok';
+  const proofs = q.contributions.flatMap(k => k.proofs); v.proofs = proofs.length;
+  proofs.forEach((p, i) => { const s = (a.sigs || [])[i]; if (!s) return; if (verify(s, p.secret, c.clinic)) v.signed++; else v.other++; });
+  v.ok = v.proofs > 0 && v.signed === v.proofs && v.statement === 'ok';
+  v.text = v.ok ? `✓ certified: all ${v.proofs} proof${v.proofs === 1 ? '' : 's'} signed with ${c.name}'s clinic key, and its declaration names exactly them`
+    : v.signed && v.signed < v.proofs ? `✗ Partly signed (${v.signed} of ${v.proofs}) — not certified`
+    : v.other && !v.signed ? `✗ Signed with a key that is not ${c.name}'s clinic key — not certified`
+    : v.statement !== 'ok' ? `✗ its declaration ${({ missing: 'is missing', badsig: `is not signed with ${c.name}'s clinic key`, otherkey: 'names another clinic key', mismatch: 'does not match this request' })[v.statement]} — not certified` : '✗ not certified';
+  return v; }
+// the clinic's signatures by proof (Y), to put into the full proofs Streetcat kept (their witness), next to Streetcat's own
+const clinicSigsByY = (q, a) => { const m = new Map(); let i = 0; for (const k of q.contributions) for (const p of k.proofs) m.set(yOf(p.secret), a.sigs[i++]); return m; };
+const withSig = (p, sig) => { let have = []; try { have = cashu.getP2PKWitnessSignatures(p.witness); } catch (_) {} return { ...p, witness: JSON.stringify({ signatures: [...have, sig] }) }; };
+
+// ---------- packing: one format whether it goes by link, file or relay ----------
+// JSON, compressed (deflate-raw) and written in base64url after a version prefix; plain JSON (a file) is read too. Unpacking stops at
+// 1 MB, so a link cannot be made to expand without end.
+const LIMIT = 1 << 20;
+const b64u = { enc: b => { let s = ''; for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); return root.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
+  dec: s => { const t = root.atob(String(s).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(t, ch => ch.charCodeAt(0)); } };
+async function through(bytes, Kind){ const cs = new Kind('deflate-raw'), w = cs.writable.getWriter(); w.write(bytes).catch(() => {}); w.close().catch(() => {});
+  const r = cs.readable.getReader(), parts = []; let n = 0; for (;;) { const { done, value } = await r.read(); if (done) break; n += value.length; if (n > LIMIT) { r.cancel().catch(() => {}); throw new Error('too large'); } parts.push(value); }
+  return concat(...parts); }
+async function pack(obj){ const j = enc.encode(JSON.stringify(obj)); if (root.CompressionStream) { try { return 'sc1.' + b64u.enc(await through(j, root.CompressionStream)); } catch (_) {} } return 'sc0.' + b64u.enc(j); }
+async function unpack(text){ let s = String(text || '').trim(); const m = s.match(/#(?:q|a|h)=([^&\s]+)/); if (m) s = decodeURIComponent(m[1]);
+  if (s.length > 4 * LIMIT) throw new Error('too large');
+  if (s.startsWith('{')) return JSON.parse(s);
+  if (s.startsWith('sc1.')) { if (!root.DecompressionStream) throw new Error('this browser cannot read compressed links'); return JSON.parse(dec.decode(await through(b64u.dec(s.slice(4)), root.DecompressionStream))); }
+  if (s.startsWith('sc0.')) return JSON.parse(dec.decode(b64u.dec(s.slice(4))));
+  throw new Error('this is not a Streetcat request or answer'); }
+// a link opens the app on the right screen: #q= a request (for the clinic), #a= an answer (for Streetcat), #h= a handover
+const linkFor = async (base, obj) => String(base).split('#')[0] + '#' + ({ 'streetcat.request': 'q', 'streetcat.answer': 'a', 'streetcat.handover': 'h' }[obj.t] || 'a') + '=' + await pack(obj);
+
+// ---------- split donations: what is not released goes back under the same lock ----------
+// A proof is spent whole. When only part of it pays for a procedure, the rest goes back in new proofs under exactly the same lock (the
+// same keys and deadline, the same donor refund key). Their secrets and blinding factors are hashes of the proof's secret and of r, the
+// blinding factor the mint never saw (it travels in the token's DLEQ, NUT-12). So whoever holds the original token (the donor, or anyone
+// reading the published ledger) can rebuild their blinded messages and ask the mint for them (NUT-09 restore) without trusting Streetcat
+// to publish anything; and the mint, which never saw r, cannot link them to the proof they came from.
+// Trust: the clinic's NUT-11 signatures (SIG_INPUTS) do not bind the outputs, so it is Streetcat's app that puts the rest back; anyone
+// can check afterwards that it did, because the rest must be at the mint under these derived blinded messages.
+const REM = 'streetcat/remainder/v1';
+async function remainderPart(proof, i){ const r = proof.dleq && proof.dleq.r; if (!r) throw new Error('this proof carries no DLEQ blinding factor, so a remainder could not be found again: it can only be released whole');
+  const base = concat(unhex(String(r).padStart(64, '0')), enc.encode(proof.secret), new Uint8Array([i]));
+  const nonce = hex(await sha256(concat(enc.encode(REM + '/nonce\n'), base)));
+  let bf = big(await sha256(concat(enc.encode(REM + '/r\n'), base))) % N; if (bf === 0n) bf = 1n;
+  const s = JSON.parse(proof.secret); s[1] = { ...s[1], nonce }; const secret = JSON.stringify(s);  // the same lock, a new nonce
+  return { secret, r: bf, B_: cashu.blindMessage(enc.encode(secret), bf).B_.toHex(true) }; }
+const remainderSlots = amount => { const a = amt(amount); return a > 1 ? Math.ceil(Math.log2(a)) : 0; };  // a rest is smaller than its proof: at most this many pieces
+// which proofs pay `amount` out of a donation: whole proofs, largest first, then at most one proof split
+function planRelease(proofs, amount){ amount = Number(amount); const ps = proofs.slice().sort((a, b) => amt(b.amount) - amt(a.amount)); let need = amount; const whole = [], rest = [];
+  if (!Number.isInteger(amount) || amount < 1) throw new Error('nothing to release');
+  for (const p of ps) { if (amt(p.amount) <= need) { whole.push(p); need -= amt(p.amount); } else rest.push(p); }
+  if (!need) return { whole, split: null, part: 0, remainder: 0, inputs: whole };
+  const split = rest.filter(p => amt(p.amount) > need).sort((a, b) => amt(a.amount) - amt(b.amount))[0]; if (!split) throw new Error(`these proofs cannot pay ${amount} sat`);
+  return { whole, split, part: need, remainder: amt(split.amount) - need, inputs: [...whole, split] }; }
+// the outputs that put the rest of `proof` back: `amounts` is the rest in the mint's denominations, one output per slot
+async function remainderOutputs(proof, amounts, keysetId){ const out = [];
+  for (let i = 0; i < amounts.length; i++) { const p = await remainderPart(proof, i); out.push(new cashu.OutputData({ amount: cashu.Amount.from(amounts[i]), id: keysetId, B_: p.B_ }, p.r, enc.encode(p.secret))); }
+  return out; }
+// what came back from `proof` when only part of it was released, asked of the mint slot by slot (NUT-09); empty if it went whole.
+// A restore request names each blinded message with amount 0, as cashu-ts does for its own restores: the mint finds them by B_.
+// For many proofs at once: Y of a proof → the proofs its rest went back in (one restore request per 200 slots).
+async function findRemainders(w, proofs){ const slots = [];
+  for (const p of proofs) { const n = remainderSlots(p.amount); if (!n || !(p.dleq && p.dleq.r)) continue; for (let i = 0; i < n; i++) slots.push({ y: yOf(p.secret), part: await remainderPart(p, i), id: p.id }); }
+  const out = new Map();
+  for (let at = 0; at < slots.length; at += 200) { const chunk = slots.slice(at, at + 200), id = w.keysetId || chunk[0].id;
+    const res = await w.mint.restore({ outputs: chunk.map(s => ({ amount: 0, id, B_: s.part.B_ })) }), sigs = new Map((res.outputs || []).map((o, i) => [o.B_, (res.signatures || [])[i]]));
+    for (const s of chunk) { const sig = sigs.get(s.part.B_); if (!sig) continue; const keys = await w.keyChain.ensureKeysetKeys(sig.id);
+      const pr = new cashu.OutputData({ amount: sig.amount, id: sig.id, B_: s.part.B_ }, s.part.r, enc.encode(s.part.secret)).toProof(sig, keys); if (!out.has(s.y)) out.set(s.y, []); out.get(s.y).push(pr); } }
+  return out; }
+const findRemainder = async (w, proof) => (await findRemainders(w, [proof])).get(yOf(proof.secret)) || [];
+// every proof of a donation as the mint sees it, the rest of what was released in part followed down: each with its state, its
+// witness, how deep it is (0: the donation's own proofs) and how much of it went back under the lock (`putBack`)
+async function traceDonation(w, proofs, depth = 0){ const states = await w.checkProofsStates(proofs), byY = new Map(states.map(s => [lc(s.Y), s])), out = [];
+  const spent = proofs.filter(p => (byY.get(yOf(p.secret)) || {}).state === 'SPENT'), rest = spent.length && depth < 8 ? await findRemainders(w, spent) : new Map();
+  for (const p of proofs) { const s = byY.get(yOf(p.secret)) || {}, back = rest.get(yOf(p.secret)) || [];
+    out.push({ proof: p, state: s.state || 'UNKNOWN', witness: s.witness || null, depth, putBack: back.reduce((a, x) => a + amt(x.amount), 0) });
+    if (back.length) out.push(...await traceDonation(w, back, depth + 1)); }
+  return out; }
+
+// ---------- the published ledger, version 2 ----------
+// Each donation by its code: amount, date, what each part paid for, and the tokens of whatever was put back. The clinic's signed
+// declarations go with it, so anyone can check them. Version 1 readers keep working: "donations" lists every locked token.
+async function ledgerEntry({ token, proofs, date, parts = [], remainders = [] }){ const ys = proofs.map(p => yOf(p.secret));
+  return { ref: await donRef(ys), amount: proofs.reduce((s, p) => s + amt(p.amount), 0), date: String(date || '').slice(0, 10), token, parts: parts.map(x => ({ request: x.request, patient: x.patient, procedure: x.procedure, date: x.date, amount: Number(x.amount) })), remainders }; }
+function ledgerV2({ campaign, clinicKeySource = '', entries = [], certificates = [], published = new Date().toISOString() }){ const c = campaignOf(campaign);
+  return { v: 2, campaign: { ...c, ...(campaign.hue != null ? { hue: campaign.hue } : {}), ...(campaign.to ? { to: campaign.to } : {}), ...(campaign.sig ? { sig: campaign.sig } : {}) }, clinicKeySource, published, donations: entries.flatMap(e => [e.token, ...(e.remainders || [])]), entries, certificates: certificates.map(x => ({ statement: x.statement, sig: x.sig })) }; }
+// a declaration from a ledger: is it signed with the campaign's clinic statement key?
+const certificateOk = async (c, x) => !!x && !!x.statement && x.statement.type === 'streetcat/clinic-certificate' && canon(x.statement.campaign) === canon(campShort(campaignOf(c))) && verify(x.sig, STMT + canon(x.statement), await derivedPub(TAG.statement, campaignOf(c).clinic));
+
+// ---------- handed over in person ----------
+// A volunteer's acknowledgment: signed with the statement key derived from the volunteer's own key (never Streetcat's release key).
+// It says that this volunteer received these proofs; it is not a certification and moves nothing.
+const ACK = 'streetcat/handover-receipt/v1\n';
+async function handoverReceipt(campaign, proofs, volunteerSk, received = new Date().toISOString()){ const c = campaignOf(campaign), ys = proofs.map(p => yOf(p.secret)).sort();
+  const body = { type: 'streetcat/handover-receipt', v: 1, note: 'Not a certification', campaign: campShort(c), donation: await donRef(ys), amount: proofs.reduce((s, p) => s + amt(p.amount), 0), proofs: ys, received, volunteer: pubOf(volunteerSk) };
+  return { t: 'streetcat.handover-receipt', v: 1, body, sig: cashu.schnorrSignMessage(ACK + canon(body), await derivedSk(TAG.statement, volunteerSk)) }; }
+const handoverReceiptOk = async a => !!a && !!a.body && PUB.test(a.body.volunteer || '') && verify(a.sig, ACK + canon(a.body), await derivedPub(TAG.statement, a.body.volunteer));
+
+// ---------- the donor's private recovery receipt, version 1 ----------
+// A picture the app draws (what it shows may be seen: the campaign, the amount, the code, when the refund opens, the refund key's
+// public fingerprint) carrying the data in a PNG tEXt chunk: the locked token and the refund key, which are never drawn. `check` is the
+// first 16 hex digits of the SHA-256 of the canonical JSON without it: it catches a damaged or edited file, it authenticates nothing.
+// The refund key can be sealed with a password (PBKDF2-SHA256 and AES-GCM, as the clinic's key backup). Off by default: a forgotten
+// password silently destroys the donor's only way back. Receipts made before (JSON: campaign, lockedToken, refundKey, created) still open.
+const RECEIPT = 'streetcat.recovery-receipt', KDF_ITER = 310000;
+const b64 = { enc: u => btoa(String.fromCharCode(...u)), dec: s => Uint8Array.from(atob(String(s)), ch => ch.charCodeAt(0)) };
+const receiptCheck = async r => { const { check, ...rest } = r; return (await sha256hex(canon(rest))).slice(0, 16); };
+const pwKey = async (pw, salt, iterations, use) => root.crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, await root.crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']), { name: 'AES-GCM', length: 256 }, false, [use]);
+async function sealKey(sk, pw){ const salt = root.crypto.getRandomValues(new Uint8Array(16)), iv = root.crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await root.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pwKey(pw, salt, KDF_ITER, 'encrypt'), unhex(sk)));
+  return { kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: KDF_ITER, salt: b64.enc(salt) }, cipher: { name: 'AES-GCM', iv: b64.enc(iv) }, data: b64.enc(data) }; }
+async function openSealed(s, pw){ let k; try { k = hex(new Uint8Array(await root.crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(s.cipher.iv) }, await pwKey(pw, b64.dec(s.kdf.salt), Number(s.kdf.iterations), 'decrypt'), b64.dec(s.data)))); } catch (_) { k = ''; }
+  if (!SK.test(k)) throw new Error('wrong password, or the receipt is damaged'); return k; }
+async function makeReceipt({ campaign, token, proofs, refundSk, created = new Date().toISOString(), password = '' }){  /* a signed campaign keeps its signature */
+  const r = { format: RECEIPT, version: 1, created, campaign: campaign.sig ? { ...campSigned(campaign), sig: String(campaign.sig) } : { ...campaignOf(campaign), ...(campaign.hue != null ? { hue: Number(campaign.hue) } : {}) },
+    donation: { ref: await donRef(proofs.map(p => yOf(p.secret))), amount: proofs.reduce((s, p) => s + amt(p.amount), 0), keyset: [...new Set(proofs.map(p => p.id))].join(','), token },
+    refund: password ? { pub: pubOf(refundSk), sealed: await sealKey(lc(refundSk), password) } : { key: lc(refundSk), pub: pubOf(refundSk) } };
+  r.check = await receiptCheck(r); return r; }
+// PNG chunks: read them, and add a tEXt chunk (a keyword, a zero byte, the text) right after IHDR. The text is ASCII here.
+const PNG = [137, 80, 78, 71, 13, 10, 26, 10], isPng = b => !!b && b.length > 33 && PNG.every((x, i) => b[i] === x);
+let CRC = null; const crc32 = b => { if (!CRC) { CRC = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; CRC[n] = c >>> 0; } }
+  let c = 0xffffffff; for (const x of b) c = CRC[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+const u32 = n => new Uint8Array([n >>> 24 & 255, n >>> 16 & 255, n >>> 8 & 255, n & 255]);
+function pngChunks(b){ const out = []; for (let i = 8; i + 12 <= b.length;) { const n = (b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]) >>> 0, type = String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]);
+    out.push({ type, data: b.subarray(i + 8, i + 8 + n), end: i + 12 + n }); i += 12 + n; if (type === 'IEND') break; } return out; }
+const asciiJson = o => JSON.stringify(o).replace(/[\u007f-￿]/g, ch => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+function pngWithText(b, keyword, text){ if (!isPng(b)) throw new Error('not a PNG'); if (/[^\x20-\x7e]/.test(keyword + text)) throw new Error('a tEXt chunk here carries ASCII only');
+  const type = enc.encode('tEXt'), body = concat(enc.encode(keyword), new Uint8Array([0]), enc.encode(text)), ihdr = pngChunks(b)[0];
+  return concat(b.subarray(0, ihdr.end), u32(body.length), type, body, u32(crc32(concat(type, body))), b.subarray(ihdr.end)); }
+const pngTexts = b => isPng(b) ? pngChunks(b).filter(c => c.type === 'tEXt').map(c => { const z = c.data.indexOf(0); return { keyword: dec.decode(c.data.subarray(0, z)), text: dec.decode(c.data.subarray(z + 1)) }; }) : [];
+const receiptPng = (png, r) => pngWithText(png, RECEIPT, asciiJson(r));
+// what a file or a pasted text holds: { kind: 'v1' | 'old' | 'none', receipt, problems, why }. A receipt is checked as far as it can
+// be without the mint: its format, its check, that its token is locked to its refund key, and that the key (when not sealed) is that key.
+async function readReceipt(input){ let text = '';
+  if (input instanceof Uint8Array) { if (isPng(input)) { const t = pngTexts(input).find(x => x.keyword === RECEIPT); if (!t) return { kind: 'none', why: 'this picture holds no receipt: a screenshot or a photo of the receipt does not carry it, only the file the app saved does' }; text = t.text; } else text = dec.decode(input); }
+  else text = String(input || ''); text = text.trim(); let j = null; try { j = JSON.parse(text); } catch (_) {}
+  if (!j || typeof j !== 'object') return { kind: 'none', why: 'this is not a receipt' };
+  if (j.format === RECEIPT) { if (j.version !== 1) return { kind: 'none', why: `this receipt was made by a newer version of the app (version ${j.version})` };
+    const p = [], d = j.donation || {}, f = j.refund || {}; if (j.check !== await receiptCheck(j)) p.push('its check does not match: the file is damaged or was edited');
+    if (!PUB.test(f.pub || '')) p.push('it names no refund key'); else if (f.key != null && (!SK.test(f.key) || pubOf(f.key) !== lc(f.pub))) p.push('its refund key is not the key it names');
+    let proofs = []; try { proofs = cashu.getTokenMetadata(String(d.token || '')).incompleteProofs; } catch (_) { p.push('its token cannot be read'); }  /* the secrets, without the mint's keysets */
+    if (proofs.length && PUB.test(f.pub || '') && proofs.some(x => !((lockOf(x.secret) || {}).refund || []).includes(lc(f.pub)))) p.push('its token is not locked to its refund key');
+    return { kind: 'v1', receipt: j, sealed: !!f.sealed, problems: p }; }
+  if (typeof j.lockedToken === 'string' && j.campaign) { const k = SK.test(j.refundKey || '') ? lc(j.refundKey) : null;
+    return { kind: 'old', receipt: { format: RECEIPT, version: 0, created: j.created || '', campaign: j.campaign, donation: { token: j.lockedToken }, refund: k ? { key: k, pub: pubOf(k) } : {} }, sealed: false, problems: k ? [] : ['it holds no refund key'] }; }
+  return { kind: 'none', why: 'this is not a receipt' }; }
+
+// ---------- refunds to a Lightning address (LUD-16, LNURL-pay) ----------
+// user@domain → https://domain/.well-known/lnurlp/user (plain http only for a local test server), then its callback for an invoice
+const lnAddressUrl = a => { const m = /^([a-z0-9._+-]+)@([a-z0-9.-]+\.[a-z]{2,}|localhost|127\.0\.0\.1)(:\d{1,5})?$/i.exec(String(a || '').trim()); if (!m) return null; const local = /^(localhost|127\.0\.0\.1)$/i.test(m[2]);
+  return (local ? 'http://' : 'https://') + m[2].toLowerCase() + (m[3] || '') + '/.well-known/lnurlp/' + m[1].toLowerCase(); };
+async function lnAddressInvoice(address, sat, { fetch: f = root.fetch.bind(root) } = {}){ const url = lnAddressUrl(address); if (!url) throw new Error('this is not a Lightning address (name@domain)');
+  const get = async u => { let r; try { r = await f(u, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error(`${address} cannot be reached from this browser`); } let j = null; try { j = await r.json(); } catch (_) {}
+    if (!r.ok || !j) throw new Error(`${address} answered HTTP ${r.status}`); if (j.status === 'ERROR') throw new Error(`${address} says: ${j.reason || 'error'}`); return j; };
+  const p = await get(url); if (p.tag !== 'payRequest' || typeof p.callback !== 'string') throw new Error(`${address} is not a Lightning address that takes payments`);
+  const msat = Math.floor(sat) * 1000, min = Number(p.minSendable || 0), max = Number(p.maxSendable || 0);
+  if (max && msat > max) throw Object.assign(new Error(`${address} takes at most ${Math.floor(max / 1000)} sat`), { max: Math.floor(max / 1000) }); if (msat < min) throw Object.assign(new Error(`${address} takes at least ${Math.ceil(min / 1000)} sat`), { min: Math.ceil(min / 1000) });
+  const cb = new URL(p.callback); cb.searchParams.set('amount', String(msat)); const inv = await get(cb.href); if (typeof inv.pr !== 'string' || !/^ln/i.test(inv.pr)) throw new Error(`${address} gave no invoice`);
+  return { invoice: inv.pr, min: Math.ceil(min / 1000), max: Math.floor(max / 1000), domain: new URL(url).host }; }
+
+root.scCore = { TAG, canon, yOf, amt, pubOf, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf,
+  makeRequest, requestProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
+  pack, unpack, linkFor, remainderPart, remainderSlots, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
+  ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
+  STREETCAT_KEYS, published, RECEIPT, makeReceipt, receiptCheck, receiptPng, readReceipt, sealKey, openSealed, isPng, pngTexts, pngWithText, crc32, lnAddressUrl, lnAddressInvoice };
+})(typeof window !== 'undefined' ? window : globalThis);

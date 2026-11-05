@@ -2,10 +2,11 @@
 // A clinic that makes a new key, or imports one, can still certify tokens locked to its older key; a browser without the
 // key a token needs says which key that is and does not ask the mint; a key that cannot be saved changes nothing.
 import { chromium } from 'playwright';
+import { pinBrowser } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 const say = (...a) => console.log(...a);
 
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {}));
 const dialogs = [];
 const page = async () => { const p = await (await b.newContext()).newPage(); p.on('pageerror', e => say('PAGEERROR', e.message)); p.on('dialog', d => { dialogs.push(d.message()); d.accept(); }); return p; };
 const donor = await page(), clinic = await page(), streetcat = await page(), other = await page();
@@ -16,15 +17,15 @@ const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while 
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 const names = {}; const anon = s => s.replace(/[0-9a-f]{10}…/g, m => names[m] || m);
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); const k1 = await out(clinic, 'c-pk');
-await tab(streetcat, 'release'); await streetcat.click('#s-new'); const sc = await out(streetcat, 's-pk');
+await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const k1 = await out(clinic, 'c-pk');
+await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const sc = await out(streetcat, 's-pk');
 Object.assign(names, { [k1.slice(0, 10) + '…']: '<clinic key 1>', [sc.slice(0, 10) + '…']: '<Streetcat key>' });
 const camp = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: sc, clinic: k1, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 };
 const lnDonate = async n => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.fill('#d-amt', String(n)); await donor.click('#d-ln'); return lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/)); };
 const tokA = await lnDonate(21), tokB = await lnDonate(8);
 
 // 1) the clinic makes a new key after the donations: the page asks, keeps the old key, and certifies with it
-await clinic.click('#c-new'); const k2 = await out(clinic, 'c-pk'); names[k2.slice(0, 10) + '…'] = '<clinic key 2>';
+await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const k2 = await out(clinic, 'c-pk'); names[k2.slice(0, 10) + '…'] = '<clinic key 2>';
 say('new clinic key:', k2 !== k1 ? 'a different one' : 'THE SAME', '| asked first, saying the old one is kept:', /current key stays in this browser/.test(dialogs.at(-1)), '| shown:', await out(clinic, 'c-pk-old'));
 await clinic.fill('#c-token', tokA); say('clinic sees:', anon((await waitOut(clinic, 'c-info', /names|no clinic key/)).split('\n').pop()));
 await clinic.click('#c-go'); const certA = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/)); say('certify with the kept key:', (await out(clinic, 'c-out')).split('\n')[0]);
@@ -32,7 +33,7 @@ await streetcat.fill('#s-token', certA); say('Streetcat sees:', (await waitOut(s
 await streetcat.click('#s-go'); const relA = await waitOut(streetcat, 's-out', /RELEASED|refused|Not possible/); say('release:', relA.split('\n')[0]);
 
 // 2) a browser holding another clinic key: it says which keys the token needs, and does not sign
-await tab(other, 'certify'); await other.click('#c-new'); const k3 = await out(other, 'c-pk'); names[k3.slice(0, 10) + '…'] = '<other clinic key>';
+await tab(other, 'certify'); await other.click('#c-new'); await other.waitForTimeout(1500); const k3 = await out(other, 'c-pk'); names[k3.slice(0, 10) + '…'] = '<other clinic key>';
 await other.fill('#c-token', tokB); say('other browser sees:', anon((await waitOut(other, 'c-info', /names|no clinic key/)).split('\n').slice(-3).join(' / ')));
 await other.click('#c-go'); say('other browser certifies:', anon((await waitOut(other, 'c-out', /CERTIFIED|Failed/)).split('\n')[0]));
 

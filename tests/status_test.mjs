@@ -2,6 +2,7 @@
 // Two campaign ledgers (one still open, one past its deadline) and one tampered token; the page must report each from the mint alone.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
+import { pinBrowser } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 const say = (...a) => console.log(...a);
 const now = () => Math.floor(Date.now() / 1000);
@@ -10,7 +11,7 @@ const now = () => Math.floor(Date.now() / 1000);
 const w = new Wallet(MINT); await w.loadMint();
 const plain = async n => { const q = await w.createMintQuoteBolt11(n); for (let i = 0; i < 40; i++) { try { return getEncodedToken({ mint: MINT, proofs: await w.mintProofsBolt11(n, q) }); } catch { await new Promise(r => setTimeout(r, 300)); } } throw new Error('mint quote never paid'); };
 
-const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {}));
 const page = async () => { const p = await (await b.newContext()).newPage(); p.on('pageerror', e => say('PAGEERROR', e.message)); return p; };
 const donor = await page(), clinic = await page(), streetcat = await page(), viewer = await page();
 for (const p of [donor, clinic, streetcat]) await p.goto(BASE + 'index.html');
@@ -19,17 +20,17 @@ const out = async (p, id) => (await p.textContent('#' + id)).trim();
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return out(p, id); };
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); const clinicPk = await out(clinic, 'c-pk');
-await tab(streetcat, 'release'); await streetcat.click('#s-new'); const scPk = await out(streetcat, 's-pk');
+await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');  // the key flips in
+await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 
-const donate = async (camp, amount) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.fill('#d-token', await plain(amount)); await donor.click('#d-go');
-  const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return { receipt: s.match(/\{"campaign".*\}/)[0], token: lastToken(s) }; };
+const donate = async (camp, amount) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(amount)); await donor.click('#d-go');
+  const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return { receipt: JSON.stringify(await donor.evaluate(t => window.__vetlock.receiptOf(t), lastToken(s))), token: lastToken(s) }; };
 
 const open = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 30 * 86400 };
 const soon = { ...open, name: 'TEO', deadline: now() + 8 };
 const A = await donate(open, 21), B = await donate(open, 8);   // A will be released, B stays locked
 const C = await donate(soon, 5), D = await donate(soon, 3);    // C will be refunded, nobody touches D
-const keys = [A, B, C, D].map(x => JSON.parse(x.receipt).refundKey);
+const keys = [A, B, C, D].map(x => JSON.parse(x.receipt).refund.key);
 say('fresh refund key per donation:', new Set(keys).size === 4 ? 'yes (4 different keys)' : 'NO', '| kept in the browser:', await donor.evaluate(() => window.__vetlock.donorKeys().length));
 
 await tab(clinic, 'certify'); await clinic.fill('#c-token', A.token); await clinic.click('#c-go'); const certified = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/));
@@ -50,7 +51,7 @@ const rows = async name => { await viewer.goto(BASE + `status.html?l=campaigns/$
   const t = await viewer.evaluate(() => [...document.querySelectorAll('#tot div')].map(x => x.textContent.replace(/(\d+ sat)/, '$1 ')).join(' · '));
   return r.join(' | ') + '\n    totals: ' + t; };
 say('status MOCHI:', await rows('mochi'));
-const lookup = async v => { await viewer.fill('#m-tok', v); await viewer.click('#m-go'); return (await waitOut(viewer, 'm-out', /LISTED|Failed/)).split('\n')[0]; };
+const lookup = async v => { if (!(await viewer.evaluate(() => document.body.classList.contains('lookup')))) await viewer.click('#m-open'); await viewer.fill('#m-tok', v); await viewer.click('#m-go'); return (await waitOut(viewer, 'm-out', /LISTED|Failed/)).split('\n')[0]; };
 say('lookup, receipt of B:', await lookup(B.receipt));
 say('lookup, token of D:', await lookup(D.token));
 say('status TEO:', await rows('teo'));
@@ -59,7 +60,7 @@ say('status forged:', await rows('forged'));
 // the donor's own browser: status.html lists what it donated, from its own copies of the locked tokens, checked at the mint
 await donor.goto(BASE + 'status.html');
 await donor.waitForFunction(() => /Checked|could not/.test(document.getElementById('here-out').textContent), null, { timeout: 30000 });
-say('this browser\'s donations:', (await donor.evaluate(() => [...document.querySelectorAll('#here .grp')].map(g => g.querySelector('h3').textContent.split(' · ')[0] + ': ' + [...g.querySelectorAll('.row')].map(x => `${x.dataset.amount} ${x.dataset.status}`).join(' | ')))).join(' / '));
+say('this browser\'s donations:', (await donor.evaluate(() => { const g = {}; for (const x of document.querySelectorAll('#here .hrow')) (g[x.dataset.campaign] = g[x.dataset.campaign] || []).push(`${x.dataset.amount} ${x.dataset.status}`); return Object.entries(g).map(([k, v]) => `${k}: ${v.join(' | ')}`); })).join(' / '));
 await donor.click('#here-copy'); const led = JSON.parse((await waitOut(donor, 'here-out', /^(Copied|Select)/)).replace(/^[^\n]*\n/, ''));
 say('  as ledgers:', led.map(l => `${l.campaign.name} · ${l.donations.length} tokens · keys in their roles: ${l.campaign.streetcat === scPk && l.campaign.clinic === clinicPk} · deadline: ${l.campaign.deadline === (l.campaign.name === 'MOCHI' ? open : soon).deadline} · no refund keys: ${!/refundKey|"sk"/.test(JSON.stringify(l))}`).join(' | '));
 ledgers.mine = led.find(l => l.campaign.name === 'MOCHI'); say('  published and read back:', await rows('mine'));

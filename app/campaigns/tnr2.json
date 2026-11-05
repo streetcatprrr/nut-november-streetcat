@@ -5,7 +5,8 @@
   "mint": "https://mint.minibits.cash/Bitcoin",
   "streetcat": "0294637dacb6799343eacb4654700ad781694838b8b6db80551d17af001b194121",
   "clinic": "021c817eb6c0870959e902e3ce5eecce57460e8d48218a509f7febf4050794796e",
-  "deadline": 1793923199
+  "deadline": 1793923199,
+  "hue": 100
  },
  "clinicKeySource": "test campaign: this clinic key is Streetcat's own test key, not a clinic's",
  "donations": [

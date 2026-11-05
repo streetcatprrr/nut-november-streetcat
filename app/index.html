@@ -1,507 +1,326 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><script src="fit.js" data-need="612"></script>
 <title>Vet-certified donations</title>
 <style>
 @font-face{font-family:"Departure Mono";src:url("fonts/DepartureMono-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
-:root{--background:#111;--foreground:#efede6;--mute:#9b978d;--rule:#efede6;--ok:#8fd4a4;--bad:#f09a92;--font-mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace}
+/* wallet-grade: one column, one thing per screen, an 8px rhythm, four type sizes (12 · 14 · 22 · 64), no boxes inside boxes */
+:root{--bg:#111;--fg:#efede6;--mute:#8d8a81;--line:rgba(239,237,230,.2);--line2:rgba(239,237,230,.45);--ok:#8fd4a4;--bad:#f09a92;--btc:#f7931a;--mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace;--kl:.8;--u:8px;--code:13px;--code-lh:20px}
+/* every code on these pages (keys, tokens, invoices, receipts, ledgers, the terminal) is set at this one size */
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:var(--background);color:var(--foreground);font:400 16px/24px var(--font-mono);-webkit-font-smoothing:antialiased}
-body{position:relative;min-height:100svh}
+html,body{background:var(--bg);color:var(--fg);font:400 14px/22px var(--mono);-webkit-font-smoothing:antialiased;height:100%}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}  /* the browser scales the page as a whole (fit.js), never its text alone */
+body{display:flex;flex-direction:column;min-height:100svh}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:.25;background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
-.sc-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;text-transform:uppercase}
-.sc-header a{color:inherit;text-decoration:none}
-.sc-brand{font-size:24px;line-height:24px;letter-spacing:.12em}
-.sc-right{font-size:11px;line-height:14px;letter-spacing:.14em;color:var(--foreground);text-align:right;max-width:46%}
-.header-rule{height:1px;background:var(--rule);opacity:.9}
-.back-row{padding:12px 16px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
-.back-row a{color:inherit;text-decoration:none}.back-row a:hover{text-decoration:underline}
-main{max-width:760px;margin:0 auto;padding:28px 16px 72px}
-h1{font-size:24px;line-height:26px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin-bottom:10px}
-.sub{color:var(--foreground);text-align:center;font-size:10.88px;line-height:17px;letter-spacing:.08em;text-transform:uppercase;max-width:560px;margin:0 auto 28px}
-nav{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 1.8em;margin-bottom:28px;font-size:11px;letter-spacing:.14em;text-transform:uppercase}
-nav button{position:relative;background:none;border:0;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;cursor:pointer;padding:6px 0;border-bottom:1px solid transparent}
-nav button:not(:last-child)::after{content:"·";position:absolute;right:-1.15em;top:6px;opacity:.6}
-nav button.on{border-bottom-color:var(--foreground)}
-nav button:hover{text-decoration:underline}
-section{display:none}section.on{display:block}
-nav button{display:none}nav[data-role=donor] button[data-role~=donor],nav[data-role=clinic] button[data-role~=clinic],nav[data-role=streetcat] button[data-role~=streetcat]{display:inline-block}
-.who{display:flex;flex-direction:column;gap:10px;margin-top:4px}.who button.go{margin:0;padding:14px 16px;font-size:13px}#who label{margin-top:0}#who .mut{margin-top:14px}
-.card{border:1px solid var(--rule);padding:18px 16px;margin:0 0 16px;background:var(--background)}
-.card.mut{border-style:dashed}
-label{display:block;font-size:11px;line-height:16px;letter-spacing:.14em;text-transform:uppercase;margin:16px 0 6px}label:first-child{margin-top:0}
-input,textarea{width:100%;background:transparent;color:var(--foreground);border:1px solid var(--rule);border-radius:0;padding:10px;font:400 14px/20px var(--font-mono);outline:none}
-input:focus,textarea:focus{outline:1px solid var(--foreground);outline-offset:0}
-textarea{min-height:92px;resize:vertical}
-input[type=date]{color-scheme:dark}
-button.go{display:inline-block;margin-top:16px;background:var(--foreground);color:var(--background);border:1px solid var(--foreground);border-radius:0;padding:10px 16px;font:400 11px/11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
-button.go:hover,button.go:focus-visible{background:var(--background);color:var(--foreground);outline:none}
-button.go:disabled{opacity:.4;cursor:default}
-button.sm{background:transparent;color:inherit;border:1px solid var(--rule);border-radius:0;padding:6px 10px;font:400 11px/11px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;margin:8px 8px 0 0}
-button.sm:hover,button.sm:focus-visible{background:var(--foreground);color:var(--background);outline:none}
-.out{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:18px;border:1px solid var(--rule);padding:12px;margin-top:16px;min-height:44px}
-.out.ok{border-color:var(--ok);color:var(--ok)}.out.bad{border-color:var(--bad);color:var(--bad)}
-.out a.sm{display:inline-block;color:inherit;text-decoration:none;border:1px solid var(--rule);padding:6px 10px;font:400 11px/11px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;margin:8px 8px 0 0}
-.out a.sm:hover,.out a.sm:focus-visible{background:var(--foreground);color:var(--background);outline:none}
-.qr{background:#fff;padding:8px;margin:12px auto 4px;max-width:280px;border:1px solid var(--rule)}.qr svg{display:block;width:100%;height:auto}
-.out .line{display:block;margin-top:8px}
+.sc-header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--fg);flex:none;position:sticky;top:0;background:var(--bg);z-index:2}
+.sc-brand{font-size:22px;line-height:24px;letter-spacing:.12em;text-transform:uppercase;flex:1}
+.back{background:none;border:0;color:var(--fg);font:inherit;font-size:22px;line-height:24px;cursor:pointer;padding:0;width:24px}
+.sc-right{font-size:12px;line-height:16px;text-align:right;color:var(--mute)}.sc-right a{margin-left:12px;color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line)}
+/* small phones: the brand already says Streetcat, so Streetcat's screens drop the role's name; below 360 px every role does, and the header tightens */
+@media (max-width:400px){body[data-role="streetcat"] #hd-role{display:none}}
+@media (max-width:360px){#hd-role{display:none}.sc-header{gap:8px}.sc-brand{font-size:20px;letter-spacing:.06em}.sc-right a{margin-left:8px}}
+main{width:100%;max-width:460px;margin:0 auto;padding:calc(var(--u)*3) 20px calc(var(--u)*3);flex:1;display:flex;flex-direction:column}
+section{display:none}section.on{display:flex;flex-direction:column;flex:1;animation:in .22s ease-out}
+@keyframes in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+nav{display:none}
+.card{display:contents}
+label{display:block;font-size:12px;line-height:18px;color:var(--mute);margin:calc(var(--u)*2) 0 6px}label:first-child{margin-top:0}
 .mut{color:var(--mute);font-size:12px;line-height:18px;white-space:pre-wrap}
-code{font-family:inherit;font-size:.92em;word-break:break-all}
-dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:10px 0 6px;font-size:12px;line-height:18px}dt{text-transform:uppercase;letter-spacing:.12em;font-size:11px;color:var(--mute)}dd{word-break:break-all}
-footer{text-align:center;font-size:10.88px;letter-spacing:.08em;text-transform:uppercase;padding:0 16px 32px;color:var(--mute)}
-footer a{color:inherit}
-.key{overflow-wrap:anywhere}.key i{font-style:normal;color:oklch(calc(var(--kl) + var(--dl,0)) .16 calc(var(--h,0) * 1deg))}.key i:not([style]){color:var(--mute)}
-:root{--kl:.8}
+.title{font-size:22px;line-height:28px;letter-spacing:.06em;text-transform:uppercase}
+code{font-family:inherit;font-size:var(--code);line-height:var(--code-lh);word-break:break-all}
+.code,.mut.code,#c-info,#s-info,#r-info{font-size:var(--code);line-height:var(--code-lh)}
+input,textarea{width:100%;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;padding:12px;font:400 16px/22px var(--mono);outline:none;min-height:48px}
+textarea,#k-mint,#k-s,#k-c{font-size:var(--code);line-height:var(--code-lh)}
+/* a pasted campaign link is typed into its field in the campaign's colour, over the field's own text and in its exact place */
+#d-paste{position:relative}.link-type{position:absolute;pointer-events:none;overflow:hidden;background:var(--bg)}.link-type>span{display:block;position:absolute;inset:0;padding:12px;overflow:hidden;font-size:var(--code);line-height:var(--code-lh);white-space:pre-wrap;overflow-wrap:break-word}  /* 16px: iOS zooms into anything smaller */
+input:focus,textarea:focus{border-color:var(--fg)}textarea{min-height:72px;resize:none;flex:1}
+input[type=date]{color-scheme:dark}
+button.go{display:block;width:100%;margin-top:calc(var(--u)*2);background:var(--fg);color:var(--bg);border:1px solid var(--fg);border-radius:0;height:56px;padding:0 16px;font:400 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:opacity .15s}
+button.go.big{margin-top:auto}
+button.go:disabled{opacity:.5;cursor:default}
+button.go.fin,button.go.fin:disabled{--fin:var(--ok);background:transparent;color:var(--fin);border-color:var(--fin);opacity:1;cursor:default}  /* done: the button says what happened and cannot be pressed again */
+body[data-role="streetcat"] button.go.fin{--fin:oklch(var(--kl) .16 150deg)}body[data-role="clinic"] button.go.fin{--fin:oklch(var(--kl) .16 250deg)}  /* in the colour of whose screen it is: Streetcat green, the clinic blue (StreetCat, 5 Nov), as their keys */
+button.sm,.out a.sm,a.sm{display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;height:44px;padding:0 14px;font:400 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-decoration:none;margin:var(--u) var(--u) 0 0}
+button.sm.done,.acts button.sm.done{background:var(--fg);color:var(--bg);border-color:var(--fg)}  /* copied: it stays that way */
+.who{display:flex;flex-direction:column;gap:var(--u);margin-top:auto}.who button.go{margin:0;background:transparent;color:var(--fg);border-color:var(--fg)}
+#who{display:flex;flex-direction:column;flex:1}#who .sub{color:var(--mute);margin-bottom:calc(var(--u)*2)}#who label{margin-top:auto}
+.lock{display:grid;grid-template-columns:14px 1fr 14px 1fr 14px;align-items:center;margin:calc(var(--u)*2) 0 0}
+.lock i{width:14px;height:14px;border:2px solid var(--fg);background:transparent;transition:background .4s}.lock i.on{background:var(--fg)}.lock i.ok{background:var(--ok);border-color:var(--ok)}
+.lock b{height:2px;background:var(--line)}.lock b.on{background:var(--fg)}
+.lock span{font-size:11px;line-height:16px;color:var(--mute);margin-top:6px;white-space:nowrap;grid-row:2}.lock span.on{color:var(--fg)}
+.lock span:nth-of-type(1){grid-column:1/3}.lock span:nth-of-type(2){grid-column:2/5;text-align:center}.lock span:nth-of-type(3){grid-column:4/6;text-align:right}
+.tcard{border:1px solid var(--line2);padding:16px;margin-top:calc(var(--u)*2)}.tcard .title{margin-bottom:2px}.tcard .amt2{font-size:22px;line-height:28px;margin-top:var(--u)}
+.tcard .who2{font-size:var(--code);line-height:var(--code-lh);white-space:pre-line;color:var(--mute);margin-top:var(--u)}
+.camp{margin-bottom:var(--u)}.camp:empty{display:none}.camp .title{color:oklch(.82 .16 calc(var(--h,345) * 1deg))}  /* the campaign's name in its own colour, as on the status page */
+.hero{text-align:center;margin:auto 0}.hero .big{font-size:64px;line-height:72px;letter-spacing:-.02em}.hero .big input{font-size:64px;line-height:72px;border:0;border-bottom:1px solid var(--line2);padding:0 0 4px;width:5em;max-width:100%;text-align:center;min-height:0;letter-spacing:-.02em;-moz-appearance:textfield}.hero .big input::-webkit-outer-spin-button,.hero .big input::-webkit-inner-spin-button{-webkit-appearance:none}.hero .big input:focus{border-color:var(--fg)}
+.hero .unit{font-size:12px;color:var(--mute);letter-spacing:.14em;text-transform:uppercase;margin-top:6px}.hero .fiat{font-size:14px;color:var(--mute);margin-top:4px;min-height:22px}
+.amts{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--u);margin-top:calc(var(--u)*3)}.amts button.sm{margin:0;padding:0;height:44px}.amts button.sm.on{color:var(--bg);background:var(--fg);border-color:var(--fg)}
+.center{text-align:center;color:var(--mute);font-size:12px;line-height:18px;margin-top:calc(var(--u)*2)}
+#refund .center a,details.more summary{color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line)}
+details.more{margin-top:var(--u);text-align:center}details.more summary{font-size:12px;cursor:pointer;list-style:none;display:inline-block}details.more summary::-webkit-details-marker{display:none}details.more[open]{text-align:left}details.more[open] summary{margin-bottom:var(--u)}
+#donate.paying .pay>:not(.out),#donate.paying #d-links,#donate.paying #d-paste,#donate.done .pay>:not(.out),#donate.done #d-links,#donate.done #d-paste{display:none}
+.out{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--code);line-height:var(--code-lh);margin-top:calc(var(--u)*2)}.out:empty{display:none}.out.bad{color:var(--bad);border-left:2px solid var(--bad);padding-left:14px}
+#d-out{flex:1;display:flex;flex-direction:column}
+.qr{background:#fff;padding:10px;margin:calc(var(--u)*2) auto;width:min(100%,44svh)}.qr svg{display:block;width:100%;height:auto}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--u);margin-top:calc(var(--u)*2)}.row2 button.sm,.row2 a.sm{margin:0;height:52px;text-align:center}.row1{display:grid;margin-top:calc(var(--u)*2)}.row1 button.sm{margin:0;height:52px}
+.paid{animation:land .9s ease-out both}@keyframes land{0%{opacity:0;transform:scale(.92)}60%{opacity:1;transform:scale(1.03)}100%{transform:none}}
+.state{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ok);margin-top:calc(var(--u)*3);text-align:center}
+.keyrow{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-bottom:calc(var(--u)*2)}.keyrow>.mut{flex-basis:100%}.keyrow code{flex-basis:100%;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.keyops{display:flex;gap:var(--u)}.keyops button.sm{margin:0;height:36px;padding:0 10px}
+.term textarea{flex:1;min-height:0;border:0;padding:0;background:transparent;text-align:center;resize:none;font-size:var(--code);line-height:var(--code-lh)}.term textarea::placeholder{color:var(--mute)}.term textarea:focus{border:0}
+.has-card .term textarea{flex:0;height:22px;min-height:22px;font-size:var(--code);line-height:22px;color:var(--mute);white-space:nowrap;overflow:hidden;text-align:left;order:9;margin-top:6px}
+/* the streetcat.com crypto card (measured frame by frame from its screen recording): an orange line traces around the QR, flashes
+   yellow as it closes, rests at 45 % and breathes every 1.8 s while the invoice waits. Drawn at rest, so it shows where animations are off. */
+/* the line is four bars just outside the white, never an outline drawn over the QR: Safari on iPhone sometimes painted that SVG
+   outline as a fill across the code (brown on tan) and left one corner of it undrawn */
+.qr .frame{position:absolute;left:-2.75px;top:-2.75px;right:-2.75px;bottom:-2.75px;pointer-events:none;opacity:.45}.qr .frame span{position:absolute;display:block;background:var(--btc)}
+.qr .frame .t{left:0;top:0;right:0;height:2.75px;transform-origin:0 50%}.qr .frame .r{top:0;right:0;bottom:0;width:2.75px;transform-origin:50% 0}.qr .frame .b{left:0;bottom:0;right:0;height:2.75px;transform-origin:100% 50%}.qr .frame .l{left:0;top:0;bottom:0;width:2.75px;transform-origin:50% 100%}
+.term.scan{border-color:transparent;overflow:visible}.term.scan .qr{overflow:visible}
+/* the invoice text sits where the "invoice text" fold was: open, flipping in, in the space left under the buttons (it fades out where the screen ends) */
+#donate.paying .pay{display:flex;flex-direction:column;flex:1;min-height:0}#donate.paying #d-out{min-height:0}
+.invtext.lit{color:oklch(.8 .16 55deg)}.qr .frame.off{visibility:hidden}
+.invtext{flex:1 1 0;min-height:0;overflow:hidden;margin-top:var(--u);font-size:var(--code);line-height:var(--code-lh);color:var(--fg);white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;text-align:center;-webkit-mask-image:linear-gradient(#000 calc(100% - 20px),transparent);mask-image:linear-gradient(#000 calc(100% - 20px),transparent)}
+#s-saved,#r-saved{font-size:12px;line-height:18px;margin-top:calc(var(--u)*2)}#s-saved:not(:empty){margin-bottom:calc(var(--u)*2)}#s-saved button.sm,#r-saved button.sm{display:flex;width:100%;justify-content:flex-start;margin:var(--u) 0 0}
+.stat{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}.stat b{display:block;font-size:22px;line-height:28px;font-weight:400}.stat span{font-size:12px;color:var(--mute)}
+.list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:16px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
+.empty{color:var(--mute);padding:calc(var(--u)*3) 0}
+.actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0 0 var(--u);font-size:12px;line-height:18px}dt{color:var(--mute)}dd{word-break:break-all}
+details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
+.key{overflow-wrap:anywhere;font-size:var(--code)}.key i{font-style:normal;color:oklch(calc(var(--kl) + var(--dl,0)) .16 calc(var(--h,0) * 1deg))}.key i:not([style]){color:var(--mute)}
+#campaign.made>:not(.out){display:none}#k-out{flex:1;display:flex;flex-direction:column}
+.ticker{flex:1;font-size:var(--code);line-height:var(--code-lh)}.ticker .tl{color:oklch(var(--l,.8) .16 calc(var(--h) * 1deg));min-height:20px;white-space:pre-wrap}
+.acts{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.acts button.sm,.acts a.sm{margin:0;height:52px;font-size:13px;border-color:var(--fg)}#k-out details.more{margin-top:var(--u)}#k-out .row1{margin-top:var(--u)}#k-out .row1 button.sm{height:44px}
+/* the terminal: the same square on every screen; the QR, the token card, or any text to read lives here */
+.term{position:relative;width:100%;height:min(calc(100vw - 40px),44svh);border:1px solid var(--line2);display:flex;flex-direction:column;justify-content:center;padding:14px;overflow:hidden;margin-top:var(--u);background:var(--bg)}
+.term .hero{margin:0}.term .lock{margin-top:calc(var(--u)*2)}.term .qr{width:auto;height:100%;max-height:100%;aspect-ratio:1;margin:0 auto;padding:6px}.term .tcard{border:0;padding:0;margin:0}
+.term [data-empty]:empty::before{content:attr(data-empty);display:block;text-align:center;color:var(--mute);font-size:12px}
+.term-text{position:absolute;inset:0;background:var(--bg);overflow:hidden;font-size:var(--code);line-height:var(--code-lh);white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;color:oklch(.8 .16 calc(var(--h) * 1deg));cursor:pointer;z-index:1}
+.term-text small{position:absolute;right:10px;bottom:6px;font-size:11px;color:var(--mute)}
+.term-text>span{display:block;position:absolute;inset:0;padding:14px 14px 26px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.term-text.keys{overflow:auto;cursor:default;padding:14px 14px 26px}.kline{margin-bottom:8px}.kline small{position:static;display:block;font-size:11px;color:var(--mute)}.kline span{color:oklch(.8 .16 calc(var(--h) * 1deg));word-break:break-all;font-size:var(--code);line-height:var(--code-lh)}
+#d-out .term{margin-top:0}#donate.done .term{height:auto;min-height:0;padding:10px 14px}#donate.done .hero .fiat{min-height:0;margin-top:0}#donate.done .term .lock{margin-top:var(--u)}#donate.done .state{margin-top:var(--u)}#donate.done details.more{display:none}
+.pay>.term{height:auto;min-height:0;flex:1;margin-bottom:var(--u)}
+.cur{display:inline-block;width:1ch;height:1.05em;margin-left:1px;vertical-align:-.12em;background:currentColor}.cur.think{animation:cur-blink .9s steps(1,end) infinite}@keyframes cur-blink{50%{opacity:0}}  /* the terminal's cursor */
+/* the work screens (requests, answers, hand-overs, the card): the same column, rows and buttons as the rest */
+.lnk a{color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line);white-space:nowrap}
+#scamp .list,#sn-dons,#v-list,#w-list{flex:0}#w-list{margin-bottom:var(--u)}
+.grp{font-size:12px;line-height:18px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase;padding:14px 0 6px;border-bottom:1px solid var(--line)}
+.item .st{font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;color:var(--mute);text-align:right}.item .st.ok{color:var(--ok)}.item .st.bad{color:var(--bad)}.item .st.wait{color:var(--fg)}.item>div:first-child{min-width:0}
+.chk{display:flex;gap:12px;align-items:flex-start;margin:calc(var(--u)*2) 0 0;font-size:12px;line-height:18px;cursor:pointer;color:var(--fg)}.chk input{width:22px;height:22px;min-height:0;padding:0;flex:none;accent-color:var(--fg);margin-top:-2px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:var(--u) 0}.row3 button.sm{margin:0;padding:0 4px;height:44px}.row3 button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+#cr-prob input{margin-top:var(--u)}
+.checks{list-style:none;border-top:1px solid var(--line);margin-top:calc(var(--u)*2)}.checks:empty{display:none}.checks li{display:grid;grid-template-columns:18px 1fr;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12px;line-height:18px}.checks li b{font-weight:400;color:var(--mute)}.checks li.ok b{color:var(--ok)}.checks li.bad b,.checks li.bad span{color:var(--bad)}.checks li.warn b{color:var(--bad)}.checks small{display:block;color:var(--mute);font-size:12px}
+.don input{width:6.5em;min-height:40px;height:40px;padding:6px 8px;text-align:right}.don .acts2{display:flex;gap:6px;align-items:center;flex:none}.don .acts2 button.sm{margin:0;height:40px;padding:0 10px}
+.card-img img{display:block;width:100%;border:1px solid var(--line2);margin-top:calc(var(--u)*2)}
+#scan{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;justify-content:center;gap:var(--u);padding:20px}#scan video{width:100%;max-height:62svh;object-fit:cover;border:1px solid var(--line2);background:#000}
+#sq-term .ticker{display:flex;flex-direction:column;justify-content:center;flex:1}
+#d-campinfo .sig{font-size:var(--code);line-height:20px;margin-top:6px}#d-campinfo .sig.ok{color:var(--ok)}#d-campinfo .sig.bad{color:var(--bad)}#d-campinfo .sig.mut{color:var(--mute)}
+#donate.sigbad #d-ln,#donate.sigbad #d-toecash,#donate.sigbad~#decash #d-go,#donate.sigbad~#decash .row2{opacity:.35;pointer-events:none}  /* a broken or unpublished link: no way to pay */
+.rcpt .rc-st{margin:6px 0}#donate.done .rcpt details.more{display:block}.rcpt details input{display:block;width:100%;box-sizing:border-box;margin-top:8px;text-align:left}.rcpt details .mut{margin-top:6px}.rcpt .rc-st.ok{color:var(--ok)}.rcpt .rc-st.bad{color:var(--bad)}.rcpt .rc-conf .chk{margin-top:6px}
+#r-gap{flex:0 0 calc(var(--u)*2)}#r-info .panel{border-top:1px solid var(--line);padding:8px 0 4px}#r-info .panel b{display:block;font-weight:normal;color:var(--fg);letter-spacing:.08em;text-transform:uppercase;font-size:11px}#r-info .rstate{color:var(--fg);margin-top:8px}#r-info .rstate.ok{color:var(--ok)}#r-info .rstate.bad{color:var(--bad)}
+[hidden]{display:none!important}
+/* errors, warnings and odd states: the app's bad colour, whatever they sit in (index.js BAD_TEXT) */
+.bad,.tl.bad,.item .st.bad,.lnk a.bad{color:var(--bad)}button.sm.bad,.acts a.sm.bad{color:var(--bad);border-color:var(--bad)}
 </style></head><body>
-<header class="sc-header"><a class="sc-brand" href="https://www.streetcats.xyz/">Streetcat</a><span class="sc-right">Vet-certified donations</span></header>
-<div class="header-rule"></div>
-<div class="back-row"><a href="https://www.streetcats.xyz/">&larr; Back to home</a> · <a href="status.html">Campaign status &rarr;</a><span id="who-sep" hidden> · </span><a href="#" id="who-change" hidden></a></div>
+<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><span class="sc-brand">Streetcat</span><span class="sc-right"><span id="hd-role">Vet-certified donations</span><a href="status.html" id="hd-status" hidden>status</a><a href="#" id="who-change" hidden>change</a></span></header>
 <main>
-<h1>Vet-certified donations</h1>
-<p class="sub">Ecash that nobody can spend until the clinic certifies the operation · Everything runs in this page · Nothing is uploaded anywhere</p>
 <div class="card" id="recovered" hidden></div>
-<div class="card" id="who"><label>Who are you?</label><div class="who"><button class="go" data-role="donor">I want to donate</button><button class="go" data-role="clinic">I am the clinic</button><button class="go" data-role="streetcat">I am Streetcat</button></div><p class="mut">Each one sees only its own part of this page. Nothing is sent anywhere.</p></div>
-<nav hidden>
-<button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="certify" data-role="clinic">Certify an operation</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="keys" data-role="clinic streetcat">Keys</button>
-</nav>
+<div id="who"><p class="sub">Donations in ecash that nobody can spend until the clinic certifies the operation. If it never happens, the donor gets the sats back.</p><label>Who are you?</label><div class="who"><button class="go" data-role="donor">I want to donate</button><button class="go" data-role="clinic">I am the clinic</button><button class="go" data-role="streetcat">I am Streetcat</button></div></div>
+<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="keys" data-role="clinic streetcat">Keys</button></nav>
 
 <section id="donate" class="on">
-<div class="card">
-<label>Campaign (paste the link or the JSON Streetcat published)</label><textarea id="d-camp" placeholder='https://…#c=… or {"name":"MOCHI",…}'></textarea>
-<div id="d-campinfo" class="mut"></div>
-</div>
-<div class="card">
-<label>Donate with Lightning · amount in sat</label><input id="d-amt" type="number" min="1" step="1" inputmode="numeric" placeholder="21">
-<div><button class="sm" data-amt="21">21</button><button class="sm" data-amt="210">210</button><button class="sm" data-amt="2100">2 100</button><button class="sm" data-amt="21000">21 000</button></div>
-<button class="go" id="d-ln">Get a Lightning invoice</button>
+<div id="d-paste"><label>Campaign link from Streetcat</label><textarea id="d-camp" placeholder="https://…/donate#c=…"></textarea></div>
+<div id="d-campinfo" class="camp"></div>
+<div class="pay">
+<div class="term"><div class="hero"><div class="big"><input id="d-amt" type="number" min="1" step="1" inputmode="numeric" placeholder="0"></div><div class="unit">sat</div><div class="fiat" id="d-fiat"></div></div></div>
+<div class="amts"><button class="sm" data-amt="21">21</button><button class="sm" data-amt="210">210</button><button class="sm" data-amt="2100">2 100</button><button class="sm" data-amt="21000">21 000</button></div>
 <div id="d-pend" class="mut"></div>
-<div class="out" id="d-out">Pay from any Lightning wallet. The page receives your sats as ecash that is already locked: only Streetcat + the clinic together can spend it, or you alone after the deadline.</div>
+<div class="out" id="d-out"></div>
+<button class="go big" id="d-ln">Pay with Lightning</button>
+<p class="center">Locked until the clinic certifies. Yours back after the deadline.</p>
 </div>
-<div class="card">
-<label>Or with ecash from the campaign's mint (send any amount from your wallet to yourself and paste the <code>cashuB…</code> token here)</label><textarea id="d-token" placeholder="cashuB…"></textarea>
+<p class="center lnk" id="d-links"><a href="#" id="d-toecash">Pay with ecash</a> · <a href="#" id="d-torefund">Take my sats back</a></p>
+</section>
+
+<section id="decash">
+<div id="de-head" class="camp"></div>
+<p class="mut">Pay with any Cashu wallet that reads payment requests (cashu.me, Minibits…). Keep this page open until it says received.</p>
+<div class="term scan" id="dw-term"></div>
+<div class="row2"><button class="sm" id="dw-copy">copy request</button><button class="sm" id="dw-check">check now</button></div>
+<div class="out" id="dw-state"></div>
+<label>Or paste ecash from the campaign's mint</label><textarea id="d-token" placeholder="cashuB…"></textarea>
 <button class="go" id="d-go">Lock my donation</button>
-</div>
-<div class="card mut">How it works: your sats become a <b>locked</b> token at the campaign's mint. Keep the receipt private: it holds the refund key for this donation (a new key every time; this browser keeps a copy). Then send the locked token to Streetcat (it is useless to anyone until the clinic signs) and follow it on the campaign's <a href="status.html">status page</a>. If the clinic never certifies before the deadline, come back to <b>Donor: refund</b>: you can take the sats back as ecash or straight to a Lightning wallet.</div>
-</section>
-
-<section id="certify">
-<div class="card">
-<div class="mut">Clinic key: <code id="c-pk">—</code><span id="c-pk-old"></span> <button class="sm" id="c-new">generate</button> <button class="sm" id="c-copy">copy public key</button> <button class="sm" id="c-show">show private key</button></div>
-<label>Locked donation token (from Streetcat)</label><textarea id="c-token" placeholder="cashuB…"></textarea>
-<div id="c-info" class="mut"></div>
-<label>What you certify (free text, kept in the certified token's memo)</label><input id="c-memo" placeholder="MOCHI sterilised, invoice 2026-118">
-<button class="go" id="c-go">Sign: the operation was done</button>
-<div class="out" id="c-out">Signing is offline: nothing is sent. Hand the certified token back to Streetcat.</div>
-</div>
-</section>
-
-<section id="release">
-<div class="card">
-<div class="mut">Streetcat key: <code id="s-pk">—</code><span id="s-pk-old"></span> <button class="sm" id="s-new">generate</button> <button class="sm" id="s-copy">copy public key</button> <button class="sm" id="s-show">show private key</button></div>
-<label>Certified token (from the clinic)</label><textarea id="s-token" placeholder="cashuB…"></textarea>
-<div id="s-info" class="mut"></div>
-<button class="go" id="s-go">Add Streetcat's signature and release</button>
-<div class="out" id="s-out">The mint will only accept this if the clinic's signature is on it. The result is a plain token for Streetcat's wallet.</div>
-<div id="s-saved" class="mut"></div>
-</div>
+<div class="out" id="de-out"></div>
 </section>
 
 <section id="refund">
-<div class="card">
 <div id="r-saved" class="mut"></div>
-<label>Your receipt (the JSON the donate page gave you), or just the locked token if you donated from this browser</label><textarea id="r-receipt" placeholder='{"campaign":…,"lockedToken":"cashuB…","refundKey":"…"} or cashuB…'></textarea>
+<label>Your private receipt, or the locked token</label><textarea id="r-receipt" placeholder="the receipt as text, or cashuB…"></textarea>
+<div class="row1"><button class="sm" id="r-open">open the receipt file</button></div><input type="file" id="r-file" hidden>
+<div id="r-pw" hidden><label>This receipt is protected with a password</label><input type="password" id="r-pass" autocomplete="off"><div class="row1"><button class="sm" id="r-unlock">unlock it</button></div></div>
 <div id="r-info" class="mut"></div>
-<label>Optional: a Lightning invoice, to get the refund straight in your Lightning wallet (make it for a little less than the donation: the mint keeps room for the Lightning fee)</label><textarea id="r-ln" placeholder="lnbc…"></textarea>
-<button class="go" id="r-go">Take my sats back</button>
-<div class="out" id="r-out">Works only after the campaign deadline, and only if the clinic never certified. Before that the mint refuses.</div>
-</div>
+<label>Lightning address or invoice (optional)</label><textarea id="r-ln" placeholder="name@wallet.example or lnbc…" style="flex:0;min-height:48px"></textarea>
+<div class="out" id="r-out"></div>
+<div class="row1" id="r-checkrow" hidden><button class="sm" id="r-check">check now</button></div>
+<div id="r-gap"></div>
+<button class="go big" id="r-go">Take my sats back</button>
+</section>
+
+<section id="certify">
+<div class="keyrow"><span class="mut">Your key</span><code id="c-pk">—</code><span id="c-pk-old" class="mut"></span><span class="keyops"><button class="sm" id="c-copy">copy</button><button class="sm" id="c-new">new</button><button class="sm" id="c-show">private</button></span></div>
+<div class="term" id="c-term"><textarea id="c-token" placeholder="paste the token Streetcat sent you"></textarea><div id="c-card"></div></div>
+<div id="c-info" class="mut"></div>
+<label>Note</label><input id="c-memo" placeholder="MOCHI sterilised, invoice 2026-118">
+<div class="out" id="c-out"></div>
+<button class="go big" id="c-go">Certify</button>
+<p class="center lnk" id="c-again" hidden><a href="#">certify another token</a></p>
+</section>
+
+<section id="release">
+<div class="keyrow"><span class="mut">Your key</span><code id="s-pk">—</code><span id="s-pk-old" class="mut"></span><span class="keyops"><button class="sm" id="s-copy">copy</button><button class="sm" id="s-new">new</button><button class="sm" id="s-show">private</button></span></div>
+<div class="term" id="s-term"><textarea id="s-token" placeholder="paste the certified token from the clinic"></textarea><div id="s-card"></div></div>
+<div id="s-info" class="mut"></div>
+<div class="out" id="s-out"></div>
+<div id="s-saved" class="mut"></div>
+<button class="go big" id="s-go">Sign and release</button>
+<p class="center lnk" id="s-again" hidden><a href="#">release another token</a></p>
+</section>
+
+<section id="home">
+<div class="stat"><div><b id="h-n">0</b><span>campaigns</span></div><div><b id="h-rel">0 sat</b><span>released, in this browser</span></div></div>
+<div class="list" id="h-list"></div>
+<div class="actions"><button class="go" id="h-new">New campaign</button><button class="go alt" id="h-release">Release a certified token</button><button class="go alt" id="h-hand">Receive a donation in person</button></div>
+<p class="center"><a href="#" id="h-keys" style="color:inherit">Keys</a></p>
 </section>
 
 <section id="campaign">
-<div class="card">
 <label>Cat / campaign name</label><input id="k-name" placeholder="MOCHI">
 <label>Operation</label><input id="k-op" value="sterilisation">
-<label>Mint URL</label><input id="k-mint" placeholder="https://mint.example.com">
-<label>Streetcat public key (from Keys)</label><input id="k-s" placeholder="02…">
-<label>Clinic public key (published by the clinic)</label><input id="k-c" placeholder="02…">
-<label>Deadline (refund to donors after this date)</label><input id="k-dl" type="date">
-<label>Where donors send the locked token (email, Telegram…; optional)</label><input id="k-to" placeholder="donaciones@streetcat.org">
-<button class="go" id="k-go">Check the mint and make the link</button>
+<label>Mint URL</label><input id="k-mint" placeholder="https://mint.minibits.cash/Bitcoin">
+<label>Streetcat public key</label><input id="k-s" placeholder="02…">
+<label>Clinic public key</label><input id="k-c" placeholder="02…">
+<label>Deadline: refunds after this date</label><input id="k-dl" type="date">
+<label>Where donors send the token (optional)</label><input id="k-to" placeholder="donaciones@streetcat.org">
 <div class="out" id="k-out"></div>
-</div>
+<button class="go big" id="k-go">Make the campaign</button>
 </section>
 
 <section id="keys">
-<div class="card">
-<p class="mut">Keys live only in this browser (localStorage). Back them up. A public key is what you publish; a private key is what signs. Donors get a new refund key for every donation: it is in that donation's receipt and kept here as a backup. A new or imported clinic or Streetcat key never deletes the one before: it is kept here, so tokens locked to it can still be signed from this browser. Keys stay per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p>
-<dl><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
-<button class="sm" id="x-exp">Export keys (JSON)</button><button class="sm" id="x-imp">Import keys</button><textarea id="x-box" placeholder="paste exported JSON here to import"></textarea>
+<dl hidden><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
+<div class="term" id="x-term"><textarea id="x-box" placeholder="export shows your keys here · paste an export here to import"></textarea></div>
+<div class="row2"><button class="sm" id="x-exp">Export keys</button><button class="sm" id="x-imp">Import keys</button></div>
+<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
+</section>
+
+<section id="work">
+<div class="stat"><div><b id="w-n">0</b><span>to review</span></div><div><b id="w-done">0</b><span>done</span></div></div>
+<div id="w-net" class="mut"></div>
+<div class="list" id="w-list"></div>
+<div class="actions"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button></div>
+<div id="w-paste" hidden><label>A request from Streetcat: its link, or its file</label><textarea id="w-text" placeholder="https://…#q=…"></textarea><div class="row2"><button class="sm" id="w-read">open it</button><button class="sm" id="w-pick">choose a file</button></div><div class="row1"><button class="sm" id="w-scan">scan Streetcat's QR</button></div><input type="file" id="w-file" hidden><div class="out" id="w-out"></div></div>
+<p class="center lnk"><a href="#" id="w-certify">certify a token</a> · <a href="#" id="w-settings">settings</a> · <a href="#" id="w-offline">ready for offline</a></p>
+</section>
+
+<section id="creq">
+<div id="cr-head" class="camp"></div>
+<dl id="cr-dl"></dl>
+<div id="cr-gives" class="mut code"></div>
+<div class="out" id="cr-warn"></div>
+<div id="cr-act">
+<label class="chk"><input type="checkbox" id="cr-ok"><span>I confirm this procedure was done on this cat, on this date.</span></label>
+<div class="row2"><button class="sm" id="cr-inv">add the invoice</button><button class="sm" id="cr-photo">add a photo</button></div><input type="file" id="cr-file" hidden>
+<div class="mut code" id="cr-ev">Optional: only the file's fingerprint (SHA-256) goes with the confirmation. The file stays on this phone.</div>
+<button class="go" id="cr-go" disabled>Confirm procedure</button>
+<details class="more" id="cr-prob"><summary>Report a problem</summary><div class="row3" id="cr-why"><button class="sm" data-r="postponed">postponed</button><button class="sm" data-r="wrong-data">wrong data</button><button class="sm" data-r="other">other</button></div><input id="cr-note" placeholder="what happened (optional)" maxlength="300"><button class="go" id="cr-report" disabled>Send the report</button></details>
 </div>
+<div class="out" id="cr-out"></div>
+</section>
+
+<section id="csettings">
+<div class="keyrow"><span class="mut">Your clinic key</span><code id="cs-pk">—</code><span id="cs-pk-old" class="mut"></span><span class="keyops"><button class="sm" id="cs-copy">copy</button><button class="sm" id="cs-new">new</button><button class="sm" id="cs-show">private</button></span></div>
+<p class="mut">Streetcat puts the public key in each campaign. The private key never leaves this phone: keep a backup of it, locked with a password.</p>
+<label>Backup password</label><input id="cs-pw" type="password" autocomplete="new-password" placeholder="10 characters or more">
+<input id="cs-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
+<div class="row2"><button class="sm" id="cs-save">save backup</button><button class="sm" id="cs-restore">restore a backup</button></div><input type="file" id="cs-file" accept=".json,application/json" hidden>
+<div class="out" id="cs-out"></div>
+<p class="center lnk"><a href="#" id="cs-offline">ready for offline</a></p>
+</section>
+
+<section id="coffline">
+<p class="mut" id="co-sum"></p>
+<ul class="checks" id="co-list"></ul>
+<button class="go" id="co-install" hidden>Install on this phone</button>
+<p class="center" id="co-ios" hidden>On an iPhone: Share, then Add to Home Screen.</p>
+<button class="go alt big" id="co-again">Check again</button>
+</section>
+
+<section id="scamp">
+<div id="sc-head" class="camp"></div>
+<div class="stat"><div><b id="sc-n">0</b><span>donations</span></div><div><b id="sc-locked">0 sat</b><span>still locked</span></div></div>
+<div id="sc-net" class="mut"></div>
+<label>Donations</label><div class="list" id="sc-dons"></div>
+<label>Requests to the clinic</label><div class="list" id="sc-reqs"></div>
+<div class="actions"><button class="go" id="sc-new">New request</button><button class="go alt" id="sc-check">Check for donations and answers</button></div>
+<details class="more" id="sc-add"><summary>Add a donation or an answer by hand</summary><textarea id="sc-text" placeholder="a locked token (cashuB…), or the clinic's answer link"></textarea><div class="row2"><button class="sm" id="sc-read">add it</button><button class="sm" id="sc-pick">choose a file</button></div><div class="row1"><button class="sm" id="sc-scan">scan a QR</button></div><input type="file" id="sc-file" hidden><div class="out" id="sc-out"></div></details>
+</section>
+
+<section id="snew">
+<div id="sn-head" class="camp"></div>
+<label>Cat</label><input id="sn-cat" placeholder="MOCHI">
+<label>Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
+<div class="mut" id="sn-public">Shown on the public status page.</div>
+<label>Date of the procedure</label><input id="sn-date" type="date">
+<label>Note for the clinic (optional)</label><input id="sn-note" placeholder="invoice 2026-118" maxlength="200">
+<label>Paid from these donations</label><div class="list" id="sn-dons"></div>
+<div class="out" id="sn-out"></div>
+<button class="go big" id="sn-go">Make the request</button>
+</section>
+
+<section id="sreq">
+<div id="sq-head" class="camp"></div>
+<dl id="sq-dl"></dl>
+<div class="term" id="sq-term"><div class="ticker" id="sq-steps"></div></div>
+<div id="sq-state" class="mut code"></div>
+<div id="sq-send"><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
+<div class="row2" style="margin-top:var(--u)"><button class="sm" id="sq-qr">show as QR</button><button class="sm" id="sq-resend">send again</button></div></div>
+<div class="out" id="sq-out"></div>
+<button class="go big" id="sq-go" disabled>Release</button>
+</section>
+
+<section id="shand">
+<div class="keyrow"><span class="mut">Your volunteer key (not Streetcat's: it cannot release anything)</span><code id="v-pk">—</code><span class="keyops"><button class="sm" id="v-copy">copy</button></span></div>
+<div class="term" id="v-term"><div class="mut" id="v-empty" data-empty="Scan the QR the donor shows you, or open the file they send."></div></div>
+<div class="row2"><button class="sm" id="v-scan">scan their QR</button><button class="sm" id="v-pick">open a file</button></div><input type="file" id="v-file" hidden>
+<ul class="checks" id="v-checks"></ul>
+<div class="out" id="v-out"></div>
+<button class="go" id="v-accept" disabled>Accept and sign</button>
+<label>Received in person</label><div class="list" id="v-list"></div>
+<button class="go alt" id="v-fwd" disabled>Forward to Streetcat</button>
+</section>
+
+<section id="dhand">
+<div id="dh-head" class="camp"></div>
+<div class="term scan" id="dh-term"></div>
+<p class="center" id="dh-part"></p>
+<p class="center">The volunteer scans it. It holds the locked donation, never your refund key: nobody can spend it until the clinic and Streetcat sign.</p>
+<div class="row2"><button class="sm" id="dh-file">save as file</button><button class="sm" id="dh-scan">scan their acknowledgment</button></div><input type="file" id="dh-ackfile" hidden>
+<div class="out" id="dh-out"></div>
+</section>
+
+<section id="dcard">
+<div id="dk-head" class="camp"></div>
+<label>Message (optional)</label><input id="dk-msg" maxlength="80" placeholder="for the cats of the marina">
+<label class="chk"><input type="checkbox" id="dk-amt" checked><span>Show the amount</span></label>
+<div class="card-img" id="dk-img"></div>
+<div class="out" id="dk-out"></div>
+<div class="row2"><button class="sm" id="dk-share">share the card</button><button class="sm" id="dk-save">save the image</button></div>
+<p class="center">Only what is on the card goes with it: no token, no key, no receipt. The picture never changes; the link always shows where the donation is now.</p>
 </section>
 </main>
-<footer>Built on <a href="https://cashu.space">Cashu</a> · NUT-11 · Nut November 2026 · <a href="status.html">campaign status</a> · <a href="https://github.com/streetcatprrr/nut-november">source</a></footer>
+<div id="scan" hidden><video id="scan-v" playsinline muted></video><canvas id="scan-c" hidden></canvas><div id="scan-msg" class="center"></div><button class="go alt" id="scan-close">Close</button></div>
 <script src="cashu-bundle.js"></script>
+<script src="core.js"></script>
+<script src="nostr-bundle.js"></script>
+<script src="relay.js"></script>
 <script src="qrcode.min.js"></script>
-<script>
-(function(){
-const $ = id => document.getElementById(id);
-// Keys painted as code, in the colour of their role: orange (Bitcoin's) for donors' refund keys, blue for the clinic,
-// green for Streetcat. Every 4 hex characters take their own shade from those characters, so the same key always looks
-// the same wherever it appears (full or abbreviated) and two keys of the same role can still be told apart at a glance.
-const KEYRE = /\b0[23][0-9a-f]{8,64}…?/gi, HUE = { donor: 55, clinic: 250, streetcat: 150 }, KEYROLE = {};
-const roleOf = (k, role) => { if (k && role && HUE[role]) KEYROLE[String(k).slice(0, 10).toLowerCase()] = role; return k; };
-function paintKeys(root){ const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => (KEYRE.lastIndex = 0, KEYRE.test(n.nodeValue)) && !n.parentNode.closest('textarea, .out, .nokey') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
-  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
-  for (const n of nodes) { const frag = document.createDocumentFragment(); let last = 0; KEYRE.lastIndex = 0; let m;
-    while ((m = KEYRE.exec(n.nodeValue))) { frag.appendChild(document.createTextNode(n.nodeValue.slice(last, m.index))); const k = document.createElement('span'); k.className = 'key'; const role = KEYROLE[m[0].slice(0, 10).toLowerCase()]; if (role) k.dataset.role = role;
-      for (let i = 0; i < m[0].length; i += 4) { const s = document.createElement('i'), chunk = m[0].slice(i, i + 4); s.textContent = chunk;
-        if (/^[0-9a-f]{2,4}$/i.test(chunk)) { const v = parseInt(chunk, 16); s.style.setProperty('--h', String((role ? HUE[role] - 14 + (v % 29) : v % 360))); s.style.setProperty('--dl', String(((v >> 5) % 7 - 3) * 0.03)); }
-        k.appendChild(s); }
-      frag.appendChild(k); last = m.index + m[0].length; }
-    frag.appendChild(document.createTextNode(n.nodeValue.slice(last))); n.parentNode.replaceChild(frag, n); } }
-new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) { if (n.nodeType === 3 && n.parentNode) paintKeys(n.parentNode); else if (n.nodeType === 1) paintKeys(n); } }).observe(document.body, { childList: true, subtree: true, characterData: false });
-paintKeys(document.body);
-
-const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-const ls = { get(k){ try { return localStorage.getItem(k); } catch(_) { return null; } }, set(k, v){ try { localStorage.setItem(k, v); } catch(_) {} } };
-const KEYS = { clinic: 'vetlock.clinic.sk', streetcat: 'vetlock.streetcat.sk', donor: 'vetlock.donor.sk' };
-const newKey = () => hex(cashu.createRandomSecretKey());
-const pubOf = sk => hex(cashu.getPubKeyFromPrivKey(Uint8Array.from(sk.match(/../g).map(h => parseInt(h, 16)))));
-const key = (role, make) => { let sk = ls.get(KEYS[role]); if (!sk && make) { sk = newKey(); ls.set(KEYS[role], sk); } return sk; };
-// Clinic and Streetcat keys are never thrown away: a new or imported key moves the current one to a kept list,
-// and certify / release sign with whichever key held here the token names.
-const OLD_KEYS = { clinic: 'vetlock.clinic.old', streetcat: 'vetlock.streetcat.old' };
-const ROLE = { clinic: 'clinic', streetcat: 'Streetcat' };
-const SK = /^[0-9a-f]{64}$/i;
-const validSk = k => typeof k === 'string' && SK.test(k) && (() => { try { pubOf(k); return true; } catch (_) { return false; } })();
-const oldKeys = role => { try { const a = JSON.parse(ls.get(OLD_KEYS[role]) || '[]'); return Array.isArray(a) ? a.filter(validSk) : []; } catch (_) { return []; } };
-const heldKeys = role => [key(role, false), ...oldKeys(role)].filter((k, i, a) => k && a.indexOf(k) === i);
-const keepOld = (role, sk) => { if (!oldKeys(role).includes(sk)) ls.set(OLD_KEYS[role], JSON.stringify([...oldKeys(role), sk])); return oldKeys(role).includes(sk); };
-const setKey = (role, sk) => { const cur = key(role, false); if (cur === sk) return true;
-  if (cur && !keepOld(role, cur)) return false;  // the current key is kept first, or nothing changes
-  ls.set(KEYS[role], sk); if (key(role, false) !== sk) return false;
-  ls.set(OLD_KEYS[role], JSON.stringify(oldKeys(role).filter(k => k !== sk))); return true; };
-const heldFor = (role, pubkeys) => { const want = pubkeys.map(k => String(k).toLowerCase()); return heldKeys(role).find(sk => want.includes(pubOf(sk))) || null; };
-const abbr = k => String(k).slice(0, 10) + '…';
-// which key held here can sign this token, and if none, which keys the token asks for
-function keyNote(role, info){ const sk = heldFor(role, info.pubkeys), cur = key(role, false), R = ROLE[role];
-  if (sk) return sk === cur ? `✓ this token names your ${R} key` : `✓ this token names an older ${R} key kept in this browser (${abbr(pubOf(sk))})`;
-  const whose = k => heldFor('streetcat', [k]) ? ' (Streetcat, held here)' : heldFor('clinic', [k]) ? ' (clinic, held here)' : '';
-  return `✗ no ${R} key in this browser can sign this token.\nIt is locked to ${info.pubkeys.map(k => abbr(k) + whose(k)).join(' + ')}.\n${cur ? `This browser's ${R} key is ${abbr(pubOf(cur))}.` : `This browser has no ${R} key.`} Sign it in the browser that holds the campaign's ${R} key, or import that key in Keys.`; }
-// Donors get a fresh refund key for every donation. Locked tokens are listed on the public status page,
-// so one shared receipt must not unlock any other donation. Each key is in its receipt and kept here as a backup.
-const DONOR_KEYS = 'vetlock.donor.keys';
-const donorKeys = () => { try { const a = JSON.parse(ls.get(DONOR_KEYS) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
-const addDonorKey = k => { const a = donorKeys(), i = a.findIndex(x => x.pk === k.pk); if (i >= 0) a[i] = { ...a[i], ...k }; else a.push(k); ls.set(DONOR_KEYS, JSON.stringify(a)); };  // merges: later updates never drop the key
-const findDonorKey = pks => { const legacy = key('donor', false); for (const pk of pks) { const k = donorKeys().find(x => x.pk === pk); if (k) return k.sk; if (legacy && pubOf(legacy) === pk) return legacy; } return null; };
-const b64u = { enc: s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), dec: s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))) };
-const fmtDate = t => new Date(t * 1000).toISOString().slice(0, 10);
-const amt = a => (a && typeof a === 'object' && typeof a.toNumber === 'function') ? a.toNumber() : Number(a);  // cashu-ts may hand back Amount objects
-const sum = ps => ps.reduce((s, p) => s + amt(p.amount), 0);
-const copyText = async text => { try { await navigator.clipboard.writeText(text); return true; } catch (_) { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} t.remove(); return ok; } };
-const smallBtn = (label, onclick) => { const b = document.createElement('button'); b.className = 'sm'; b.type = 'button'; b.textContent = label; b.onclick = onclick; return b; };
-const copyBtn = (label, text) => { const b = smallBtn(label, async () => { b.textContent = (await copyText(text)) ? 'copied ✓' : 'copy failed: select the text'; setTimeout(() => { b.textContent = label; }, 2000); }); return b; };
-function qrSvg(text){ if (typeof qrcode !== 'function') return null;  // upper case lets a Lightning invoice use the compact alphanumeric QR mode
-  const up = /^(lightning:)?ln/i.test(text); const q = qrcode(0, 'M'); q.addData(up ? text.toUpperCase() : text, up ? 'Alphanumeric' : 'Byte'); q.make();
-  const box = document.createElement('div'); box.className = 'qr'; box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 4, scalable: true }); return box; }
-// Lightning donations waiting for payment: kept here so a reload (a phone switching to the wallet app) cannot lose a paid invoice
-const PENDING = 'vetlock.pending';
-const pendings = () => { try { const a = JSON.parse(ls.get(PENDING) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
-const savePending = p => { const a = pendings().filter(x => x.quote !== p.quote); a.push(p); ls.set(PENDING, JSON.stringify(a)); };
-const dropPending = q => ls.set(PENDING, JSON.stringify(pendings().filter(x => x.quote !== q)));
-function parseCampaign(text){ text = (text || '').trim(); if (!text) throw new Error('no campaign'); const m = text.match(/#c=([A-Za-z0-9_-]+)/); const j = JSON.parse(m ? b64u.dec(m[1]) : text);
-  for (const k of ['name', 'mint', 'streetcat', 'clinic', 'deadline']) if (!j[k]) throw new Error('campaign is missing ' + k); return j; }
-// Streetcat's published key(s). Once set, a link naming any other key is flagged to the donor. Empty until Streetcat publishes its real key.
-const STREETCAT_KEYS = [];
-const PUBKEY = /^0[23][0-9a-f]{64}$/i;
-// a link is just text anyone can write: check everything a lock depends on before money moves
-const openCampaign = text => { const c = parseCampaign(text), d = Number(c.deadline), now = Date.now() / 1000;
-  if (!Number.isInteger(d)) throw new Error('this campaign has no valid deadline, so a donation could never be refunded: do not use this link');
-  if (d <= now) throw new Error(`this campaign closed on ${fmtDate(d)}: a donation now could be taken back at once, so the page does not accept it`);
-  if (d > now + 2 * 366 * 86400) throw new Error(`this campaign's deadline is ${fmtDate(d)}, more than two years away: ask Streetcat for a link with a sensible deadline`);
-  for (const k of ['streetcat', 'clinic']) if (!PUBKEY.test(String(c[k]))) throw new Error(`the ${k} key in this link is not a valid public key: do not use this link`);
-  if (String(c.streetcat).toLowerCase() === String(c.clinic).toLowerCase()) throw new Error('the clinic key and the Streetcat key are the same: do not use this link');
-  if (STREETCAT_KEYS.length && !STREETCAT_KEYS.includes(String(c.streetcat).toLowerCase())) throw new Error('this link does not use the key Streetcat publishes: do not donate through it');
-  if (!/^https:\/\//i.test(c.mint) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(c.mint)) throw new Error('the mint in this link is not an https address: do not use this link');
-  return { ...c, deadline: d }; };
-// the lock as written in the proofs the mint signed, compared with what the campaign promises
-function lockMatches(c, refundPk, proofs){ for (const p of proofs) { let s; try { s = JSON.parse(p.secret); } catch (_) { return false; } if (!Array.isArray(s) || s[0] !== 'P2PK') return false; const d = s[1] || {}, t = Object.fromEntries((d.tags || []).map(x => [x[0], x.slice(1)]));
-    const keys = [d.data].concat(t.pubkeys || []).map(k => String(k).toLowerCase()).sort().join(), want = [c.streetcat, c.clinic].map(k => String(k).toLowerCase()).sort().join();
-    if (keys !== want || Number((t.n_sigs || [])[0]) !== 2 || Number((t.locktime || [])[0]) !== Number(c.deadline) || !(t.refund || []).includes(refundPk)) return false; } return proofs.length > 0; }
-function lockInfo(proofs){ let s; try { s = JSON.parse(proofs[0].secret); } catch (_) { s = null; } if (!Array.isArray(s) || !s[1] || typeof s[1].data !== 'string') throw Object.assign(new Error('this is not a locked donation token'), { byPage: true }); const kind = s[0], d = s[1]; const tags = Object.fromEntries((d.tags || []).map(t => [t[0], t.slice(1)]));
-  const pks = [d.data].concat(tags.pubkeys || []); return { kind, pubkeys: pks, nsigs: Number((tags.n_sigs || ['1'])[0]), refund: tags.refund || [], locktime: Number((tags.locktime || ['0'])[0]), amount: sum(proofs) }; }
-function describe(info, mint){ info.pubkeys.forEach((k, i) => roleOf(k, i ? 'clinic' : 'streetcat')); info.refund.forEach(k => roleOf(k, 'donor')); return `${info.amount} sat at ${mint}\nlocked to ${info.nsigs} of ${info.pubkeys.length} signatures\nrefund to ${info.refund.length ? info.refund.map(k => k.slice(0, 10) + '…').join(', ') : 'nobody'} after ${info.locktime ? fmtDate(info.locktime) : 'never'}`; }
-const WALLETS = {}; async function wallet(mint){ mint = mint.replace(/\/$/, ''); if (!WALLETS[mint]) { const w = new cashu.Wallet(mint); await w.loadMint(); WALLETS[mint] = w; } return WALLETS[mint]; }
-async function decodeTok(t){ const meta = cashu.getTokenMetadata(t); const w = await wallet(meta.mint); return { w, dec: w.decodeToken(t) }; }
-const show = (el, text, cls) => { el.textContent = text; el.className = 'out' + (cls ? ' ' + cls : ''); };
-const busy = (btn, on) => { btn.disabled = on; };
-const storageWorks = () => { try { const k = 'vetlock.probe'; localStorage.setItem(k, '1'); const ok = localStorage.getItem(k) === '1'; localStorage.removeItem(k); return ok; } catch (_) { return false; } };
-const NO_STORAGE = 'this browser does not let the page save anything (a private window?). Open it in a normal window: if the page closed at the wrong moment, the sats could be lost.';
-
-// SAFE MINT CALLS. The page builds the new outputs itself and saves them before asking the mint. If the mint's answer is lost
-// (dropped connection, closed tab), the mint hands the signatures back on request (NUT-09 restore), so nothing is lost.
-const outSave = o => ({ a: amt(o.blindedMessage.amount), id: o.blindedMessage.id, B: o.blindedMessage.B_, r: o.blindingFactor.toString(16), s: new TextDecoder().decode(o.secret) });
-const outLoad = x => new cashu.OutputData({ amount: cashu.Amount.from(x.a), id: x.id, B_: x.B }, BigInt('0x' + x.r), new TextEncoder().encode(x.s));
-async function buildOutputs(w, amount, lock){ const ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id);
-  return lock ? cashu.OutputData.createP2PKData(lock.toOptions(), amount, ks) : cashu.OutputData.createRandomData(amount, ks); }
-async function restoreOutputs(w, saved){ const outs = saved.map(outLoad); const res = await w.mint.restore({ outputs: outs.map(o => o.blindedMessage) });
-  const sigs = new Map((res.outputs || []).map((o, i) => [o.B_, (res.signatures || [])[i]])); if (!outs.length || !outs.every(o => sigs.get(o.blindedMessage.B_))) return null;
-  const proofs = []; for (const o of outs) proofs.push(o.toProof(sigs.get(o.blindedMessage.B_), await w.keyChain.ensureKeysetKeys(o.blindedMessage.id))); return proofs; }
-// swaps (lock pasted ecash, release, refund) that survive a lost answer; unfinished ones are retried when the page opens
-const INFLIGHT = 'vetlock.inflight';
-const flights = () => { try { const a = JSON.parse(ls.get(INFLIGHT) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
-const saveFlight = f => { const a = flights().filter(x => x.id !== f.id); a.push(f); ls.set(INFLIGHT, JSON.stringify(a)); };
-const dropFlight = id => ls.set(INFLIGHT, JSON.stringify(flights().filter(x => x.id !== id)));
-async function safeSwap(w, inputs, { lock, privkey, what, mint }){ if (!storageWorks()) throw new Error(NO_STORAGE);
-  const fee = amt(w.getFeesForProofs(inputs)), amount = sum(inputs) - fee; if (amount <= 0) throw new Error('nothing would be left after the mint fee');
-  const outs = await buildOutputs(w, amount, lock), id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  saveFlight({ id, what, mint: norm(mint), ys: inputs.map(p => cashu.hashToCurve(new TextEncoder().encode(p.secret)).toHex(true)), outputs: outs.map(outSave), created: new Date().toISOString() });
-  try { let b = w.ops.receive(inputs); if (privkey) b = b.privkey(privkey); const proofs = await b.asCustom(outs).run(); dropFlight(id); return proofs; }
-  catch (e) { if (cashu.isMintOperationError(e)) { dropFlight(id); throw e; }  // the mint answered and refused: nothing happened
-    // no answer: the mint may or may not have done it, now or later. Recover if it did; otherwise keep the record for next time.
-    let spent = false; try { spent = (await w.checkProofsStates(inputs)).every(s => s.state === 'SPENT'); } catch (_) {}
-    if (spent) { const back = await restoreOutputs(w, outs.map(outSave)).catch(() => null); if (back) { dropFlight(id); return back; } }
-    throw Object.assign(new Error((spent ? 'the mint took the ecash but its answer was lost, and it could not hand the result back yet.' : 'the mint did not answer, so it is not known whether it did it.') + ' Nothing is lost: this browser kept what it needs, so open this page again later and it will finish, or simply try again. (' + (e.message || e) + ')'), { kept: true }); } }
-const whyFailed = e => (e && e.kept ? 'Interrupted: ' : e && e.byPage ? 'Not possible: ' : 'Mint refused: ') + ((e && e.message) || e);
-const norm = u => String(u || '').trim().replace(/\/+$/, '');
-// released tokens are plain bearer ecash: kept here until Streetcat has them in its wallet
-const RELEASED = 'vetlock.released';
-const releasedList = () => { try { const a = JSON.parse(ls.get(RELEASED) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
-const addReleased = r => { const a = releasedList(); if (!a.some(x => x.token === r.token)) a.push(r); ls.set(RELEASED, JSON.stringify(a.slice(-50))); };
-function renderReleased(){ const box = $('s-saved'); if (!box) return; box.textContent = ''; const a = releasedList(); if (!a.length) return;
-  box.appendChild(document.createTextNode('Released tokens kept in this browser (move them to Streetcat\'s wallet; ones already moved are worthless): '));
-  for (const r of a.slice(-10).reverse()) box.appendChild(copyBtn(`${r.amount} sat · ${String(r.at).slice(0, 10)}`, r.token));
-  box.appendChild(smallBtn('forget all', () => { if (confirm('Forget the released tokens kept here? Do it only once they are all in Streetcat\'s wallet.')) { ls.set(RELEASED, '[]'); renderReleased(); } })); }
-// on opening the page: finish any swap whose answer was lost last time
-async function recoverFlights(){ const found = [];
-  for (const f of flights()) { try { const w = await wallet(f.mint); const st = (await w.mint.check({ Ys: f.ys })).states || [];
-      const old = Date.now() - Date.parse(f.created || 0) > 24 * 3600 * 1000;
-      if (st.length && st.every(s => s.state === 'UNSPENT')) { if (old) dropFlight(f.id); continue; }  // not taken (yet: another tab may still be at it)
-      if (!(st.length && st.every(s => s.state === 'SPENT'))) continue;  // pending or unknown: ask again next time
-      const back = await restoreOutputs(w, f.outputs);  // a network error throws: kept for next time
-      if (!back) { dropFlight(f.id); continue; }  // spent by another request (a retry, another tab), not with these outputs
-      const token = cashu.getEncodedToken({ mint: f.mint, proofs: back, memo: 'recovered ' + ((f.what && f.what.kind) || '') });
-      if (f.what && f.what.kind === 'donation' && f.what.campaign && f.what.pk && !lockMatches(f.what.campaign, f.what.pk, back)) { found.push({ kind: 'donation (lock check FAILED: do not send it; write to Streetcat)', token, amount: sum(back) }); dropFlight(f.id); continue; }
-      if (f.what && f.what.kind === 'donation' && f.what.pk) addDonorKey({ pk: f.what.pk, lockedToken: token, amount: sum(back), mint: f.mint });
-      if (f.what && f.what.kind === 'release') addReleased({ token, amount: sum(back), memo: f.what.memo || '', at: new Date().toISOString() });
-      if (f.what && f.what.kind === 'refund' && f.what.pk) addDonorKey({ pk: f.what.pk, refundToken: token, refunded: new Date().toISOString() });
-      dropFlight(f.id); found.push({ kind: (f.what && f.what.kind) || 'swap', token, amount: sum(back) });
-    } catch (_) {} }
-  if (!found.length) return; const box = $('recovered'); box.hidden = false; box.textContent = '';
-  box.appendChild(Object.assign(document.createElement('label'), { textContent: 'Recovered: an operation was interrupted last time and the mint handed its result back' }));
-  for (const r of found) { const d = document.createElement('div'); d.className = 'out ok'; d.textContent = `${r.kind}: ${r.amount} sat\n${r.token}\n`; d.appendChild(copyBtn('copy token', r.token)); box.appendChild(d); } }
-
-// tabs
-document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t)); refreshKeys(); }));
-// one page, three people: each role sees only its tabs; a campaign link means a donor
-const ROLEKEY = 'vetlock.role', ROLENAME = { donor: 'donor', clinic: 'clinic', streetcat: 'Streetcat' }, nav = document.querySelector('nav');
-const tabRole = t => (document.querySelector(`nav button[data-t="${t}"]`).dataset.role || '').split(' ')[0];
-function setRole(r){ if (!ROLENAME[r]) r = ''; ls.set(ROLEKEY, r); nav.dataset.role = r; nav.hidden = !r; $('who').hidden = !!r;
-  const lnk = $('who-change'); lnk.hidden = $('who-sep').hidden = !r; lnk.textContent = r ? `You: ${ROLENAME[r]} · change` : '';
-  const on = document.querySelector('nav button.on'), first = r && document.querySelector(`nav button[data-role~="${r}"]`);
-  if (!r) document.querySelectorAll('section').forEach(s => s.classList.remove('on')); else if (!on || !(on.dataset.role || '').split(' ').includes(r)) first.click(); else document.getElementById(on.dataset.t).classList.add('on'); }
-const openTab = t => { setRole(tabRole(t)); document.querySelector(`nav button[data-t="${t}"]`).click(); };
-document.querySelectorAll('#who button').forEach(b => b.onclick = () => setRole(b.dataset.role));
-$('who-change').onclick = e => { e.preventDefault(); setRole(''); window.scrollTo(0, 0); };
-// a role can also come from the address: /donate, /clinic, /streetcat (or ?role=…): that page never asks
-const pathRole = ((location.pathname.replace(/\/+$/, '').split('/').pop() || '').toLowerCase().replace('donate', 'donor')), qRole = (new URLSearchParams(location.search).get('role') || '').toLowerCase();
-const fixedRole = ROLENAME[pathRole] ? pathRole : ROLENAME[qRole] ? qRole : '';
-setRole(location.hash.includes('#c=') ? 'donor' : fixedRole || ls.get(ROLEKEY) || '');
-if (fixedRole) { $('who-change').textContent = `You: ${ROLENAME[fixedRole]}`; $('who-change').onclick = e => { e.preventDefault(); ls.set(ROLEKEY, ''); location.href = 'index.html'; }; }
-function refreshKeys(){ for (const [role, el, x] of [['clinic', 'c-pk', 'x-c'], ['streetcat', 's-pk', 'x-s']]) { const sk = key(role, false), n = oldKeys(role).length; heldKeys(role).forEach(k => roleOf(pubOf(k), role)); const pk = sk ? pubOf(sk) : '— (none yet)';
-    if (el) $(el).textContent = pk; $(x).textContent = pk; for (const id of [el + '-old', x + '-old']) if ($(id)) $(id).textContent = n ? ` + ${n} older key${n > 1 ? 's' : ''} kept` : ''; }
-  const n = donorKeys().length, legacy = key('donor', false); $('x-d').textContent = (n ? `${n} key${n > 1 ? 's' : ''}, one per donation` : '— (none yet)') + (legacy ? ` · older shared key ${pubOf(legacy).slice(0, 10)}…` : ''); }
-refreshKeys();
-const makeKey = (role, warn) => { if (key(role, false) && !confirm(warn)) return; if (!setKey(role, newKey())) alert('This browser could not save a new key, so nothing changed.'); refreshKeys(); };
-$('c-new').onclick = () => makeKey('clinic', 'Make a new clinic key? Publish the new public key before donations use it. The current key stays in this browser, so tokens locked to it can still be certified here.');
-$('s-new').onclick = () => makeKey('streetcat', 'Make a new Streetcat key? New campaigns will use it. The current key stays in this browser, so tokens locked to it can still be released here.');
-$('c-show').onclick = () => alert('Clinic private key (keep it secret):\n' + (key('clinic', false) || 'none'));
-$('s-show').onclick = () => alert('Streetcat private key (keep it secret):\n' + (key('streetcat', false) || 'none'));
-for (const [id, role] of [['c-copy', 'clinic'], ['s-copy', 'streetcat']]) $(id).onclick = async () => { const b = $(id), sk = key(role, false);  // the public key is what goes into a campaign
-  b.textContent = !sk ? 'no key yet' : (await copyText(pubOf(sk))) ? 'copied ✓' : 'copy failed: select the text'; setTimeout(() => { b.textContent = 'copy public key'; }, 2000); };
-$('x-exp').onclick = () => { $('x-box').value = JSON.stringify({ clinic: key('clinic', false), clinicOld: oldKeys('clinic'), streetcat: key('streetcat', false), streetcatOld: oldKeys('streetcat'), donor: key('donor', false), donorKeys: donorKeys() }, null, 1); };
-// importing never drops a key: the ones this browser had move to the kept lists (or, for the old shared refund key, to the donor keys)
-$('x-imp').onclick = () => { let j; try { j = JSON.parse($('x-box').value); } catch (_) { return alert('Bad JSON: nothing imported.'); }
-  const list = v => v == null ? [] : Array.isArray(v) ? v : [v], lc = k => k.toLowerCase(), dks = list(j && j.donorKeys).filter(k => k && k.sk);
-  if (!j || typeof j !== 'object' || ['clinic', 'streetcat', 'donor'].some(r => j[r] != null && !validSk(j[r])) || ['clinicOld', 'streetcatOld'].some(r => !list(j[r]).every(validSk)) || !dks.every(k => validSk(k.sk))) return alert('These are not valid keys: nothing imported.');
-  let saved = true;
-  for (const r of ['clinic', 'streetcat']) { for (const k of list(j[r + 'Old']).map(lc)) if (k !== key(r, false)) saved = keepOld(r, k) && saved; if (j[r]) saved = setKey(r, lc(j[r])) && saved; }
-  const legacy = key('donor', false); if (j.donor && legacy && legacy !== lc(j.donor)) addDonorKey({ sk: legacy, pk: pubOf(legacy) });
-  if (j.donor) ls.set(KEYS.donor, lc(j.donor)); dks.forEach(k => addDonorKey({ ...k, sk: lc(k.sk), pk: pubOf(k.sk) }));
-  refreshKeys(); alert(saved ? 'Imported. The keys this browser had before are kept too.' : 'This browser could not save every key. Nothing was deleted; try again.'); };
-
-// campaign from URL
-const fromHash = () => { if (location.hash.includes('#c=')) { $('d-camp').value = location.href; showCamp();  // a campaign link opened from another tab of this page: go to Donate
-  if (nav.dataset.role !== 'donor' || !document.getElementById('donate').classList.contains('on')) { openTab('donate'); window.scrollTo(0, 0); } } };
-window.addEventListener('hashchange', fromHash); fromHash();
-$('d-camp').addEventListener('input', showCamp); showCamp();
-function showCamp(){ const t = $('d-camp').value.trim(); if (!t) { $('d-campinfo').textContent = ''; return; }
-  try { const c = parseCampaign(t), short = k => String(k).slice(0, 10) + '…' + String(k).slice(-6); roleOf(c.streetcat, 'streetcat'); roleOf(c.clinic, 'clinic'); let warn = '';
-    try { openCampaign(t); } catch (e) { warn = '\n✗ ' + e.message; }
-    $('d-campinfo').textContent = `${c.name} · ${c.op || 'operation'} · mint ${c.mint} · refund after ${fmtDate(c.deadline)}\nlocked to clinic ${short(c.clinic)} + Streetcat ${short(c.streetcat)}${STREETCAT_KEYS.length ? (STREETCAT_KEYS.includes(String(c.streetcat).toLowerCase()) ? ' ✓ Streetcat\'s published key' : '') : ''}${warn}`;
-  } catch (e) { $('d-campinfo').textContent = 'cannot read campaign: ' + e.message; } }
-
-// DONATE
-const lockFor = (c, refundPk) => new cashu.LockBuilder().addMainPubkey([c.streetcat, c.clinic]).requireMainSignatures(2).addRefundPubkey(refundPk).lockUntil(Number(c.deadline));
-const newDonorKey = c => { const sk = newKey(), pk = pubOf(sk); addDonorKey({ campaign: c.name, deadline: Number(c.deadline), pk, sk, created: new Date().toISOString() }); return { sk, pk }; };  // saved before anything is paid or swapped
-function renderLocked(c, locked, sk){ const out = $('d-out');
-  const lockedToken = cashu.getEncodedToken({ mint: c.mint, proofs: locked, memo: `${c.name} ${c.op || ''} — vet-certified donation` });
-  addDonorKey({ pk: pubOf(sk), lockedToken, amount: sum(locked), mint: c.mint });  // this browser keeps the token too, for the refund tab
-  const receipt = JSON.stringify({ campaign: c, lockedToken, refundKey: sk, created: new Date().toISOString() });
-  if (!lockMatches(c, pubOf(sk), locked)) { show(out, `CHECK FAILED: the ecash the mint returned does not carry the lock this campaign promises. Do not send it to anyone. Keep this receipt and write to Streetcat:\n${receipt}`, 'bad'); return; }
-  const late = Number(c.deadline) <= Date.now() / 1000 ? `\n\nThe campaign's deadline passed while you were paying: these sats are yours to take back right away, in Donor: refund.` : '';
-  show(out, `LOCKED ${sum(locked)} sat for ${c.name}.${late}\n\n1) Save your receipt and keep it private: it holds the key that takes these sats back after the deadline (a new key for every donation).\n${receipt}\n\n2) Send this locked token to Streetcat${c.to ? ' (' + c.to + ')' : ''}. It is safe to share and will be listed on the campaign's public status page; nobody can spend it without the clinic:\n${lockedToken}`, 'ok');
-  const a = document.createElement('a'); a.href = 'data:application/json,' + encodeURIComponent(receipt); a.download = `receipt-${c.name}-${Date.now()}.json`; a.textContent = 'download receipt'; a.className = 'sm';
-  const row = document.createElement('span'); row.className = 'line'; row.appendChild(a); row.appendChild(copyBtn('copy token', lockedToken));
-  if (navigator.share) row.appendChild(smallBtn('share token', () => navigator.share({ title: `${c.name} donation`, text: lockedToken }).catch(() => {})));
-  out.appendChild(document.createTextNode('\n\n')); out.appendChild(row);  // a real line break, so copying the output never glues these labels onto the token
-  if (out.scrollIntoView) out.scrollIntoView({ block: 'nearest' }); }
-$('d-go').onclick = async () => { const btn = $('d-go'); busy(btn, true); try {
-  const c = openCampaign($('d-camp').value); const tok = $('d-token').value.trim(); if (!tok.startsWith('cashu')) throw new Error('paste a cashu token');
-  show($('d-out'), 'contacting the mint…');
-  const w = await wallet(c.mint); const dec = w.decodeToken(tok); if (dec.mint.replace(/\/$/, '') !== c.mint.replace(/\/$/, '')) throw new Error('this token is from ' + dec.mint + ', the campaign uses ' + c.mint + '. Pay with Lightning above instead, or send yourself ecash from that mint.');
-  if (!storageWorks()) throw new Error(NO_STORAGE);
-  const { sk, pk } = newDonorKey(c);
-  const locked = await safeSwap(w, dec.proofs, { lock: lockFor(c, pk), what: { kind: 'donation', campaign: c, pk }, mint: c.mint });
-  renderLocked(c, locked, sk);
-} catch (e) { show($('d-out'), 'Failed: ' + (e.message || e), 'bad'); } busy(btn, false); };
-
-// DONATE WITH LIGHTNING: the mint's invoice (NUT-04); once paid, the page mints outputs already locked (NUT-11), so the sats are never spendable by anyone else
-document.querySelectorAll('button[data-amt]').forEach(b => b.addEventListener('click', () => { $('d-amt').value = b.dataset.amt; }));
-let WAITING = null;  // the invoice this page is watching
-function renderInvoice(p){ const out = $('d-out'); out.textContent = ''; out.className = 'out';
-  out.appendChild(document.createTextNode(`Pay ${p.amount} sat with any Lightning wallet to lock your donation to ${p.campaign.name}.`));
-  const qr = qrSvg('lightning:' + p.request); if (qr) out.appendChild(qr);
-  const row = document.createElement('span'); row.className = 'line'; const a = document.createElement('a'); a.className = 'sm'; a.href = 'lightning:' + p.request; a.textContent = 'open in wallet';
-  row.appendChild(a); row.appendChild(copyBtn('copy invoice', p.request)); out.appendChild(row);
-  const inv = document.createElement('span'); inv.className = 'line mut'; inv.textContent = p.request; out.appendChild(inv);
-  const st = document.createElement('span'); st.className = 'line'; st.id = 'd-st'; st.textContent = 'waiting for the payment…' + (p.expiry ? ` (the invoice expires at ${new Date(p.expiry * 1000).toLocaleTimeString()})` : ''); out.appendChild(st);
-  if (out.scrollIntoView) out.scrollIntoView({ block: 'nearest' }); }
-async function collect(p, w){ const sk = p.sk || findDonorKey([p.pk]); if (!sk) throw new Error('the refund key for this invoice is missing from this browser');
-  if (!p.outputs) { p.outputs = (await buildOutputs(w, p.amount, lockFor(p.campaign, p.pk))).map(outSave); savePending(p);  // saved before the mint is asked
-    if (!(pendings().find(x => x.quote === p.quote) || {}).outputs) throw new Error(NO_STORAGE); }
-  let locked; try { locked = await w.ops.mintBolt11(p.amount, p.quote).asCustom(p.outputs.map(outLoad)).run(); }
-  catch (e) { let q = null; try { q = await w.checkMintQuoteBolt11(p.quote); } catch (_) {} if (!q || q.state !== 'ISSUED') throw e;
-    locked = await restoreOutputs(w, p.outputs).catch(() => null); if (!locked) throw e; }  // the mint issued it but the answer was lost: ask for it again (NUT-09)
-  dropPending(p.quote); return { locked, sk }; }
-async function waitAndMint(p){ const me = { quote: p.quote }; WAITING = me; renderPendings(); const st = () => $('d-st');
-  let w = null, fails = 0, tried = false;
-  const stop = (text, cls) => { dropPending(p.quote); WAITING = null; show($('d-out'), text, cls); renderPendings(); };
-  while (WAITING === me) {
-    try { if (!w) w = await wallet(p.campaign.mint);
-      const q = await w.checkMintQuoteBolt11(p.quote);
-      if (q.state === 'PAID') { if (st()) st().textContent = 'paid ✓ — locking your donation…'; tried = true; const { locked, sk } = await collect(p, w); WAITING = null; renderLocked(p.campaign, locked, sk); renderPendings(); return; }
-      if (q.state === 'ISSUED') { const back = p.outputs ? await restoreOutputs(w, p.outputs) : null;  // a network error here goes to the retry below
-        if (back) { dropPending(p.quote); WAITING = null; renderLocked(p.campaign, back, p.sk || findDonorKey([p.pk])); renderPendings(); return; }
-        // issued, but not with outputs this page knows: another tab may have it. Keep the record (marked) instead of deleting it.
-        savePending({ ...p, stuck: true }); WAITING = null; renderPendings();
-        show($('d-out'), (tried || p.outputs)
-          ? `The mint says it issued the ecash for this invoice, but this page could not get it back (another tab or window may have it, or the mint does not support NUT-09). Look in your other tabs first; if it is not there, write to Streetcat with this invoice:\n${p.request}`
-          : 'This invoice was already turned into a locked donation, probably in another tab or window. Look there for its receipt; this browser also keeps it under Donor: refund.', 'bad'); return; }
-      if (p.expiry && Date.now() / 1000 > p.expiry + 60) return stop('The invoice expired without being paid. Nothing was charged; get a new one.', 'bad');
-      fails = 0;
-    } catch (e) { fails++; if (st()) st().textContent = (fails > 3 ? 'paid or not, nothing is lost: this browser keeps the invoice and will finish when the mint answers. ' : 'retrying… ') + (e.message || e); }
-    await new Promise(r => setTimeout(r, fails ? Math.min(15000, 2000 * fails) : 2000));
-  } }
-function renderPendings(){ const box = $('d-pend'); box.textContent = '';
-  for (const p of pendings()) { if (WAITING && p.quote === WAITING.quote) continue;
-    const row = document.createElement('div'); row.textContent = `${p.stuck ? 'Paid elsewhere or not recoverable here' : 'Unfinished Lightning donation'}: ${p.campaign.name} · ${p.amount} sat · ${new Date(p.created).toLocaleString()} `;
-    row.appendChild(smallBtn(p.stuck ? 'check again' : 'resume', () => { renderInvoice(p); waitAndMint(p); }));
-    if (p.stuck) row.appendChild(smallBtn('forget', () => { if (confirm('Forget this invoice? Do it only once you have found the donation in another tab or written to Streetcat.')) { dropPending(p.quote); renderPendings(); } }));
-    box.appendChild(row); } }
-$('d-ln').onclick = async () => { const btn = $('d-ln'); busy(btn, true); try {
-  const c = openCampaign($('d-camp').value); const amount = Number($('d-amt').value); if (!Number.isInteger(amount) || amount < 1) throw new Error('choose a whole number of sats');
-  if (!storageWorks()) throw new Error(NO_STORAGE);
-  show($('d-out'), 'asking the mint for an invoice…'); const w = await wallet(c.mint);
-  const desc = `Streetcat · ${c.name} ${c.op || ''} · vet-certified donation`.slice(0, 100);
-  let canDescribe = false; try { canDescribe = w.getMintInfo().supportsNut04Description('bolt11', 'sat'); } catch (_) {}
-  const q = canDescribe ? await w.createMintQuoteBolt11(amount, desc) : await w.createMintQuoteBolt11(amount);
-  const { sk, pk } = newDonorKey(c);
-  const p = { quote: q.quote, request: q.request, amount, expiry: q.expiry || null, campaign: c, pk, sk, created: new Date().toISOString() };
-  savePending(p); if (!pendings().some(x => x.quote === p.quote)) throw new Error(NO_STORAGE);  // never show an invoice this browser could forget
-  renderInvoice(p); renderPendings(); waitAndMint(p);
-} catch (e) { show($('d-out'), 'Failed: ' + (e.message || e), 'bad'); } busy(btn, false); };
-// back from the wallet app (or a reload): pick up the latest unfinished invoice by itself, list the others
-(() => { const list = pendings().filter(x => !x.stuck); renderPendings(); if (!list.length) return; const p = list[list.length - 1]; renderInvoice(p); waitAndMint(p); })();
-
-// CERTIFY (clinic)
-$('c-token').addEventListener('input', async () => { try { const t = $('c-token').value.trim(); if (!t) return $('c-info').textContent = ''; const { dec } = await decodeTok(t); const info = lockInfo(dec.proofs); $('c-info').textContent = describe(info, dec.mint) + '\n' + keyNote('clinic', info); } catch (e) { $('c-info').textContent = 'cannot read token: ' + e.message; } });
-$('c-go').onclick = async () => { const btn = $('c-go'); busy(btn, true); try {
-  const { dec } = await decodeTok($('c-token').value.trim()); const info = lockInfo(dec.proofs); const sk = heldFor('clinic', info.pubkeys);
-  if (!sk) throw new Error(keyNote('clinic', info).replace(/^✗ /, '')); if (info.locktime && info.locktime < Date.now() / 1000) throw new Error('deadline already passed; the donor can refund this one');
-  const signed = cashu.signP2PKProofs(dec.proofs, sk); const out = cashu.getEncodedToken({ mint: dec.mint, proofs: signed, memo: ($('c-memo').value.trim() || 'certified') + ' · signed by clinic ' + pubOf(sk).slice(0, 10) });
-  show($('c-out'), `CERTIFIED ${info.amount} sat. Send this token to Streetcat:\n${out}`, 'ok'); $('c-out').appendChild(document.createTextNode('\n')); $('c-out').appendChild(copyBtn('copy certified token', out));
-} catch (e) { show($('c-out'), 'Failed: ' + (e.message || e), 'bad'); } busy(btn, false); };
-
-// RELEASE (Streetcat)
-$('s-token').addEventListener('input', async () => { try { const t = $('s-token').value.trim(); if (!t) return $('s-info').textContent = ''; const { dec } = await decodeTok(t); const info = lockInfo(dec.proofs); const sigs = cashu.getP2PKWitnessSignatures(dec.proofs[0].witness).length; $('s-info').textContent = describe(info, dec.mint) + `\nsignatures already on it: ${sigs}` + (dec.memo ? `\nmemo: ${dec.memo}` : '') + '\n' + keyNote('streetcat', info); } catch (e) { $('s-info').textContent = 'cannot read token: ' + e.message; } });
-$('s-go').onclick = async () => { const btn = $('s-go'); busy(btn, true); try {
-  const t = $('s-token').value.trim(); show($('s-out'), 'contacting the mint…');
-  const { w, dec } = await decodeTok(t); const info = lockInfo(dec.proofs); const sk = heldFor('streetcat', info.pubkeys);
-  if (!sk) throw Object.assign(new Error(keyNote('streetcat', info).replace(/^✗ /, '')), { byPage: true });  // stop here: the mint would only refuse it
-  const both = cashu.signP2PKProofs(dec.proofs, sk);
-  const got = await safeSwap(w, both, { what: { kind: 'release', memo: dec.memo || '' }, mint: dec.mint }); const plain = cashu.getEncodedToken({ mint: dec.mint, proofs: got, memo: 'released: ' + (dec.memo || '') });
-  addReleased({ token: plain, amount: sum(got), memo: dec.memo || '', at: new Date().toISOString() });  // kept here until Streetcat's wallet has it
-  show($('s-out'), `RELEASED ${sum(got)} sat. Import this plain token into Streetcat's wallet now (this browser keeps a copy below):\n${plain}`, 'ok'); $('s-out').appendChild(document.createTextNode('\n')); $('s-out').appendChild(copyBtn('copy token', plain)); renderReleased();
-} catch (e) { show($('s-out'), whyFailed(e), 'bad'); } busy(btn, false); };
-
-// REFUND (donor): the receipt, or just the locked token if this browser made the donation and kept its key
-async function refundInput(text){ text = (text || '').trim(); if (!text) throw new Error('paste your receipt');
-  if (text.startsWith('cashu')) { const { w, dec } = await decodeTok(text); const info = lockInfo(dec.proofs); const sk = findDonorKey(info.refund); if (!sk) throw new Error('this browser has no refund key for this token; paste the receipt instead'); return { w, dec, info, token: text, sk, name: (dec.memo || 'donation').split(' ')[0] }; }
-  const r = JSON.parse(text); const { w, dec } = await decodeTok(r.lockedToken); const info = lockInfo(dec.proofs); return { w, dec, info, token: r.lockedToken, sk: r.refundKey || findDonorKey(info.refund), name: (r.campaign && r.campaign.name) || 'donation' }; }
-$('r-receipt').addEventListener('input', async () => { try { const { dec, info } = await refundInput($('r-receipt').value); const left = info.locktime - Date.now() / 1000; $('r-info').textContent = describe(info, dec.mint) + (left > 0 ? `\ndeadline in ${Math.ceil(left / 86400)} day(s): until then only Streetcat + the clinic can move these sats` : '\ndeadline passed: you can take them back, unless the clinic has certified them first'); } catch (e) { $('r-info').textContent = $('r-receipt').value.trim() ? 'cannot read it: ' + e.message : ''; } });
-$('r-go').onclick = async () => { const btn = $('r-go'); busy(btn, true); const pageSays = m => Object.assign(new Error(m), { byPage: true }); try {
-  const { w, dec, info, token, sk, name } = await refundInput($('r-receipt').value); if (!sk) throw pageSays('no refund key in this receipt');
-  if (info.locktime > Date.now() / 1000) { show($('r-out'), 'Not yet: the deadline (' + fmtDate(info.locktime) + ') has not passed. Until then only Streetcat + the clinic can move these sats.', 'bad'); busy(btn, false); return; }
-  const inv = $('r-ln').value.trim().replace(/^lightning:/i, '');
-  // with an invoice: ask the mint first, so a bad or too large invoice is refused before anything moves
-  let mq = null; if (inv) { show($('r-out'), 'checking the invoice with the mint…'); mq = await w.createMeltQuoteBolt11(inv);
-    let swapFees = 0; try { swapFees = 2 * amt(w.getFeesForProofs(dec.proofs)); } catch (_) {}  // the refund swap, then paying out: input fees on both
-    const room = info.amount - swapFees - amt(mq.fee_reserve);
-    if (amt(mq.amount) > room) throw pageSays(`this invoice is for ${amt(mq.amount)} sat, but the donation is ${info.amount} sat and the mint keeps up to ${amt(mq.fee_reserve) + swapFees} sat for fees. Make an invoice for at most ${Math.max(0, room)} sat, or leave the invoice empty to take the sats back as ecash.`); }
-  show($('r-out'), 'contacting the mint…');
-  const got = await safeSwap(w, dec.proofs, { privkey: sk, what: { kind: 'refund', pk: pubOf(sk) }, mint: dec.mint }); const plain = cashu.getEncodedToken({ mint: dec.mint, proofs: got, memo: 'refund ' + name });
-  addDonorKey({ pk: pubOf(sk), sk, refundToken: plain, refunded: new Date().toISOString() });  // a copy in this browser until the donor has the sats
-  if (!mq) { show($('r-out'), `REFUNDED ${sum(got)} sat. Import this token into your wallet:\n${plain}`, 'ok'); busy(btn, false); return; }
-  show($('r-out'), `REFUNDED ${sum(got)} sat. Sending ${amt(mq.amount)} sat to your Lightning wallet…\nIf it fails, your sats are in this token:\n${plain}`);
-  try { const res = await w.ops.meltBolt11(mq, got).run(); const change = res.change || [], left = sum(change);
-    const leftTok = left ? cashu.getEncodedToken({ mint: dec.mint, proofs: change, memo: 'refund change ' + name }) : '';
-    if (res.quote && res.quote.state && res.quote.state !== 'PAID') { show($('r-out'), `REFUNDED ${sum(got)} sat. The Lightning payment is still in flight (${res.quote.state}): check your wallet in a few minutes. If it fails, the mint frees the sats in this token again (any unused fee is lost):\n${plain}`, 'bad'); }
-    else { addDonorKey({ pk: pubOf(sk), refundToken: leftTok, paidOut: amt(mq.amount) }); show($('r-out'), `REFUNDED ${sum(got)} sat: ${amt(mq.amount)} sat sent to your Lightning wallet.` + (left ? `\nThe other ${left} sat (what the invoice did not ask for, plus any unused fee) came back as ecash. Import it into any Cashu wallet:\n${leftTok}` : ''), 'ok'); }
-  } catch (e) { let st = ''; try { st = (await w.checkMeltQuoteBolt11(mq.quote)).state; } catch (_) {}
-    show($('r-out'), st === 'PAID' ? `REFUNDED ${sum(got)} sat, and the mint says the Lightning payment went through, although its answer was lost: check your wallet. ${e.message || e}`
-      : st === 'PENDING' ? `REFUNDED ${sum(got)} sat. The Lightning payment is in flight; check your wallet in a few minutes. If it fails, the mint frees the sats in this token again:\n${plain}`
-      : `REFUNDED ${sum(got)} sat, but the Lightning payment did not go through (${e.message || e}). Before using this token, check that nothing arrived in your Lightning wallet; then import it into any Cashu wallet, or try again with another invoice:\n${plain}`, 'bad'); }
-} catch (e) { show($('r-out'), whyFailed(e), 'bad'); } busy(btn, false); };
-// donations made from this browser, ready to fill the refund box
-function renderSaved(){ const box = $('r-saved'); if (!box) return; box.textContent = ''; const mine = donorKeys().filter(k => k.lockedToken && !k.refunded);
-  if (!mine.length) return; box.appendChild(document.createTextNode('Donations made from this browser: '));
-  for (const k of mine) box.appendChild(smallBtn(`${k.campaign || 'donation'} · ${k.amount || '?'} sat · refund after ${k.deadline ? fmtDate(k.deadline) : '?'}`, () => { $('r-receipt').value = k.lockedToken; $('r-receipt').dispatchEvent(new Event('input')); })); }
-document.querySelector('nav button[data-t="refund"]').addEventListener('click', renderSaved); renderSaved();
-
-// CAMPAIGN (Streetcat)
-$('k-s').value = key('streetcat', false) ? pubOf(key('streetcat', false)) : '';
-document.querySelector('nav button[data-t="campaign"]').addEventListener('click', () => { if (!$('k-s').value.trim() && key('streetcat', false)) $('k-s').value = pubOf(key('streetcat', false)); });  // a key made after the page loaded
-// what this project needs from a mint, read from its own info (NUT-06) and keysets (NUT-02)
-async function mintCheck(url){ const get = async p => { const r = await fetch(url + p, { cache: 'no-store' }); if (!r.ok) throw new Error(p + ' answered HTTP ' + r.status); return r.json(); };
-  const info = await get('/v1/info'), ks = await get('/v1/keysets'), nuts = info.nuts || {}, on = n => !!(nuts[n] && nuts[n].supported === true);
-  const ln = !!(nuts['4'] && !nuts['4'].disabled && (nuts['4'].methods || []).some(m => m.method === 'bolt11' && m.unit === 'sat'));
-  const fees = (ks.keysets || []).filter(k => k.unit === 'sat' && k.active !== false).map(k => Number(k.input_fee_ppk || 0)), fee = fees.length ? Math.max(...fees) : null;
-  const lines = [[on('11'), 'NUT-11: locks with 2 signatures and a refund key'], [on('7'), 'NUT-07: proof states and the signatures used (status page)'], [on('12'), 'NUT-12: DLEQ proofs (status page)'], [ln, 'NUT-04: Lightning invoices in sat (donate with Lightning)'], [on('9'), 'NUT-09: restore (gets ecash back if an answer is lost)']];
-  const text = `Mint: ${info.name || url} · ${info.version || 'version not given'}\n` + lines.map(([v, t]) => (v ? '✓ ' : '✗ ') + t).join('\n') + `\nInput fee: ${fee == null ? 'not given' : fee ? fee + ' ppk (at least 1 sat on every swap: locking ecash, release, refund)' : '0 (swaps are free)'}`;
-  return { ok: lines.slice(0, 3).every(x => x[0]), ln, restore: on('9'), fee, text }; }
-$('k-go').onclick = async () => { const btn = $('k-go'); busy(btn, true); try {
-  const c = { name: $('k-name').value.trim(), op: $('k-op').value.trim(), mint: ($('k-mint').value.match(/https?:\/\/[^\s"'<>]+/i) || [$('k-mint').value.trim()])[0].replace(/\/+$/, ''), streetcat: $('k-s').value.trim(), clinic: $('k-c').value.trim(), deadline: Math.floor(new Date($('k-dl').value + 'T23:59:59Z').getTime() / 1000) };
-  const to = $('k-to').value.trim(); if (to) c.to = to;
-  for (const k of ['name', 'mint', 'streetcat', 'clinic']) if (!c[k]) throw new Error('fill in ' + k); if (!c.deadline || c.deadline < Date.now() / 1000) throw new Error('deadline must be in the future');
-  try { openCampaign(JSON.stringify(c)); } catch (e) { throw new Error(String(e.message).replace('the mint in this link is not an https address', 'the mint URL must start with https:// (for example https://mint.minibits.cash/Bitcoin)').replace(/: (do not use this link|do not donate through it|ask Streetcat for a link with a sensible deadline)$/, '')); }  // the same checks donors' pages make
-  show($('k-out'), 'checking the mint…'); let check; try { check = await mintCheck(c.mint); } catch (e) { throw new Error('cannot read this mint (' + (e.message || e) + '). Check the URL.'); }
-  if (!check.ok) { show($('k-out'), check.text + '\n\nThis mint cannot hold these donations: pick another one.', 'bad'); busy(btn, false); return; }
-  const link = location.href.split('#')[0].split('?')[0].replace(/\/(clinic|streetcat)$/, '/donate') + '#c=' + b64u.enc(JSON.stringify(c)), slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');  // a donation link opens as a donor, whatever page made it
-  const ledger = JSON.stringify({ campaign: c, clinicKeySource: 'https://… (where the clinic published its key)', donations: [] }, null, 1);
-  show($('k-out'), `${check.text}${check.ln ? '' : '\nDonors will have to pay with ecash from this mint: it has no Lightning invoices.'}${check.restore ? '' : '\nWithout NUT-09, a lost answer from this mint cannot be recovered: prefer another mint.'}\n\nPublish this link (or the JSON) for ${c.name}:\n${link}\n\n${JSON.stringify(c)}\n\nStatus page: save this as app/campaigns/${slug}.json in the repository, add every locked token you receive to "donations", and share status.html?l=campaigns/${slug}.json\n${ledger}`, 'ok');
-  { const row = document.createElement('span'); row.className = 'line'; const a = document.createElement('a'); a.className = 'sm'; a.href = link; a.textContent = 'open donation page'; row.appendChild(copyBtn('copy donation link', link)); row.appendChild(a); row.appendChild(copyBtn('copy ledger', ledger)); $('k-out').prepend(row, document.createTextNode('\n\n')); }
-} catch (e) { show($('k-out'), e.message, 'bad'); } busy(btn, false); };
-renderReleased(); recoverFlights();
-window.__vetlock = { openTab, setRole, parseCampaign, openCampaign, lockInfo, key, heldKeys, pubOf, donorKeys, pendings, flights, releasedList, mintCheck };
-})();
-</script></body></html>
+<script src="index.js"></script>
+</body></html>
