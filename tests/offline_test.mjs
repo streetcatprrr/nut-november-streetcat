@@ -1,6 +1,7 @@
 // Certifying without coverage (app/index.html in Chromium, local Nutshell mint, fake money): the clinic opens the app once with a
 // connection, then loses it. The app must still open (service worker), with its font, read a donation (the mint's keys kept from
-// last time) and certify it; once back online, Streetcat releases what the clinic signed offline.
+// last time) and certify it; once back online, Streetcat releases what the clinic signed offline. The cat recognition, got ahead of
+// time in Offline setup, must work offline too, with the numbers Streetcat's phone gives; a donor's phone must keep none of it.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { spawn } from 'child_process';
@@ -32,6 +33,13 @@ say('service worker ready:', await clinic.evaluate(() => navigator.serviceWorker
 await clinic.reload(); say('page controlled by it:', await clinic.evaluate(() => !!navigator.serviceWorker.controller));
 await tab(clinic, 'certify'); await clinic.fill('#c-token', tok); say('read online:', (await waitOut(clinic, 'c-info', /names|cannot/)).split('\n').pop());
 await clinic.fill('#c-token', '');
+// the cat recognition (catid.js), got ahead of time in Offline setup, on wifi, without starting it; the numbers to expect for a photo
+// drawn here are worked out on Streetcat's phone. A donor's phone, which never asked for it, keeps none of its 48 MB.
+const on = await streetcat.evaluate(async () => { const cv = new OffscreenCanvas(320, 240), cx = cv.getContext('2d'); cx.fillStyle = '#d28a3c'; cx.fillRect(0, 0, 320, 240); cx.fillStyle = '#222'; cx.beginPath(); cx.arc(160, 120, 70, 0, 7); cx.fill();
+  const bytes = new Uint8Array(await (await cv.convertToBlob({ type: 'image/jpeg', quality: .9 })).arrayBuffer()); await CATID.load(); const v = await CATID.compute(bytes); return { e: Array.from(v.e), bytes: Array.from(bytes) }; });
+await tab(clinic, 'coffline'); await clinic.waitForSelector('#co-ai', { timeout: 10000 }); const before = await clinic.evaluate(() => CATID.here()); await clinic.click('#co-ai');
+const got = await clinic.waitForFunction(() => [...document.querySelectorAll('#co-list li.ok span')].some(s => /^The cat recognition is saved/.test(s.textContent)), null, { timeout: 120000 }).then(() => true, () => false);
+say('Offline setup gets the cat recognition ahead of time:', !before && got && await clinic.evaluate(() => CATID.loaded() === false && CATID.here()), '| a donor phone keeps none of it:', !(await donor.evaluate(() => caches.keys())).some(k => k.startsWith('streetcat-ai-')));
 
 // no connection: the clinic's server is off and the browser is offline
 server.kill(); await new Promise(r => setTimeout(r, 300)); await ctx.clinic.setOffline(true);
@@ -42,6 +50,8 @@ await tab(clinic, 'certify'); await clinic.fill('#c-token', tok); say('offline, 
 await clinic.click('#c-go'); const c = await waitOut(clinic, 'c-out', /CERTIFIED|Failed/); say('offline, certifies:', c.split('\n')[0], '|', /without a connection/.test(c) ? 'says it was signed without a connection' : 'NO OFFLINE NOTE');
 const st = await clinic.evaluate(async m => ({ status: await fetch('status.html').then(x => x.ok).catch(() => false), mint: await fetch(m + '/v1/info').then(() => 'reached').catch(() => 'unreachable') }), MINT);
 say('offline, the status page is there too:', st.status, '| the mint is', st.mint);
+const off = await clinic.evaluate(async ([bytes, e]) => { const here = await CATID.here(); await CATID.load(); const v = await CATID.compute(new Uint8Array(bytes)); let d = 0; for (let i = 0; i < e.length; i++) d = Math.max(d, Math.abs(e[i] - v.e[i])); return { here, d }; }, [on.bytes, on.e]).catch(x => ({ err: x.message.split('\n')[0] }));
+say('offline, the cat recognition loads from the phone and gives the same numbers:', off.err || (off.here && off.d < 1e-6), off.err ? '' : `| largest difference ${off.d}`);
 await ctx.clinic.setOffline(false);
 
 // back online: Streetcat releases what the clinic signed offline

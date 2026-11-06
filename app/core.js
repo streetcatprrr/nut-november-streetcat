@@ -7,6 +7,7 @@
 // - Split donations: the part of a proof that is not released goes back under the same lock, in proofs derived from that proof,
 //   so the donor (or anyone holding the published token) can find it at the mint with NUT-09 restore.
 // - The signed acknowledgment a volunteer gives a donor who hands a donation over in person.
+// - The cat's record the clinic signs (name, microchip, procedure, photos), and its photos in parts small enough for a relay.
 // Used by the pages in the browser and by the tests in Node. Needs cashu-bundle.js loaded first (window.cashu).
 (function (root) {
 'use strict';
@@ -80,8 +81,15 @@ async function campaignSig(c){ if (!c || c.sig == null || c.sig === '') return '
 // and of each only what signing needs (its secret, amount and keyset): the clinic signs them, and Streetcat keeps the full tokens.
 const newId = () => 'R-' + hex(root.crypto.getRandomValues(new Uint8Array(5))).toUpperCase();
 const slim = p => ({ id: String(p.id), amount: amt(p.amount), secret: String(p.secret) });
-async function makeRequest({ campaign, patient, procedure, date, note = '', contributions, id = newId(), created = new Date().toISOString() }){
+// The cat as Streetcat caught it (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»): up to three photos, face
+// and sides, made small on its phone, named here by SHA-256; the photos themselves travel apart (by relay in parts, or in a file), so the
+// clinic can check it is this cat. Optional: a request without photos is as before, and an older app ignores them.
+const REQ_SLOTS = ['face', 'left', 'right'];
+const reqPhotosOk = ps => Array.isArray(ps) && ps.length >= 1 && ps.length <= REQ_SLOTS.length && new Set(ps.map(x => x && x.slot)).size === ps.length
+  && ps.every(x => x && REQ_SLOTS.includes(x.slot) && SHA.test(String(x.sha256)) && Number.isInteger(x.bytes) && x.bytes >= 1 && x.bytes <= CAT_PHOTO_MAX && Number.isInteger(x.w) && Number.isInteger(x.h));
+async function makeRequest({ campaign, patient, procedure, date, note = '', contributions, photos = [], id = newId(), created = new Date().toISOString() }){
   const c = campaignOf(campaign); if (!String(patient || '').trim() || !String(procedure || '').trim() || !DAY.test(String(date || ''))) throw new Error('a request needs the cat, the procedure and the date');
+  const ph = (photos || []).map(x => ({ slot: x.slot, sha256: lc(x.sha256), bytes: x.bytes, w: x.w, h: x.h })); if (ph.length && !reqPhotosOk(ph)) throw new Error('the photos of the cat are not valid');
   if (!Array.isArray(contributions) || !contributions.length) throw new Error('a request needs at least one donation');
   const out = [], seen = new Set();
   for (const k of contributions) { const proofs = (k.proofs || []).map(slim); if (!proofs.length) throw new Error('a donation without proofs');
@@ -89,13 +97,14 @@ async function makeRequest({ campaign, patient, procedure, date, note = '', cont
     const total = proofs.reduce((s, p) => s + p.amount, 0), release = k.release == null ? total : Number(k.release);
     if (!Number.isInteger(release) || release < 1 || release > total) throw new Error(`proofs of ${total} sat cannot pay ${k.release} sat`);
     out.push({ ref: k.ref || await donRef(proofs.map(p => yOf(p.secret))), release, proofs }); }
-  return { t: 'streetcat.request', v: 1, id, campaign: c, patient: String(patient).trim(), procedure: String(procedure).trim(), date: String(date), ...(note ? { note: String(note) } : {}), contributions: out, created }; }
+  return { t: 'streetcat.request', v: 1, id, campaign: c, patient: String(patient).trim(), procedure: String(procedure).trim(), date: String(date), ...(note ? { note: String(note) } : {}), ...(ph.length ? { photos: ph } : {}), contributions: out, created }; }
 // what a clinic's app checks before it shows a request (it is just text anyone could write)
 function requestProblems(q){ if (!q || q.t !== 'streetcat.request') return ['this is not a Streetcat request']; if (q.v !== 1) return [`it was made by another version of the app (format ${q.v})`];
   let c; try { c = campaignOf(q.campaign); } catch (e) { return [e.message]; } const p = [];
   if (!/^R-[0-9A-F]{10}$/.test(String(q.id))) p.push('it has no valid request number');
   if (!String(q.patient || '').trim() || !String(q.procedure || '').trim() || !DAY.test(String(q.date || ''))) p.push('the cat, the procedure or the date is missing');
   if (!Array.isArray(q.contributions) || !q.contributions.length) p.push('it names no donation');
+  if (q.photos !== undefined && !reqPhotosOk(q.photos)) p.push('its photos of the cat are not valid');
   const seen = new Set();
   for (const k of q.contributions || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; if (!ps.length) { p.push(`${k.ref || 'a donation'} has no proofs`); continue; }
     const bad = [...new Set(ps.map(x => lockProblem(lockOf(x.secret), c)).filter(Boolean))]; if (bad.length) p.push(`${k.ref || 'a donation'}: ${bad.join('; ')}`);
@@ -232,6 +241,64 @@ async function handoverReceipt(campaign, proofs, volunteerSk, received = new Dat
   return { t: 'streetcat.handover-receipt', v: 1, body, sig: cashu.schnorrSignMessage(ACK + canon(body), await derivedSk(TAG.statement, volunteerSk)) }; }
 const handoverReceiptOk = async a => !!a && !!a.body && PUB.test(a.body.volunteer || '') && verify(a.sig, ACK + canon(a.body), await derivedPub(TAG.statement, a.body.volunteer));
 
+// ---------- the cat's record: clinic → Streetcat ----------
+// What the clinic writes about a cat it operated, with the cat still asleep: its name, colony, microchip, sex, coat and ear tip, the
+// procedure and its date, notes, and up to four photos (face, both sides, the nose up close). Signed like the clinic's declarations,
+// with its statement key, over "streetcat/cat-record/v1", a newline and the canonical JSON. The photos travel next to the record, which
+// names each one by its SHA-256: once it is signed, no photo can be swapped. A record made from a request names it and its campaign,
+// which ties the cat to the clinic's certificate. Nothing in it is public: it goes encrypted to Streetcat.
+const CAT_SIG = 'streetcat/cat-record/v1\n', CAT_SLOTS = ['face', 'left', 'right', 'nose'], CAT_SEX = ['female', 'male'], CAT_EAR = ['left', 'right', 'none'];
+const CAT_LEN = { name: 40, colony: 60, coat: 80, procedure: 80, notes: 300 }, CHIP = /^\d{15}$/, CATID = /^CAT-[0-9A-F]{10}$/, SHA = /^[0-9a-f]{64}$/;
+const CAT_PHOTO_MAX = 60000;  // bytes: the app makes its photos smaller (about 38 kB), this is what a record may name
+// A photo goes to a relay in parts of at most this many base64 characters: a gift wrap of one is about 55 kB, under the 64 kB that
+// many relays take (measured on nostr-tools 2.25: a part of 28 000 characters is still 55 kB, one of 28 400 is 66 kB)
+const CAT_CHUNK = 26000;
+const newCatId = () => 'CAT-' + hex(root.crypto.getRandomValues(new Uint8Array(5))).toUpperCase();
+const oneLine = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+// what a statement must hold to be a record (a received one is only text anyone could write): [] when it does
+function catProblems(st){ if (!st || typeof st !== 'object' || st.type !== 'streetcat/cat-record') return ['this is not a cat record']; if (st.v !== 1) return [`it was made by another version of the app (format ${st.v})`];
+  const p = []; if (!CATID.test(String(st.id))) p.push('it has no valid record number');
+  if (typeof st.name !== 'string' || !st.name.trim()) p.push('the cat has no name'); if (typeof st.procedure !== 'string' || !st.procedure.trim() || !DAY.test(String(st.date || ''))) p.push('the procedure or its date is missing');
+  for (const [k, n] of Object.entries(CAT_LEN)) if (st[k] != null && (typeof st[k] !== 'string' || st[k].length > n)) p.push(`its ${k} is longer than ${n} characters`);
+  if (st.chip != null && !CHIP.test(String(st.chip))) p.push('its microchip number is not 15 digits'); if (st.sex != null && !CAT_SEX.includes(st.sex)) p.push('its sex is not female or male'); if (st.ear != null && !CAT_EAR.includes(st.ear)) p.push('its ear tip is not left, right or none');
+  if (!Array.isArray(st.photos) || st.photos.length > CAT_SLOTS.length) p.push('its list of photos is not valid');
+  else { const seen = new Set(); for (const x of st.photos) { if (!x || !CAT_SLOTS.includes(x.slot) || seen.has(x.slot) || !SHA.test(String(x.sha256)) || !Number.isInteger(x.bytes) || x.bytes < 1 || x.bytes > CAT_PHOTO_MAX) { p.push('a photo in it is not listed right'); break; } seen.add(x.slot); } }
+  if (!PUB.test(String(st.clinic || ''))) p.push('it names no clinic key'); if (st.request != null && !/^R-[0-9A-F]{10}$/.test(String(st.request))) p.push('its request number is not valid');
+  if (st.campaign != null) { try { if (canon(campShort(campaignOf(st.campaign))) !== canon(st.campaign)) p.push('its campaign is not written as the app writes it'); } catch (_) { p.push('its campaign is incomplete'); } }
+  if (Number.isNaN(Date.parse(String(st.signed || '')))) p.push('it has no time of signing');
+  return p; }
+// the statement the clinic signs, from what its form holds; photos: [{ slot, sha256, bytes, w, h }]
+function catStatement(f, { id = newCatId(), clinic, signed = new Date().toISOString(), request, campaign } = {}){
+  const st = { type: 'streetcat/cat-record', v: 1, id, name: oneLine(f.name, CAT_LEN.name), procedure: oneLine(f.procedure, CAT_LEN.procedure), date: String(f.date || ''), clinic: lc(clinic), signed,
+    photos: (f.photos || []).map(x => ({ slot: x.slot, sha256: lc(x.sha256), bytes: Number(x.bytes), ...(x.w && x.h ? { w: Number(x.w), h: Number(x.h) } : {}) })) };
+  for (const k of ['colony', 'coat', 'notes']) { const v = oneLine(f[k], CAT_LEN[k]); if (v) st[k] = v; }
+  const chip = String(f.chip || '').replace(/[\s.-]/g, ''); if (chip) st.chip = chip; if (f.sex) st.sex = f.sex; if (f.ear) st.ear = f.ear;
+  if (request) st.request = request; if (campaign) st.campaign = campShort(campaignOf(campaign)); return st; }
+async function signCat(f, clinicSk, o = {}){ if (!SK.test(clinicSk || '')) throw new Error('not a private key'); const st = catStatement(f, { ...o, clinic: pubOf(clinicSk) }), bad = catProblems(st);
+  if (bad.length) throw new Error(bad.join('; '));
+  return { t: 'streetcat.cat', v: 1, id: st.id, statement: st, sig: cashu.schnorrSignMessage(CAT_SIG + canon(st), await derivedSk(TAG.statement, lc(clinicSk))), from: st.clinic }; }
+// a record as it arrives: is it one, and is it signed with the statement key of the clinic key it names? Whose key that is (the clinic
+// of which campaign) is for the page that shows it to say.
+async function catCheck(rec){ if (!rec || rec.t !== 'streetcat.cat' || rec.v !== 1 || !rec.statement) return { ok: false, problems: ['this is not a cat record'], text: '✗ this is not a cat record' };
+  const st = rec.statement, p = catProblems(st); if (rec.id !== st.id) p.push('its number is not the one it was signed with');
+  const signed = PUB.test(String(st.clinic || '')) && /^[0-9a-f]{128}$/i.test(String(rec.sig || '')) && verify(String(rec.sig), CAT_SIG + canon(st), await derivedPub(TAG.statement, lc(st.clinic)));
+  if (!signed) p.unshift('it is not signed with the clinic key it names');
+  return { ok: !p.length, problems: p, text: p.length ? '✗ ' + p.join('; ') : `✓ signed with clinic key ${lc(st.clinic).slice(0, 10)}…` }; }
+// a photo, base64, as the messages that carry it: { id, kind: 'face.0', slot, sha256, part, of, data, from }. `kind` keeps the parts
+// apart when relay.js drops what it has already seen.
+function catPhotoParts(id, slot, sha256, b64, from){ const n = Math.max(1, Math.ceil(b64.length / CAT_CHUNK));
+  return Array.from({ length: n }, (_, i) => ({ t: 'streetcat.cat-photo', v: 1, id, kind: slot + '.' + i, slot, sha256: lc(sha256), part: i, of: n, data: b64.slice(i * CAT_CHUNK, (i + 1) * CAT_CHUNK), from: lc(from) })); }
+const catPartOk = p => !!p && p.t === 'streetcat.cat-photo' && p.v === 1 && CATID.test(String(p.id)) && CAT_SLOTS.includes(p.slot) && SHA.test(String(p.sha256))
+  && Number.isInteger(p.of) && p.of >= 1 && p.of <= Math.ceil(CAT_PHOTO_MAX * 4 / 3 / CAT_CHUNK) && Number.isInteger(p.part) && p.part >= 0 && p.part < p.of && p.kind === p.slot + '.' + p.part
+  && typeof p.data === 'string' && p.data.length > 0 && p.data.length <= CAT_CHUNK && /^[A-Za-z0-9+/]*={0,2}$/.test(p.data);
+// a request's photo in parts, as a record's: from Streetcat's key to the clinic's, which each part names (a part may come before its
+// request: the clinic keeps it all the same, and the photo is whole only when its SHA-256 is right)
+function reqPhotoParts(id, slot, sha256, b64, from, clinic){ const n = Math.max(1, Math.ceil(b64.length / CAT_CHUNK));
+  return Array.from({ length: n }, (_, i) => ({ t: 'streetcat.request-photo', v: 1, id, kind: slot + '.' + i, slot, sha256: lc(sha256), part: i, of: n, data: b64.slice(i * CAT_CHUNK, (i + 1) * CAT_CHUNK), from: lc(from), clinic: lc(clinic) })); }
+const reqPartOk = p => !!p && p.t === 'streetcat.request-photo' && p.v === 1 && /^R-[0-9A-F]{10}$/.test(String(p.id)) && REQ_SLOTS.includes(p.slot) && SHA.test(String(p.sha256))
+  && Number.isInteger(p.of) && p.of >= 1 && p.of <= Math.ceil(CAT_PHOTO_MAX * 4 / 3 / CAT_CHUNK) && Number.isInteger(p.part) && p.part >= 0 && p.part < p.of && p.kind === p.slot + '.' + p.part
+  && typeof p.data === 'string' && p.data.length > 0 && p.data.length <= CAT_CHUNK && /^[A-Za-z0-9+/]*={0,2}$/.test(p.data) && /^0[23][0-9a-f]{64}$/.test(String(p.from)) && /^0[23][0-9a-f]{64}$/.test(String(p.clinic));
+
 // ---------- the donor's private recovery receipt, version 1 ----------
 // A picture the app draws (what it shows may be seen: the campaign, the amount, the code, when the refund opens, the refund key's
 // public fingerprint) carrying the data in a PNG tEXt chunk: the locked token and the refund key, which are never drawn. `check` is the
@@ -298,5 +365,6 @@ root.scCore = { TAG, canon, yOf, amt, pubOf, sha256hex, derivedPub, derivedSk, d
   makeRequest, requestProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
   ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
+  CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,
   STREETCAT_KEYS, published, RECEIPT, makeReceipt, receiptCheck, receiptPng, readReceipt, sealKey, openSealed, isPng, pngTexts, pngWithText, crc32, lnAddressUrl, lnAddressInvoice };
 })(typeof window !== 'undefined' ? window : globalThis);

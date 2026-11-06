@@ -38,6 +38,18 @@ check('it packs and unpacks the same (link and file)', C.canon(await C.unpack(li
 let bomb = false; try { await C.unpack('sc0.' + Buffer.from(JSON.stringify({ x: 'a'.repeat(5 << 20) })).toString('base64url')); } catch (e) { bomb = /too large/.test(e.message); } check('a link that expands without end is refused', bomb);
 const forged = JSON.parse(JSON.stringify(q)); forged.contributions[1].proofs[0].secret = forged.contributions[1].proofs[0].secret.replace(String(camp.deadline), String(camp.deadline + 86400));
 check('a request whose proof carries another deadline is refused', C.requestProblems(forged).some(x => /deadline/.test(x)), C.requestProblems(forged)[0]);
+// the cat as Streetcat caught it: up to three photos (face, sides) named by SHA-256; their parts go to the clinic's key, as a record's
+const PH = [{ slot: 'face', sha256: 'a1'.repeat(32), bytes: 31000, w: 640, h: 480 }, { slot: 'left', sha256: 'b2'.repeat(32), bytes: 29000, w: 640, h: 427 }];
+const qPh = { campaign: camp, patient: 'MOCHI', procedure: 'sterilisation (spay)', date: '2026-11-04', contributions: [{ release: total(B.proofs), proofs: B.proofs }] }, qp = await C.makeRequest({ ...qPh, photos: PH });
+check('a request can name the cat\'s photos as caught (face and sides), and is valid; it packs the same', !C.requestProblems(qp).length && qp.photos.length === 2 && C.canon(await C.unpack(await C.linkFor('https://example.org/clinic', qp))) === C.canon(qp), C.requestProblems(qp).join('; ') || `link ${(await C.linkFor('https://example.org/clinic', qp)).length} chars`);
+check('…and a request without photos is as before, with no field for them', !('photos' in q) && !('photos' in await C.makeRequest({ ...qPh, photos: [] })));
+const badPh = [[...PH, { slot: 'right', sha256: 'c3'.repeat(32), bytes: 1, w: 1, h: 1 }, { slot: 'nose', sha256: 'd4'.repeat(32), bytes: 1, w: 1, h: 1 }], [PH[0], { ...PH[1], slot: 'face' }], [{ ...PH[0], sha256: 'xyz' }], [{ ...PH[0], bytes: 70000 }]];
+let refusedPh = 0; for (const ps of badPh) { try { await C.makeRequest({ ...qPh, photos: ps }); } catch (e) { if (/photos/.test(e.message)) refusedPh++; } }
+check('…four photos, a slot twice, a bad SHA-256 or a photo too big is not made', refusedPh === 4, `${refusedPh} of 4 refused`);
+check('…and a request that arrives with such photos, or an empty list, is flagged', [...badPh, []].every(ps => C.requestProblems({ ...qp, photos: ps }).some(x => /photos/.test(x))));
+const b64p = Buffer.from(new Uint8Array(37000).map((_, i) => (i * 7) & 255)).toString('base64'), rparts = C.reqPhotoParts(qp.id, 'face', PH[0].sha256, b64p, camp.streetcat, camp.clinic);
+check('a request\'s photo goes in parts of at most 26 000 characters that rebuild it, each naming the clinic\'s key', rparts.length === 2 && rparts.every(p => p.data.length <= C.CAT_CHUNK && C.reqPartOk(p) && p.clinic === clPk && p.from === scPk && p.id === qp.id) && rparts.map(p => p.data).join('') === b64p, rparts.map(p => p.data.length).join(' + '));
+check('…and a part that is not one is refused', [{ ...rparts[0], kind: 'face.1' }, { ...rparts[0], id: 'CAT-0123456789' }, { ...rparts[0], slot: 'nose', kind: 'nose.0' }, { ...rparts[0], data: '<script>' }, { ...rparts[0], clinic: 'x' }, { ...rparts[0], part: 2 }, { ...rparts[0], t: 'streetcat.cat-photo' }].every(p => !C.reqPartOk(p)));
 
 // 4) the clinic's answer, and every way it can be wrong
 const a = await C.certify(q, cl);

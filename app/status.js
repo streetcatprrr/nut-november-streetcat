@@ -305,6 +305,8 @@ $('here-copy').onclick = async () => { const text = JSON.stringify(HERE, null, 1
   termShow(ledgerTexts(HERE.map(ledgerView)), HERE.length ? campHue(HERE[0].campaign) : CAMP_HUES[0]);
   show($('here-out'), (ok ? 'Copied' : 'Select and copy') + '\n' + text, 'ok'); $('here-out').classList.toggle('show', !ok); };
 
+// the header's roles open the app as that role: the app starts in the role kept under this key
+document.querySelectorAll('.sc-roles a[data-r]').forEach(a => a.addEventListener('click', () => { try { localStorage.setItem('vetlock.role', a.dataset.r); } catch (_) {} }));
 const qs = new URLSearchParams(location.search), q = qs.get('l'), nid = qs.get('n'), deep = (/^#(DON-[0-9A-F]{8})$/i.exec(location.hash) || [])[1];  // a card's link ends in #DON-…: that donation is looked up once the ledger is checked
 // n= a campaign's id: its ledger is fetched from the relays, the newest event signed with the campaign's ledger key (relay.js); without
 // one there, l= the ledger's file. The relays are the app's (or the list saved under vetlock.relays in this browser).

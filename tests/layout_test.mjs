@@ -9,7 +9,7 @@ import fs from 'fs';
 import { pinBrowser, pin } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/';
 const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {}));
-const TABS = [['donate'], ['refund'], ['dhand'], ['dcard'], ['decash'], ['work'], ['creq'], ['certify'], ['csettings'], ['coffline'], ['keys'], ['home'], ['scamp'], ['snew'], ['sreq'], ['shand'], ['release'], ['campaign'], ['keys', 'release']];  // [tab, a tab of the role to be in first]
+const TABS = [['donate'], ['refund'], ['dhand'], ['dcard'], ['decash'], ['work'], ['creq'], ['certify'], ['csettings'], ['coffline'], ['keys'], ['home'], ['scamp'], ['snew'], ['sreq'], ['shand'], ['release'], ['campaign'], ['keys', 'release'], ['catnew'], ['cats'], ['cat'], ['cats', 'release'], ['cat', 'release']];  // [tab, a tab of the role to be in first]
 // (empty screens here; requests_test.mjs and handover_test.mjs check the same widths with the screens filled)
 const widest = () => { let w = null, max = innerWidth; for (const e of document.querySelectorAll('body *')) { const r = e.getBoundingClientRect(); if (r.width && r.right > max + 0.5 && getComputedStyle(e).position !== 'fixed') { max = r.right; w = (e.id ? '#' + e.id : e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '')) + ' ' + Math.round(r.right); } } return w; };
 let bad = 0;

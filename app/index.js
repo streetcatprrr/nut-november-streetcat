@@ -305,10 +305,47 @@ const norm = u => String(u || '').trim().replace(/\/+$/, '');
 const RELEASED = 'vetlock.released';
 const releasedList = () => { try { const a = JSON.parse(ls.get(RELEASED) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
 const addReleased = r => { const a = releasedList(); if (!a.some(x => x.token === r.token)) a.push(r); ls.set(RELEASED, JSON.stringify(a.slice(-50))); };
-function renderReleased(){ const box = $('s-saved'); if (!box) return; box.textContent = ''; const a = releasedList(); if (!a.length) return;
+const unpaid = () => releasedList().filter(r => !r.paid);  // what was sent to Streetcat's Lightning address is no longer here
+function renderReleased(){ const box = $('s-saved'); if (!box) return; box.textContent = ''; const a = unpaid(); if (!a.length) return;
   box.appendChild(document.createTextNode('Released, still in this browser — move them to a wallet:'));
-  for (const r of a.slice(-10).reverse()) box.appendChild(copyBtn(`${r.amount} sat · ${String(r.at).slice(0, 10)}`, r.token));
+  for (const r of a.slice(-10).reverse()) { const p = r.paying && payouts().find(x => x.id === r.paying && x.state === 'pending');
+    box.appendChild(p ? el('div', 'mut bad', `${r.amount} sat · being sent to ${p.to}: the mint has not said yet that it went through`) : copyBtn(`${r.amount} sat · ${String(r.at).slice(0, 10)}`, r.token)); }
   box.appendChild(smallBtn('forget all', () => { if (confirm('Forget the released tokens kept here? Do it only once they are all in Streetcat\'s wallet.')) { ls.set(RELEASED, '[]'); renderReleased(); } })); }
+// what Streetcat releases goes straight to its Lightning address, set once in Home (StreetCat, 6 Nov: "lo suyo es que fuese directamente
+// una dirección Lightning"): the largest invoice the mint can pay from the released ecash after its fees. The payment is written down
+// before it is sent, so a lost answer is asked about again, never paid twice; if it fails, the ecash stays here, as without an address.
+const PAYTO = 'vetlock.sc.payto', PAYOUTS = 'vetlock.sc.payouts';
+const payTo = () => { const a = String(ls.get(PAYTO) || '').trim(); return a && window.scCore && window.scCore.lnAddressUrl(a) ? a : ''; };
+const payouts = () => { try { const a = JSON.parse(ls.get(PAYOUTS) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }, savePayout = m => ls.set(PAYOUTS, JSON.stringify([...payouts().filter(x => x.id !== m.id), m].slice(-60)));  /* read as the page opens, before jget exists */
+const markReleased = (token, patch) => ls.set(RELEASED, JSON.stringify(releasedList().map(x => x.token === token ? { ...x, ...patch } : x)));
+async function payOut(w, proofs, token, mint){ const to = payTo(); if (!to) throw new Error('no Lightning address is set in Home'); const total = sum(proofs);
+  let inFee = 0; try { inFee = amt(w.getFeesForProofs(proofs)); } catch (_) {}
+  let want = Math.max(1, total - inFee - reserveGuess(total)), best = null;
+  for (let i = 0; i < 2; i++) { const inv = (await window.scCore.lnAddressInvoice(to, want)).invoice, q = await w.createMeltQuoteBolt11(inv), room = total - inFee - amt(q.fee_reserve);  /* the exact room once the mint's reserve is known */
+    if (amt(q.amount) <= room) { best = { inv, q }; if (room === amt(q.amount)) break; want = room; } else { if (best || room < 1) break; want = room; } }
+  if (!best) throw new Error(`the mint keeps too much for fees to pay ${fmtSat(total)} out by Lightning`);
+  const m = { id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), quote: best.q.quote, amount: amt(best.q.amount), to, mint: norm(mint), token, at: nowIso(), state: 'pending' }; savePayout(m); markReleased(token, { paying: m.id });
+  try { const res = await w.ops.meltBolt11(best.q, proofs).run(); if (res.quote && res.quote.state && res.quote.state !== 'PAID') return { pending: true, amount: m.amount };
+    return settlePayout(m, 'PAID', res.change || []);
+  } catch (e) { let st = ''; try { st = (await w.checkMeltQuoteBolt11(best.q.quote)).state; } catch (_) {}
+    if (st === 'PAID') return settlePayout(m, 'PAID', []); if (st === 'UNPAID') { settlePayout(m, 'UNPAID'); throw e; } return { pending: true, amount: m.amount }; } }
+function settlePayout(m, state, change = []){ m.done = nowIso();
+  if (state !== 'PAID') { m.state = 'failed'; savePayout(m); markReleased(m.token, { paying: null }); return null; }
+  m.state = 'paid'; savePayout(m); markReleased(m.token, { paid: m.to, sent: m.amount, paying: null }); const c = sum(change);
+  if (c) addReleased({ token: cashu.getEncodedToken({ mint: m.mint, proofs: change, memo: 'change of a payment to ' + m.to }), amount: c, memo: 'change', at: nowIso() });  /* what the mint kept for fees and did not use */
+  return { sent: m.amount, change: c }; }
+async function recheckPayouts(){ let n = 0; for (const m of payouts().filter(x => x.state === 'pending')) { try { const q = await (await wallet(m.mint)).checkMeltQuoteBolt11(m.quote); if (q.state === 'PAID' || q.state === 'UNPAID') { settlePayout(m, q.state); n++; } } catch (_) {} }
+  if (n) { renderReleased(); renderHome(); } }
+// after a release: paid at once to the address when one is set; without one, or if paying fails, kept here to be copied
+async function releasedOut(out, { w, proofs, plain, mint, head, keep, label = 'copy token' }){ const to = payTo();
+  const keepIt = (lead, cls) => { show(out, lead + '\n', cls); const r3 = el('div', 'row1'); r3.appendChild(copyBtn(label, plain, { role: 'streetcat' })); out.appendChild(r3);
+    const f3 = el('details', 'more'), s3 = el('summary', null, 'token text'); f3.appendChild(s3); f3.appendChild(document.createTextNode('\n')); f3.appendChild(el('span', 'mut code', plain)); f3.appendChild(document.createTextNode('\n')); out.appendChild(f3); renderReleased(); renderHome(); };
+  if (!to) return keepIt(`${head} ${keep}`, 'ok');
+  show(out, `${head} Sending it to ${to}…`); renderReleased();
+  let po = null, why = ''; try { po = await payOut(w, proofs, plain, mint); } catch (e) { why = e.message || String(e); } renderReleased(); renderHome();
+  if (po && !po.pending) { show(out, `${head} ${fmtSat(po.sent)} sent to ${to} ✓` + (po.change ? `. The other ${fmtSat(po.change)}, which the mint kept for fees and did not use, stayed here as ecash, under Release.` : '.'), 'ok'); return; }
+  if (po && po.pending) { show(out, `⚠ ${head} Sending ${fmtSat(po.amount)} to ${to}: the mint has not said yet that it went through. Do not send it again: this page asks the mint again when it opens.`, 'bad'); return; }
+  keepIt(`✗ ${head} Not sent to ${to}: ${why}. The ${fmtSat(sum(proofs))} stay in this browser: copy them into Streetcat's wallet now (this browser keeps a copy under Release):`, 'bad'); }
 // on opening the page: finish any swap whose answer was lost last time
 async function recoverFlights(){ const found = [];
   for (const f of flights()) { try { const w = await wallet(f.mint); const st = (await w.mint.check({ Ys: f.ys })).states || [];
@@ -330,30 +367,40 @@ async function recoverFlights(){ const found = [];
 
 // tabs
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t)); refreshKeys(); }));
-// one page, three people: each role sees only its tabs; a campaign link means a donor
-const ROLEKEY = 'vetlock.role', ROLENAME = { donor: 'donor', clinic: 'clinic', streetcat: 'Streetcat' }, nav = document.querySelector('nav');
-const tabRole = t => (document.querySelector(`nav button[data-t="${t}"]`).dataset.role || '').split(' ')[0];
-function setRole(r){ if (!ROLENAME[r]) r = ''; ls.set(ROLEKEY, r); nav.dataset.role = r; nav.hidden = !r; $('who').hidden = !!r;
-  const lnk = $('who-change'); lnk.hidden = $('hd-status').hidden = !r; document.body.dataset.role = r; if (!r) delete document.body.dataset.role; updateBack(); $('hd-role').textContent = r ? ({ donor: 'Donate', clinic: 'Clinic', streetcat: 'Streetcat' })[r] : 'Vet-certified donations';
-  const on = document.querySelector('nav button.on'), first = r && document.querySelector(`nav button[data-role~="${r}"]`);
-  if (!r) document.querySelectorAll('section').forEach(s => s.classList.remove('on')); else if (!on || !(on.dataset.role || '').split(' ').includes(r)) first.click(); else document.getElementById(on.dataset.t).classList.add('on'); }
+// one page, three people: each role sees only its tabs, and the header switches between them (an address of one role keeps to it);
+// a campaign link means a donor, and so does a first visit
+const ROLEKEY = 'vetlock.role', ROLENAME = { donor: 'donor', clinic: 'clinic', streetcat: 'Streetcat' }, nav = document.querySelector('nav'), roleTabs = [...document.querySelectorAll('#hd-roles button')];
+// a screen of two roles (Keys, the cats) stays in the role it is opened from; otherwise it is its first role's
+const tabRole = t => { const rs = (document.querySelector(`nav button[data-t="${t}"]`).dataset.role || '').split(' '); return rs.includes(nav.dataset.role) ? nav.dataset.role : rs[0]; };
+function setRole(r){ if (!ROLENAME[r]) r = 'donor'; const was = nav.dataset.role; ls.set(ROLEKEY, r); nav.dataset.role = r; nav.hidden = false; document.body.dataset.role = r;
+  for (const b of roleTabs) { const on = b.dataset.r === r; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+    if (on && was !== r) flap(b, b.dataset.label || (b.dataset.label = b.textContent)); }  /* the letters turn over once, when the role changes */
+  updateBack(); const on = document.querySelector('nav button.on'), first = document.querySelector(`nav button[data-role~="${r}"]`);
+  if (!on || !(on.dataset.role || '').split(' ').includes(r)) first.click(); else document.getElementById(on.dataset.t).classList.add('on'); }
 document.addEventListener('click', e => { if (e.target.id === 'd-torefund') { e.preventDefault(); openTab('refund'); } if (e.target.id === 'r-todonate') { e.preventDefault(); openTab('donate'); }
   if (e.target.id === 'd-toecash') { e.preventDefault(); if (!$('donate').classList.contains('sigbad')) openTab('decash'); } });  /* a broken or unpublished link: no way to pay, by ecash either */
 const HOME = { donor: 'donate', clinic: 'work', streetcat: 'home' };
 // one step back from a screen inside a role: its parent screen, else the role's first screen
-const BACK = { creq: 'work', certify: 'work', csettings: 'work', coffline: 'work', scamp: 'home', snew: 'scamp', sreq: 'scamp', shand: 'home', dhand: 'donate', dcard: 'donate', decash: 'donate' };
-const brand = document.querySelector('.sc-brand'); const flapBrand = () => flap(brand, 'STREETCAT');
-function updateBack(){ flapBrand(); const r = nav.dataset.role, on = document.querySelector('nav button.on'); $('hd-back').hidden = !r || !on || on.dataset.t === HOME[r]; }
-$('hd-back').onclick = () => { const r = nav.dataset.role, on = document.querySelector('nav button.on'), up = on && BACK[on.dataset.t]; if (r) openTab(up && tabRole(up) === r ? up : HOME[r]); };
+const BACK = { creq: 'work', certify: 'work', csettings: 'work', coffline: 'work', scamp: 'home', snew: 'scamp', sreq: 'scamp', shand: 'home', dhand: 'donate', dcard: 'donate', decash: 'donate', cat: 'cats', catnew: 'cats' };  /* catnew: its request, when it was opened from one */
+function updateBack(){ const r = nav.dataset.role, on = document.querySelector('nav button.on'); $('hd-back').hidden = !r || !on || on.dataset.t === HOME[r]; }
+$('hd-back').onclick = () => { const r = nav.dataset.role, on = document.querySelector('nav button.on'), up = on && BACK[on.dataset.t]; if (!r) return; const to = up && tabRole(up) === r ? up : HOME[r], prev = navStack[navStack.length - 2];
+  if (prev && prev.t === to && prev.r === r) history.back(); else openTab(to); };  /* the screen before, when it is the one the arrow leads to: as the phone's back */
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => { updateBack(); if (b.dataset.t === 'home') renderHome(); }));
+// the phone's own back (a swipe on an iPhone, the back button on Android) goes back one screen inside the app, not out of it (StreetCat, 6 Nov):
+// every screen opened after the page has started is a step in the browser's history, and going back opens the screen of the step before
+let navReady = false, navRestoring = false; const navStack = [], navState = () => ({ t: (document.querySelector('nav button.on') || { dataset: {} }).dataset.t, r: nav.dataset.role });
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => { if (!navReady || navRestoring) return; const s = navState(), top = navStack[navStack.length - 1];
+  if (top && top.t === s.t && top.r === s.r) return; navStack.push(s); history.pushState({ ...s, sc: 1 }, ''); }));
+addEventListener('popstate', e => { const s = e.state; if (!s || !s.sc || !s.t) return; navStack.pop(); if (!navStack.length) navStack.push({ t: s.t, r: s.r }); navRestoring = true;
+  try { setRole(s.r); document.querySelector(`nav button[data-t="${s.t}"]`).click(); } finally { navRestoring = false; } });
 const openTab = t => { setRole(tabRole(t)); document.querySelector(`nav button[data-t="${t}"]`).click(); };
-document.querySelectorAll('#who button').forEach((b, i) => { b.onclick = () => setRole(b.dataset.role); const l = b.textContent; setTimeout(() => flap(b, l, { speed: .8 }), 120 + i * 220); });
-$('who-change').onclick = e => { e.preventDefault(); setRole(''); window.scrollTo(0, 0); };
+// a role in the header: another role switches to it; the role on screen goes back to its first screen
+for (const b of roleTabs) b.onclick = () => { const r = b.dataset.r; if (nav.dataset.role === r) openTab(HOME[r]); else setRole(r); window.scrollTo(0, 0); };
 // a role can also come from the address: /donate, /clinic, /streetcat (or ?role=…): that page never asks
 const pathRole = ((location.pathname.replace(/\/+$/, '').split('/').pop() || '').toLowerCase().replace('donate', 'donor')), qRole = (new URLSearchParams(location.search).get('role') || '').toLowerCase();
 const fixedRole = ROLENAME[pathRole] ? pathRole : ROLENAME[qRole] ? qRole : '';
-setRole(location.hash.includes('#c=') ? 'donor' : fixedRole || ls.get(ROLEKEY) || '');
-if (fixedRole) { $('who-change').onclick = e => { e.preventDefault(); ls.set(ROLEKEY, ''); location.href = 'index.html'; }; }
+document.body.classList.toggle('fixed', !!fixedRole);  // there the header shows only that role
+setRole(location.hash.includes('#c=') ? 'donor' : fixedRole || ls.get(ROLEKEY) || 'donor');
 function refreshKeys(){ undone($('c-copy')); undone($('s-copy'));  // a new or imported key has not been copied yet
   for (const [role, el, x] of [['clinic', 'c-pk', 'x-c'], ['streetcat', 's-pk', 'x-s']]) { const sk = key(role, false), n = oldKeys(role).length; heldKeys(role).forEach(k => roleOf(pubOf(k), role)); const pk = sk ? pubOf(sk) : '— (none yet)';
     if (el) $(el).textContent = pk; $(x).textContent = pk; for (const id of [el + '-old', x + '-old']) if ($(id)) $(id).textContent = n ? ` + ${n} older key${n > 1 ? 's' : ''} kept` : ''; }
@@ -566,7 +613,7 @@ $('s-go').onclick = async () => { const btn = $('s-go'); if (btn.classList.conta
   addReleased({ token: plain, amount: sum(got), memo: dec.memo || '', at: new Date().toISOString() });  // kept here until Streetcat's wallet has it
   await ledgerKeep(dec, info, { request: '', patient: campName(info, dec.memo), procedure: String(dec.memo || '').replace(/^\S+\s*·?\s*/, '').slice(0, 120), date: new Date().toISOString().slice(0, 10), amount: sum(live) }).catch(() => {});
   const left = gone.length ? ` ${sum(gone)} sat of this token were left out: ${why}.` : '';
-  buzz(); finish(btn, '✓ Released'); $('s-again').hidden = false; const cd = $('s-card').firstChild; if (cd) { cd.replaceChild(lockBar('released'), cd.querySelector('.lock')); cd.classList.add('paid'); } show($('s-out'), `RELEASED ${sum(got)} sat.${left} Import this plain token into Streetcat's wallet now (this browser keeps a copy below):\n`, 'ok'); const r3 = document.createElement('div'); r3.className = 'row1'; r3.appendChild(copyBtn('copy token', plain, { role: 'streetcat' })); $('s-out').appendChild(r3); const f3 = document.createElement('details'); f3.className = 'more'; const s3 = document.createElement('summary'); s3.textContent = 'token text'; f3.appendChild(s3); f3.appendChild(document.createTextNode('\n')); const t3 = document.createElement('span'); t3.className = 'mut code'; t3.textContent = plain; f3.appendChild(t3); f3.appendChild(document.createTextNode('\n')); $('s-out').appendChild(f3); renderReleased();
+  buzz(); finish(btn, '✓ Released'); $('s-again').hidden = false; const cd = $('s-card').firstChild; if (cd) { cd.replaceChild(lockBar('released'), cd.querySelector('.lock')); cd.classList.add('paid'); } await releasedOut($('s-out'), { w, proofs: got, plain, mint: dec.mint, head: `RELEASED ${sum(got)} sat.${left}`, keep: 'Import this plain token into Streetcat\'s wallet now (this browser keeps a copy below):', label: 'copy token' });
 } catch (e) { show($('s-out'), whyFailed(e), 'bad'); } busy(btn, false); };
 
 // REFUND (donor): a receipt (the picture file, its text, or one made before version 1), or just the locked token when this browser
@@ -704,7 +751,7 @@ $('k-go').onclick = async () => { const btn = $('k-go'); busy(btn, true); try {
   const reduce = REDUCE(); const step = k => { if (k >= lines.length) { acts.hidden = another.hidden = false; buzz(); return; } const l = document.createElement('div'); l.className = 'tl' + (/^(Donors will have to pay with ecash|Without NUT-09)/.test(lines[k] || '') ? ' bad' : ''); l.style.setProperty('--h', String(136 + (k * 11) % 29));  /* what this mint lacks: red */ l.style.setProperty('--l', String(.62 + ((k * 5) % 4) * .07)); ticker.appendChild(l); if (reduce) { l.textContent = lines[k]; step(k + 1); return; } const prev = ticker.querySelectorAll('.cur'); prev.forEach(c => c.remove()); typeKeys(l, lines[k] || ' ', { dur: Math.min(420, 120 + lines[k].length * 6), think: false, done: () => setTimeout(() => step(k + 1), lines[k] ? 90 + Math.random() * 240 : 40) }); }; step(0);
 } catch (e) { show($('k-out'), e.message, 'bad'); } busy(btn, false); };
 // HOME (Streetcat): the campaigns this browser made, and what it holds
-function renderHome(){ const list = $('h-list'); list.textContent = ''; const a = camps(); $('h-n').textContent = String(a.length); $('h-rel').textContent = releasedList().reduce((s, r) => s + Number(r.amount || 0), 0) + ' sat';
+function renderHome(){ const list = $('h-list'); list.textContent = ''; const a = camps(); $('h-n').textContent = String(a.length); $('h-rel').textContent = unpaid().reduce((s, r) => s + Number(r.amount || 0), 0) + ' sat'; lnField();
   if (!a.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'No campaigns yet. Make one for the next operation.'; list.appendChild(e); return; }
   for (const k of a.slice().reverse()) { const it = document.createElement('div'); it.className = 'item'; const l = document.createElement('div'); const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = k.c.name; l.appendChild(nm); const sb = document.createElement('div'); sb.className = 'sub2'; const left = Math.ceil((k.c.deadline - Date.now() / 1000) / 86400); sb.textContent = `${k.c.op || 'operation'} · ${left > 0 ? left + ' day' + (left === 1 ? '' : 's') + ' left' : 'closed'}`; l.appendChild(sb); it.appendChild(l);
     const r = document.createElement('div'); r.className = 'arr'; r.textContent = '→'; it.appendChild(r);
@@ -724,8 +771,20 @@ async function signOldCampaigns(){ if (signOldCampaigns.busy) return 0; signOldC
     for (const k of a) { if (!k || !k.c || k.c.sig) continue; const sk = heldFor('streetcat', [k.c.streetcat]); if (!sk) continue;
       try { const c = await window.scCore.signCampaign(k.c, sk); k.c = c; k.link = String(k.link || location.href).split('#')[0] + '#c=' + b64u.enc(JSON.stringify(c)); n++; } catch (_) {} }
     if (n) ls.set(CAMPS, JSON.stringify(a)); } catch (_) {} signOldCampaigns.busy = false; if (n) renderHome(); return n; }
+// Home: the Lightning address what is released goes to, and whether it answers (checked when it is saved and when Home first shows)
+function lnField(){ const i = $('h-ln'); if (!i || document.activeElement === i) return; i.value = String(ls.get(PAYTO) || ''); if (!lnField.done) { lnField.done = true; lnCheck(false); } }
+async function lnCheck(saving){ const st = $('h-ln-st'), v = $('h-ln').value.trim().replace(/^lightning:/i, '');
+  if (!v) { if (saving) ls.set(PAYTO, ''); show(st, ''); return; }  /* empty: nothing to say (StreetCat, 6 Nov); released ecash stays in this browser */
+  const url = window.scCore.lnAddressUrl(v); if (!url) { show(st, `✗ ${v} is not a Lightning address (name@domain)` + (saving ? ': nothing was saved.' : '.'), 'bad'); return; }
+  if (saving) { ls.set(PAYTO, v); $('h-ln').value = v; }
+  show(st, `checking ${v}…`);
+  try { let r; try { r = await fetch(url, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error('it cannot be reached from this browser'); } const j = await r.json().catch(() => null);
+    if (!r.ok || !j || j.tag !== 'payRequest') throw new Error(j && j.reason ? j.reason : `it answered HTTP ${r.status}`);
+    show(st, `✓ Every release is paid at once to ${v}.`, 'ok'); if (saving) buzz();
+  } catch (e) { show(st, `✗ ${v}: ${e.message || e}. Until it answers, what is released stays in this browser.`, 'bad'); } }
+$('h-ln').addEventListener('change', () => lnCheck(true));
 $('h-new').onclick = () => openTab('campaign'); $('h-release').onclick = () => openTab('release'); $('h-keys').onclick = e => { e.preventDefault(); openTab('keys'); };
-renderReleased(); recoverFlights(); renderHome();
+renderReleased(); recoverFlights(); renderHome(); setTimeout(() => { if (payouts().some(x => x.state === 'pending')) recheckPayouts(); }, 2000); addEventListener('online', () => recheckPayouts());  /* a payment whose answer was lost: asked about again */
 // ===== THE WORK BETWEEN STREETCAT, THE CLINIC, THE VOLUNTEERS AND THE DONORS =====
 // A request (Streetcat → clinic), its answer (clinic → Streetcat) and a donation (donor or volunteer → Streetcat) travel by Nostr relay
 // (relay.js), and the very same payload by link, file or QR when no relay confirms it. The protocol is core.js; this is its interface.
@@ -756,7 +815,9 @@ const saveCreq = r => jset(CREQ, [...creqs().filter(x => x.id !== r.id), r]);
 const clinicSkFor = q => q && q.campaign ? heldFor('clinic', [q.campaign.clinic]) : null;
 const CGROUP = { review: 'To review', sending: 'Waiting to be sent', reported: 'Reported', done: 'Done' };
 const cGroup = r => r.state === 'review' ? 'review' : r.state === 'reported' ? 'reported' : sentState(r.outbox).state === 'sent' || r.handed || r.ackedAt ? 'done' : 'sending';
-async function takeRequest(q, from){ const have = creqs().find(x => x.id === q.id); if (have) return have;
+async function takeRequest(q0, from){ const { photoData, ...q } = q0 || {};
+  if (photoData && typeof photoData === 'object') for (const ph of Array.isArray(q.photos) ? q.photos : []) { const s = photoData[ph.slot]; if (typeof s === 'string' && s.length <= C.CAT_PHOTO_MAX * 2) { try { await keepPhoto(String(ph.sha256), unb64(s)); } catch (_) {} } }  /* a file carries its photos */
+  const have = creqs().find(x => x.id === q.id); if (have) return have;
   const r = { id: q.id, q, from, at: nowIso(), state: 'review', problems: C.requestProblems(q) }; saveCreq(r);
   const sk = clinicSkFor(q); if (sk && OUTBOX && !r.problems.length) { try { await OUTBOX.add(R.receiptFor(q), sk, q.campaign.streetcat, { relays: relays(), label: 'received ' + q.id }); flush(); } catch (_) {} }  /* tells Streetcat it arrived */
   return r; }
@@ -765,31 +826,38 @@ async function clinicCheck(){ const sks = heldKeys('clinic'); if (!R) return { t
   if (!online()) return { text: 'no connection: showing what this phone already has' };
   const mine = new Set(sks.map(pubOf)), seen = new Set(jget(CSEEN, []));
   const expect = p => { if (!p) return null; if (p.t === 'streetcat.request' && p.campaign && mine.has(lc(p.campaign.clinic))) return p.campaign.streetcat;
+    if (p.t === 'streetcat.request-photo' && mine.has(lc(p.clinic))) return p.from;  /* a request's photo: to this clinic's key, from the Streetcat key that sends it (it may come before its request) */
     const r = p.t === 'streetcat.received' && creqs().find(x => x.id === p.id); return r ? r.q.campaign.streetcat : null; };
   const res = await R.receive(sks, { relays: relays(), seen, expect, timeout: 8000 }); let n = 0;
   for (const m of res.messages) { const p = m.payload; if (p.t === 'streetcat.request') { if (!creqs().some(x => x.id === p.id)) { await takeRequest(p, 'relay'); n++; } }
+    else if (p.t === 'streetcat.request-photo') { try { await takeReqPart(p); } catch (_) {} }
     else { const r = creqs().find(x => x.id === p.id); if (r && !r.ackedAt) { r.ackedAt = p.at || nowIso(); saveCreq(r); } } }
   jset(CSEEN, [...seen].slice(-400)); await flush(); const ok = res.relays.filter(x => x.ok).length;
   return { n, text: `${n ? n + ' new · ' : ''}checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ok} of ${res.relays.length} relays answered` }; }
 function renderWork(){ const list = $('w-list'); list.textContent = ''; const all = creqs().sort((a, b) => String(b.at).localeCompare(String(a.at)));
   $('w-n').textContent = String(all.filter(r => cGroup(r) === 'review').length); $('w-done').textContent = String(all.filter(r => cGroup(r) === 'done').length);
-  if (!all.length) list.appendChild(el('div', 'empty', 'No requests yet. When Streetcat sends one, it appears here.'));
+  /* no requests yet: the list says nothing (StreetCat, 6 Nov: «elimina ese texto») */
   for (const g of ['review', 'sending', 'reported', 'done']) { const rs = all.filter(r => cGroup(r) === g); if (!rs.length) continue; list.appendChild(el('div', 'grp', CGROUP[g]));
     for (const r of rs) { const it = el('div', 'item'), l = el('div'); l.appendChild(el('div', 'nm', `${r.q.patient} · ${r.q.procedure}`)); l.appendChild(el('div', 'sub2', `${r.q.date} · ${fmtSat(C.requestAmount(r.q))} · ${r.q.campaign.name}${r.problems && r.problems.length ? ' · ✗ not valid' : ''}`)); it.appendChild(l);
       const st = g === 'review' ? ['→', 'wait'] : g === 'done' ? [r.ackedAt ? 'received' : 'sent', 'ok'] : g === 'reported' ? [sentState(r.outbox).state === 'sent' || r.handed ? 'sent' : 'to send', 'bad'] : [sentShort(r.outbox), /^(not sent|offline)$/.test(sentShort(r.outbox)) ? 'bad' : ''];
       it.appendChild(el('div', 'st ' + st[1], st[0])); it.onclick = () => { CUR_CREQ = r.id; openTab('creq'); }; list.appendChild(it); } }
-  offlineChecks().then(items => { const bad = items.filter(i => i.state === 'bad').length; $('w-offline').textContent = bad ? `not ready for offline · ${bad}` : 'ready for offline ✓'; $('w-offline').classList.toggle('bad', !!bad); }).catch(() => {}); }
+  offlineChecks().then(items => { const bad = items.filter(i => i.state === 'bad').length, o = $('w-offline');  // "Offline setup", after Certify a token (StreetCat, 6 Nov), in red while something is missing
+    o.classList.toggle('bad', !!bad); o.title = bad ? `not ready for offline: ${bad} to fix` : 'ready for offline'; o.setAttribute('aria-label', 'Offline setup: ' + o.title); }).catch(() => {}); }
 let CUR_CREQ = null, REASON = '';
 function renderCreq(){ const r = creqs().find(x => x.id === CUR_CREQ), head = $('cr-head'), dl = $('cr-dl'); head.textContent = ''; dl.textContent = ''; $('cr-gives').textContent = ''; show($('cr-warn'), ''); show($('cr-out'), '');
-  if (!r) { head.appendChild(el('div', 'mut', 'No request open.')); $('cr-act').hidden = true; return; }
+  $('cr-pics-box').hidden = true; if (!r) { head.appendChild(el('div', 'mut', 'No request open.')); $('cr-act').hidden = true; $('cr-cat').hidden = true; return; }
   const q = r.q, c = q.campaign; head.style.setProperty('--h', String(campHue(c))); head.appendChild(el('div', 'title', c.name)); head.appendChild(el('div', 'mut', `${c.op || 'operation'} · request ${q.id}`));
   for (const [k, v] of [['Cat', q.patient], ['Procedure', q.procedure], ['Date', q.date], ['Releases', fmtSat(C.requestAmount(q))], ...(q.note ? [['Note', q.note]] : []), ['From', `Streetcat ${abbr(c.streetcat)}`], ['Arrived', `${when(r.at)} · ${({ relay: 'by relay', link: 'by link', file: 'from a file', 'in person': 'in person, by QR' })[r.from] || r.from}`]]) { dl.appendChild(el('dt', null, k)); dl.appendChild(el('dd', null, v)); }
   $('cr-gives').textContent = q.contributions.map(k => `${k.ref} · ${fmtSat(k.release)} of ${fmtSat(k.proofs.reduce((s, p) => s + amt(p.amount), 0))}`).join('\n');
+  creqPics(q);
   const sk = clinicSkFor(q), late = Number(c.deadline) < Date.now() / 1000, bad = (r.problems || []).length || !sk;
   const warn = [...(r.problems || []).map(p => '✗ ' + p), ...(sk ? [] : [`✗ This phone has no clinic key for ${c.name} (${abbr(c.clinic)}). Open the request on the phone that holds that key, or restore its backup in settings.`]), ...(late ? [`⚠ The refund date (${fmtDate(c.deadline)}) has passed: donors may take their sats back at any moment. You can still confirm: Streetcat releases whatever is still locked.`] : [])];
   if (warn.length) show($('cr-warn'), warn.join('\n'), bad ? 'bad' : '');
   const open = r.state === 'review'; $('cr-act').hidden = !open; $('cr-ok').checked = false; $('cr-ok').disabled = !!bad; $('cr-go').disabled = true; REASON = ''; document.querySelectorAll('#cr-why button').forEach(b => b.classList.remove('on')); $('cr-report').disabled = true; $('cr-note').value = ''; $('cr-prob').open = false; $('cr-prob').hidden = !sk;
-  EVID = null; evLine(); if (!open) answerOut(r); }
+  EVID = null; evLine(); if (!open) answerOut(r); creqCat(r); }
+// the cat as Streetcat caught it, to check it is this cat; redrawn alone when a photo arrives, so a ticked box stays ticked
+function creqPics(q){ const np = (q.photos || []).length; $('cr-pics-box').hidden = !np; if (!np) return;
+  photoTiles($('cr-pics'), q.photos, 'on its way').then(n => { $('cr-pics-st').textContent = n === np ? 'Taken by Streetcat when the cat was caught. Check it is this cat. A tap shows a photo big.' : `${np - n} of ${np} on their way: they come by relay, with a connection.`; }); }
 // the invoice or a photo: hashed here, the file never leaves this phone; only { sha256, kind } goes into the signed declaration
 let EVID = null;
 const evLine = () => { const e = $('cr-ev'); e.textContent = ''; if (!EVID) { e.textContent = 'Optional: only the file\'s fingerprint (SHA-256) goes with the confirmation. The file stays on this phone.'; return; }
@@ -842,7 +910,7 @@ $('cs-restore').onclick = async () => { try { const pw = $('cs-pw').value; if (!
 // ----- ready for offline: what the clinic needs to confirm without coverage -----
 let INSTALL = null; addEventListener('beforeinstallprompt', e => { e.preventDefault(); INSTALL = e; if ($('coffline').classList.contains('on')) renderOffline(); });
 const standalone = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (_) { return false; } };
-async function offlineChecks(){ const items = [], need = ['index.html', 'index.js', 'cashu-bundle.js', 'core.js', 'nostr-bundle.js', 'relay.js', 'qrcode.min.js', 'jsqr.min.js', 'DepartureMono-Regular.woff2'];
+async function offlineChecks(){ const items = [], need = ['index.html', 'index.js', 'cashu-bundle.js', 'core.js', 'nostr-bundle.js', 'relay.js', 'qrcode.min.js', 'jsqr.min.js', 'catid.js', 'catid-worker.js', 'DepartureMono-Regular.woff2'];
   let reg = null; try { reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null; } catch (_) {}
   const cached = new Set(); try { for (const k of (await caches.keys()).filter(k => k.startsWith('streetcat-app-'))) for (const q of await (await caches.open(k)).keys()) cached.add(new URL(q.url).pathname.split('/').pop() || 'index.html'); } catch (_) {}
   const miss = need.filter(f => !cached.has(f)), app = !!(reg && reg.active) && !miss.length;
@@ -853,13 +921,20 @@ async function offlineChecks(){ const items = [], need = ['index.html', 'index.j
   items.push({ state: sk && !other.length ? 'ok' : 'bad', text: !sk ? 'No clinic key on this phone' : other.length ? `${other.length} request${other.length === 1 ? ' names' : 's name'} a clinic key this phone does not have` : 'This phone holds the clinic key', detail: sk ? abbr(pubOf(sk)) + (oldKeys('clinic').length ? ` + ${oldKeys('clinic').length} older` : '') : 'Make one, or restore its backup, in settings.' });
   const mc = mintCache(), mints = [...new Set(all.map(r => norm(r.q.campaign.mint)))], noKeys = mints.filter(m => !mc[m]);
   if (mints.length) items.push({ state: noKeys.length ? 'warn' : 'ok', text: noKeys.length ? "The mint's keys are not saved yet" : "The mint's keys are saved", detail: 'Only needed to certify a pasted token without a connection; requests do not need them.' });
+  if (typeof CATID !== 'undefined') { const ai = await CATID.here();  /* StreetCat, 6 Nov: «añade offline setup»: the cat recognition, got ahead of time on wifi */
+    items.push({ id: 'ai', state: ai ? 'ok' : 'warn', text: ai ? 'The cat recognition is saved on this phone' : 'The cat recognition is not saved yet', detail: ai ? 'A new cat can be compared with your records without a connection too.' : `Only needed to compare a new cat with your records: ${Math.round(CATID.SIZE / 1e6)} MB. Get it now, on wifi.` }); }
   const sv = storageWorks(); items.push({ state: sv ? 'ok' : 'bad', text: sv ? 'This phone can save' : 'This browser cannot save anything', detail: sv ? '' : 'A private window? Open the app in a normal one.' });
   items.push({ state: standalone() ? 'ok' : 'warn', text: standalone() ? 'Installed on the home screen' : 'Not installed on the home screen', detail: standalone() ? '' : 'Install it: in a browser tab, Safari may erase a site\'s data after 7 days without use.' });
   return items; }
 const checkList = (ul, items) => { ul.textContent = ''; for (const i of items) { const li = el('li', i.state), b = el('b', null, i.state === 'ok' ? '✓' : i.state === 'bad' ? '✗' : '⚠'), s = el('span', null, i.text); if (i.detail) s.appendChild(el('small', null, i.detail)); li.appendChild(b); li.appendChild(s); ul.appendChild(li); } };
 async function renderOffline(){ const items = await offlineChecks(), bad = items.filter(i => i.state === 'bad').length; checkList($('co-list'), items);
-  $('co-sum').textContent = bad ? `Not ready for offline use · ${bad} to fix` : 'Ready for offline use ✓'; $('co-sum').classList.toggle('bad', !!bad); $('co-install').hidden = !INSTALL || standalone(); $('co-ios').hidden = standalone() || !/iPhone|iPad|iPod/.test(navigator.userAgent); }
+  $('co-sum').textContent = bad ? `Not ready for offline use · ${bad} to fix` : 'Ready for offline use ✓'; $('co-sum').classList.toggle('bad', !!bad); $('co-install').hidden = !INSTALL || standalone(); $('co-ios').hidden = standalone() || !/iPhone|iPad|iPod/.test(navigator.userAgent);
+  const ai = items.find(i => i.id === 'ai'); $('co-ai').hidden = !ai || ai.state === 'ok'; }
 $('co-again').onclick = () => renderOffline();
+$('co-ai').onclick = async () => { const b = $('co-ai'), label = b.textContent; busy(b, true); show($('co-ai-out'), '');
+  try { await CATID.keep((got, all) => { b.textContent = `Getting it: ${Math.round(got / 1e6)} of ${Math.round(all / 1e6)} MB`; }); }
+  catch (e) { show($('co-ai-out'), '✗ the cat recognition did not come: ' + ((e && e.message) || e), 'bad'); }
+  b.textContent = label; busy(b, false); renderOffline(); };
 $('co-install').onclick = async () => { if (!INSTALL) return; INSTALL.prompt(); try { await INSTALL.userChoice; } catch (_) {} INSTALL = null; renderOffline(); };
 
 // ----- Streetcat: the donations of a campaign, its requests, and the release -----
@@ -888,18 +963,21 @@ async function takeAnswer(a, via){ const r = sreqs().find(x => x.id === a.id); i
 const SSEEN = 'vetlock.sc.seen';
 async function scCheck(){ const sks = heldKeys('streetcat'); if (!R) return { text: 'relays are not available in this browser' }; if (!sks.length) return { text: 'no Streetcat key in this browser' };
   if (!online()) return { text: 'no connection: showing what this browser already has' };
-  const mine = new Set(sks.map(pubOf)), seen = new Set(jget(SSEEN, [])), reqs = sreqs();
+  const mine = new Set(sks.map(pubOf)), seen = new Set(jget(SSEEN, [])), reqs = sreqs(), clinics = knownClinics();
   const expect = p => { if (!p) return null; const r = reqs.find(x => x.id === p.id);
     if ((p.t === 'streetcat.answer' || p.t === 'streetcat.received') && r) return r.q.campaign.clinic;
     if (p.t === 'streetcat.donation' && p.campaign && mine.has(lc(p.campaign.streetcat)) && PUBKEY.test(String(p.from || ''))) return p.from;
+    if ((p.t === 'streetcat.cat' || p.t === 'streetcat.cat-photo') && clinics.has(lc(p.from))) return p.from;  /* a cat's record and its photos: from the clinic of a campaign */
     return null; };
-  const res = await R.receive(sks, { relays: relays(), seen, expect, timeout: 8000 }), got = { d: 0, a: 0 }, errs = [];
+  const res = await R.receive(sks, { relays: relays(), seen, expect, timeout: 8000 }), got = { d: 0, a: 0, c: 0 }, errs = [];
   for (const m of res.messages) { const p = m.payload; try {
       if (p.t === 'streetcat.received') { const r = sreqs().find(x => x.id === p.id); if (r && !r.receivedAt) { r.receivedAt = p.at || nowIso(); saveSreq(r); } }
       else if (p.t === 'streetcat.answer') { await takeAnswer(p, 'relay'); got.a++; }
-      else if (p.t === 'streetcat.donation') { await takeDonation(p, p.via === 'in person' ? 'in person' : 'relay'); got.d++; } } catch (e) { errs.push(e.message || String(e)); } }
+      else if (p.t === 'streetcat.donation') { await takeDonation(p, p.via === 'in person' ? 'in person' : 'relay'); got.d++; }
+      else if (p.t === 'streetcat.cat') { if (await takeCat(p, 'relay')) got.c++; }
+      else if (p.t === 'streetcat.cat-photo') await takeCatPart(p); } catch (e) { errs.push(e.message || String(e)); } }
   jset(SSEEN, [...seen].slice(-600)); await flush(); const ok = res.relays.filter(x => x.ok).length;
-  return { n: got.d + got.a, text: [got.d ? `${got.d} donation${got.d > 1 ? 's' : ''}` : '', got.a ? `${got.a} answer${got.a > 1 ? 's' : ''}` : '', `checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ok} of ${res.relays.length} relays answered`, ...errs.map(x => '✗ ' + x)].filter(Boolean).join(' · ') }; }
+  return { n: got.d + got.a + got.c, text: [got.d ? `${got.d} donation${got.d > 1 ? 's' : ''}` : '', got.a ? `${got.a} answer${got.a > 1 ? 's' : ''}` : '', got.c ? `${got.c} cat${got.c > 1 ? 's' : ''}` : '', `checked at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ok} of ${res.relays.length} relays answered`, ...errs.map(x => '✗ ' + x)].filter(Boolean).join(' · ') }; }
 let CUR_CAMP = null, CUR_SREQ = null, SN_PICK = {};
 const curCamp = () => { const a = camps(); return a.find(x => x.slug === CUR_CAMP) || (a.length === 1 ? a[0] : null); };  /* after a reload, the only campaign */
 const sreqState = r => r.state === 'released' ? ['released', 'ok'] : r.state === 'certified' ? ['certified ✓', 'ok'] : r.state === 'reported' ? ['problem reported', 'bad'] : r.state === 'bad' ? ['not certified', 'bad'] : r.receivedAt ? ['received', 'wait'] : r.handed && sentState(r.outbox).state !== 'sent' ? ['sent by hand', ''] : [sentShort(r.outbox), /^(not sent|offline)$/.test(sentShort(r.outbox)) ? 'bad' : ''];
@@ -934,6 +1012,24 @@ async function renderSnew(){ const k = curCamp(), head = $('sn-head'), list = $(
       inp.oninput = () => { const n = Math.max(0, Math.min(avail, Math.floor(Number(inp.value) || 0))); SN_PICK[ref] = n; snTotal(); }; a.appendChild(inp); a.appendChild(smallBtn('all', () => { inp.value = String(avail); inp.oninput(); })); it.appendChild(a); list.appendChild(it); }
   } catch (e) { list.textContent = ''; list.appendChild(el('div', 'empty', 'The mint cannot be reached (' + (e.message || e) + '). A request needs it, to know what is still locked.')); } }
 const snTotal = () => { const n = Object.values(SN_PICK).reduce((s, x) => s + x, 0); $('sn-go').textContent = n ? `Request ${fmtSat(n)}` : 'Make the request'; $('sn-go').disabled = !n; };
+// the cat as it was caught (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»): up to three photos, face and
+// sides, made small here as the clinic's are; kept on this phone, named in the request by SHA-256 and sent with it, so the clinic can
+// check it is this cat
+let SN_SHOTS = {};
+const SN_NOTE = 'Optional. Made small here, without location data. They go with the request, encrypted, so the clinic can check it is this cat.';
+const snShotsLine = () => { const a = Object.values(SN_SHOTS), kb = Math.round(a.reduce((s, p) => s + p.bytes.length, 0) / 1000); $('sn-shots-st').textContent = a.length ? `${a.length} of 3 photos · ${kb} kB, made small here, without location data. They go with the request, encrypted.` : SN_NOTE; };
+const snShotsClear = () => { SN_SHOTS = {}; document.querySelectorAll('#sn-shots .shot').forEach(b => { b.querySelectorAll('img').forEach(i => i.remove()); b.classList.remove('has'); }); snShotsLine(); };
+document.querySelectorAll('#sn-shots .shot').forEach(b => { b.onclick = async () => { const slot = b.dataset.slot, input = $('sn-file');
+  const f = await new Promise(res => { input.value = ''; input.onchange = () => res(input.files && input.files[0]); input.click(); }); if (!f) return;
+  b.classList.add('busy'); try { const p = await shrinkPhoto(f); SN_SHOTS[slot] = p; b.querySelectorAll('img').forEach(i => i.remove()); const img = el('img'); img.alt = SLOTNAME[slot]; img.src = URL.createObjectURL(new Blob([p.bytes], { type: 'image/jpeg' })); b.prepend(img); b.classList.add('has'); snShotsLine(); show($('sn-out'), ''); }
+  catch (e) { show($('sn-out'), failText(e), 'bad'); } b.classList.remove('busy'); }; });
+// a request's photos in a row of three, or a word where one is not on this phone yet; a tap shows a photo big, a second tap small again
+async function photoTiles(box, photos, missing){ const run = box._run = (box._run || 0) + 1; box.textContent = ''; const tiles = [];
+  for (const ph of C.REQ_SLOTS.map(s => (photos || []).find(p => p.slot === s)).filter(Boolean)) { const b = el('button'); b.type = 'button'; const u = await photoUrl(ph.sha256); if (box._run !== run) return 0;
+    if (u) { const img = el('img'); img.alt = SLOTNAME[ph.slot]; img.src = u; b.appendChild(img); } else { b.classList.add('none'); b.appendChild(el('span', 'wait', missing)); }
+    b.appendChild(el('span', 'lbl', SLOTNAME[ph.slot])); tiles.push(b); box.appendChild(b); }
+  tiles.forEach(b => { b.onclick = () => { if (!b.querySelector('img')) return; const was = b.classList.contains('big'); tiles.forEach(t => { t.classList.remove('big'); t.style.order = ''; }); if (!was) { b.classList.add('big'); b.style.order = '-1'; } }; });
+  return tiles.filter(t => t.querySelector('img')).length; }
 // a request: of each donation, only the proofs that pay for this procedure (whole proofs, and at most one split), so the clinic signs nothing more
 async function makeScRequest(c, f){ const sk = heldFor('streetcat', [c.streetcat]); if (!sk) throw Object.assign(new Error('this browser has no Streetcat key for ' + c.name), { byPage: true });
   const w = await wallet(c.mint), entries = scEntries(c), reserved = reservedYs(), contributions = [], full = [];
@@ -941,33 +1037,49 @@ async function makeScRequest(c, f){ const sk = heldFor('streetcat', [c.streetcat
     const live = (await donationProofs(w, e)).filter(x => x.state === 'UNSPENT' && !reserved.has(yHex(x.p))).map(x => x.p), plan = C.planRelease(live, pk.release);
     if (plan.split && !(plan.split.dleq && plan.split.dleq.r)) throw Object.assign(new Error(`${pk.ref} can only pay whole proofs (its ecash carries no DLEQ proof): ask for ${sum(plan.whole)} or ${sum(plan.inputs)} sat`), { byPage: true });
     contributions.push({ ref: pk.ref, release: pk.release, proofs: plan.inputs }); full.push(...plan.inputs); }
-  const q = await C.makeRequest({ campaign: c, patient: f.patient, procedure: f.procedure, date: f.date, note: f.note, contributions });
+  const photos = C.REQ_SLOTS.filter(s => f.shots && f.shots[s]).map(s => ({ slot: s, sha256: f.shots[s].sha256, bytes: f.shots[s].bytes.length, w: f.shots[s].w, h: f.shots[s].h }));
+  try { for (const p of photos) await IDB.put('photos', p.sha256, f.shots[p.slot].bytes); } catch (_) { throw Object.assign(new Error('this browser cannot keep the photos (a private window?): open the app in a normal window'), { byPage: true }); }  /* before the request names them */
+  const q = await C.makeRequest({ campaign: c, patient: f.patient, procedure: f.procedure, date: f.date, note: f.note, contributions, photos });
   const r = { id: q.id, q, slug: f.slug, full: cashu.getEncodedToken({ mint: c.mint, proofs: full.map(fullProof) }), state: 'made', created: q.created }; saveSreq(r);
-  if (OUTBOX) { const it = await OUTBOX.add(q, sk, c.clinic, { relays: relays(), label: 'request ' + q.id }); r.outbox = it.id; r.state = 'sent'; saveSreq(r); flush(); }
+  if (OUTBOX) { const it = await OUTBOX.add(q, sk, c.clinic, { relays: relays(), label: 'request ' + q.id }); r.outbox = it.id; r.state = 'sent'; saveSreq(r);
+    flush().then(() => reqParts()).then(() => { if ($('sreq').classList.contains('on') && CUR_SREQ === r.id) renderSreq(); }).catch(() => {}); }  /* its photos follow the request */
   return r; }
 $('sn-go').onclick = async () => { const btn = $('sn-go'); busy(btn, true); try { const k = curCamp(); if (!k) throw new Error('no campaign open');
     const picks = Object.entries(SN_PICK).filter(([, n]) => n > 0).map(([ref, release]) => ({ ref, release }));
-    const f = { patient: $('sn-cat').value.trim(), procedure: $('sn-proc').value.trim(), date: $('sn-date').value, note: $('sn-note').value.trim(), picks, slug: k.slug };
+    const f = { patient: $('sn-cat').value.trim(), procedure: $('sn-proc').value.trim(), date: $('sn-date').value, note: $('sn-note').value.trim(), picks, slug: k.slug, shots: SN_SHOTS };
     if (!f.patient || !f.procedure || !f.date) throw new Error('write the cat, the procedure and its date'); if (!picks.length) throw new Error('choose how much each donation pays');
-    show($('sn-out'), 'making the request…'); const r = await makeScRequest(k.c, f); buzz(); CUR_SREQ = r.id; $('sn-cat').value = ''; $('sn-note').value = ''; show($('sn-out'), ''); openTab('sreq');
+    show($('sn-out'), 'making the request…'); const r = await makeScRequest(k.c, f); buzz(); CUR_SREQ = r.id; $('sn-cat').value = ''; $('sn-note').value = ''; snShotsClear(); show($('sn-out'), ''); openTab('sreq');
   } catch (e) { show($('sn-out'), failText(e), 'bad'); } busy(btn, false); };
-function renderSreq(){ const r = sreqs().find(x => x.id === CUR_SREQ), head = $('sq-head'), dl = $('sq-dl'), steps = $('sq-steps'); head.textContent = ''; dl.textContent = ''; steps.textContent = ''; $('sq-state').textContent = '';
+function renderSreq(){ const r = sreqs().find(x => x.id === CUR_SREQ), head = $('sq-head'), dl = $('sq-dl'), steps = $('sq-steps'); head.textContent = ''; dl.textContent = ''; steps.textContent = ''; $('sq-state').textContent = ''; $('sq-pics').textContent = '';
   const term = $('sq-term'); clearInterval(term._qr); term.querySelectorAll('.qr').forEach(e => e.remove()); steps.hidden = false;
   $('sq-send').hidden = !r || ['certified', 'reported', 'released'].includes(r.state);  /* once answered, nothing more to send */
   if (!r) { head.appendChild(el('div', 'mut', 'No request open.')); $('sq-go').disabled = true; return; } const q = r.q, c = q.campaign, kc = camps().find(x => campKey(x.c) === campKey(c)); if (kc) CUR_CAMP = kc.slug; head.style.setProperty('--h', String(campHue(c))); head.appendChild(el('div', 'title', c.name)); head.appendChild(el('div', 'mut', `request ${q.id}`));
   for (const [k, v] of [['Cat', q.patient], ['Procedure', q.procedure], ['Date', q.date], ['Releases', fmtSat(C.requestAmount(q))], ...(q.note ? [['Note', q.note]] : [])]) { dl.appendChild(el('dt', null, k)); dl.appendChild(el('dd', null, v)); }
+  if ((q.photos || []).length) photoTiles($('sq-pics'), q.photos, 'not on this phone');
   const s = sentState(r.outbox), heard = !!(r.receivedAt || r.answer), lines = [['✓', `made · ${when(r.created)}`],
     [s.state === 'sent' || heard ? '✓' : s.state === 'failed' ? '✗' : '·', s.state === 'none' ? (r.handed ? 'sent by link or file' : 'not sent yet') : sentText(s) + (r.handed ? ' · and by hand' : '')],
     [heard ? '✓' : '·', r.receivedAt ? `received by the clinic · ${when(r.receivedAt)}` : 'received by the clinic'],
     [r.answer ? (r.check && r.check.ok && r.answer.kind === 'certified' ? '✓' : '✗') : '·', r.answer ? `${r.check ? String(r.check.text).replace(/^[✓✗⚠]\s*/, '') : ''} · ${when(r.answeredAt)}` : 'answered by the clinic'],
     [r.state === 'released' ? '✓' : '·', r.state === 'released' ? `released ${fmtSat(r.released.amount)}${r.released.back ? ` · ${fmtSat(r.released.back)} put back under the lock` : ''} · ${when(r.released.at)}` : 'released']];
+  const np = (q.photos || []).length, pn = `its ${np} photo${np > 1 ? 's' : ''}`; if (np) lines.splice(2, 0, reqPhotosSent(r) ? ['✓', `${pn} sent`] : ['·', `${pn}: ${r.outbox ? 'sending' : 'not sent yet'}`]);
   for (const [m, t] of lines) { const d = el('div', 'tl' + (m === '✗' ? ' bad' : ''), `${m} ${t}`); d.style.setProperty('--h', '150'); d.style.setProperty('--l', m === '·' ? '.55' : '.8'); steps.appendChild(d); }
   $('sq-state').textContent = q.contributions.map(k => `${k.ref} · ${fmtSat(k.release)}`).join('\n');
   const can = r.state === 'certified' && r.check && r.check.ok; const sg = $('sq-go'); if (r.state === 'released') finish(sg, '✓ Released'); else { unfinish(sg); sg.disabled = !can; sg.textContent = can ? `Release ${fmtSat(C.requestAmount(q))}` : 'Release, once the clinic confirms'; } $('sq-resend').disabled = r.state === 'released' || !OUTBOX; }
 $('sq-link').onclick = async () => { const b = $('sq-link'), r = sreqs().find(x => x.id === CUR_SREQ); if (!r) return; const ok = await copyText(await linkOf(r.q, 'clinic')); if (ok) { doneLabel(b); r.handed = true; saveSreq(r); renderSreq(); } else flapLabel(b, 'select it'); };
-$('sq-file').onclick = () => { const r = sreqs().find(x => x.id === CUR_SREQ); if (!r) return; saveFile(`request-${r.id}.json`, JSON.stringify(r.q)); r.handed = true; saveSreq(r); renderSreq(); };
+$('sq-file').onclick = async () => { const r = sreqs().find(x => x.id === CUR_SREQ); if (!r) return; saveFile(`request-${r.id}.json`, JSON.stringify(await reqFileOf(r.q))); r.handed = true; saveSreq(r); renderSreq(); };
+// a request's file carries its photos (a link or a QR has no room for them: they follow by relay)
+async function reqFileOf(q){ const data = {}; for (const ph of q.photos || []) { let b = null; try { b = await IDB.get('photos', ph.sha256); } catch (_) {} if (b) data[ph.slot] = b64of(new Uint8Array(b)); } return Object.keys(data).length ? { ...q, photoData: data } : q; }
+// the request's photos, every part that two relays do not have yet, wrapped anew for the clinic's key (as a record's photos, catParts)
+let REQSENDING = null;
+const reqPhotosSent = r => { const need = Math.min(2, relays().length); return !!need && (r.q.photos || []).every(ph => Array.from({ length: nParts(ph) }, (_, i) => ph.slot + '.' + i).every(k => ((r.parts || {})[k] || []).length >= need)); };
+async function reqParts(){ if (REQSENDING) return REQSENDING; if (!R || !online()) return; REQSENDING = (async () => { const rels = relays(), need = Math.min(2, rels.length);
+    for (const r0 of sreqs()) { const q = r0.q, ps = q.photos || []; if (!ps.length || !r0.outbox || reqPhotosSent(r0)) continue; const sk = heldFor('streetcat', [q.campaign.streetcat]); if (!sk) continue;
+      for (const ph of ps) { let bytes = null; try { bytes = await IDB.get('photos', ph.sha256); } catch (_) {} if (!bytes) continue;
+        for (const part of C.reqPhotoParts(q.id, ph.slot, ph.sha256, b64of(new Uint8Array(bytes)), q.campaign.streetcat, q.campaign.clinic)) { const r = sreqs().find(y => y.id === r0.id) || r0; r.parts = r.parts || {}; const acked = r.parts[part.kind] || []; if (acked.length >= need) continue;
+          try { const res = await R.publish(await R.wrap(part, sk, q.campaign.clinic), rels.filter(u => !acked.includes(u)), { timeout: 8000 }); for (const x of res) if (x.ok && !acked.includes(x.url)) acked.push(x.url); } catch (_) {}
+          r.parts[part.kind] = acked; saveSreq(r); } } } })().finally(() => { REQSENDING = null; }); return REQSENDING; }
 $('sq-qr').onclick = async () => { const r = sreqs().find(x => x.id === CUR_SREQ); if (!r) return; $('sq-steps').hidden = true; showQR($('sq-term'), await C.pack(r.q), $('sq-state')); };  /* in person: the clinic's phone scans it */
-$('sq-resend').onclick = async () => { const r = sreqs().find(x => x.id === CUR_SREQ); if (r && OUTBOX && !r.outbox) { const sk = heldFor('streetcat', [r.q.campaign.streetcat]); if (sk) { const it = await OUTBOX.add(r.q, sk, r.q.campaign.clinic, { relays: relays(), label: 'request ' + r.id }); r.outbox = it.id; saveSreq(r); } } await flush(); renderSreq(); };
+$('sq-resend').onclick = async () => { const r = sreqs().find(x => x.id === CUR_SREQ); if (r && OUTBOX && !r.outbox) { const sk = heldFor('streetcat', [r.q.campaign.streetcat]); if (sk) { const it = await OUTBOX.add(r.q, sk, r.q.campaign.clinic, { relays: relays(), label: 'request ' + r.id }); r.outbox = it.id; saveSreq(r); } } await flush(); await reqParts(); renderSreq(); };
 // the release: Streetcat's signature joins the clinic's on every proof of the request; a proof paid in part gives its rest back under the
 // same lock, in proofs derived from it (core.js), so the donor can still find it and take it back after the deadline
 async function safeSwapOuts(w, inputs, outs, { what, mint }){ if (!storageWorks()) throw new Error(NO_STORAGE); const id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -996,8 +1108,8 @@ async function releaseScRequest(r){ const q = r.q, c = q.campaign, sk = heldFor(
   saveEntries(c, entries); r.state = 'released'; r.released = { amount: sum(plainP), back: sum(restP), fee, at: nowIso() }; saveSreq(r); renderReleased(); return plain; }
 $('sq-go').onclick = async () => { const btn = $('sq-go'); busy(btn, true); try { const r = sreqs().find(x => x.id === CUR_SREQ); if (!r) throw new Error('no request open'); show($('sq-out'), 'asking the mint what is still locked…');
     const plain = await releaseScRequest(r); buzz(); renderSreq(); const rr = sreqs().find(x => x.id === CUR_SREQ);
-    show($('sq-out'), `RELEASED ${fmtSat(rr.released.amount)}.${rr.released.back ? ` ${fmtSat(rr.released.back)} went back under the same lock: still the donors', to pay a later procedure or to be taken back after the deadline.` : ''} Move the released ecash to Streetcat's wallet now (this browser keeps a copy under Release):\n`, 'ok');
-    const r1 = el('div', 'row1'); r1.appendChild(copyBtn('copy released ecash', plain, { role: 'streetcat' })); $('sq-out').appendChild(r1);
+    const { w: pw, dec: pd } = await decodeTok(plain), back = rr.released.back ? ` ${fmtSat(rr.released.back)} went back under the same lock: still the donors', to pay a later procedure or to be taken back after the deadline.` : '';
+    await releasedOut($('sq-out'), { w: pw, proofs: pd.proofs, plain, mint: pd.mint, head: `RELEASED ${fmtSat(rr.released.amount)}.${back}`, keep: 'Move the released ecash to Streetcat\'s wallet now (this browser keeps a copy under Release):', label: 'copy released ecash' });
   } catch (e) { show($('sq-out'), whyFailed(e), 'bad'); } busy(btn, false); };
 
 // ----- QRs: one picture, or for a longer text an animated series the other phone collects part by part -----
@@ -1215,8 +1327,203 @@ function receiptBox(out, d){ const box = el('div', 'rcpt'), row = el('div', 'row
 async function receiptOf(lockedToken){ const k = donorKeys().find(x => x.lockedToken === lockedToken); if (!k || !k.sk) return null; const { w, dec } = await decodeTok(lockedToken), info = lockInfo(dec.proofs);
   const c = k.camp || { name: k.campaign, op: '', mint: dec.mint, streetcat: info.pubkeys[0], clinic: info.pubkeys[1], deadline: info.locktime, hue: k.hue }; return C.makeReceipt({ campaign: c, token: lockedToken, proofs: dec.proofs, refundSk: k.sk }); }
 
+// ----- the cat's record (core.js signCat): the clinic writes it with the cat asleep, and it reaches Streetcat by itself -----
+// The record is small and goes through the outbox, as an answer does. Its photos are not: the outbox lives in localStorage, where the
+// whole app has a few megabytes. So the photos are kept in IndexedDB under their SHA-256 and go straight to the relays, in parts of at
+// most CAT_CHUNK characters (a gift wrap of about 55 kB), each part again, on every tick, until two relays have it. Streetcat puts a
+// photo together from its parts and keeps it only when its SHA-256 is the one the record names.
+const PHOTO_MAX = 38000, PHOTO_SIDES = [640, 560, 480, 400, 320], PHOTO_Q = [.72, .62, .52, .42];  // at most two parts per photo
+const SLOTNAME = { face: 'face', left: 'left side', right: 'right side', nose: 'nose' };
+const IDB = (() => { let db = null;
+  const open = () => db || (db = new Promise((res, rej) => { let r; try { r = indexedDB.open('streetcat', 1); } catch (e) { rej(e); return; }
+    r.onupgradeneeded = () => { for (const s of ['photos', 'parts']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error || new Error('this browser keeps no photos')); r.onblocked = () => rej(new Error('the photos are open in another tab')); }).catch(e => { db = null; throw e; }));
+  const run = (store, mode, fn) => open().then(d => new Promise((res, rej) => { const t = d.transaction(store, mode), q = fn(t.objectStore(store)); t.oncomplete = () => res(q ? q.result : undefined); t.onerror = t.onabort = () => rej(t.error || new Error('the photos could not be read or kept')); }));
+  return { get: (s, k) => run(s, 'readonly', o => o.get(k)), put: (s, k, v) => run(s, 'readwrite', o => o.put(v, k)), del: (s, k) => run(s, 'readwrite', o => o.delete(k)) }; })();
+const b64of = u => { let s = ''; for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(String(s)), ch => ch.charCodeAt(0));
+const PURL = new Map();  // a photo's SHA-256 → its blob: address, made once per page
+async function photoUrl(sha){ if (PURL.has(sha)) return PURL.get(sha); let b = null; try { b = await IDB.get('photos', sha); } catch (_) {} if (!b) return null;
+  const u = URL.createObjectURL(new Blob([b], { type: 'image/jpeg' })); PURL.set(sha, u); return u; }
+const photoHere = async sha => { try { return !!(await IDB.get('photos', sha)); } catch (_) { return false; } };
+async function keepPhoto(sha, bytes){ if (await C.sha256hex(bytes) !== sha) return false; await IDB.put('photos', sha, bytes); return true; }
+const nParts = ph => Math.max(1, Math.ceil(Math.ceil(ph.bytes / 3) * 4 / C.CAT_CHUNK));
+// a photo from the camera or the library, made small here: at most 640 px and PHOTO_MAX bytes, in JPEG. Drawn anew, it leaves behind
+// everything the camera wrote into the file: where it was taken, the phone, the time.
+async function shrinkPhoto(file){ const url = URL.createObjectURL(file); try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('this photo cannot be opened here: try another one')); i.src = url; });
+    const W = img.naturalWidth, H = img.naturalHeight; if (!W || !H) throw new Error('this photo cannot be opened here: try another one');
+    for (const side of PHOTO_SIDES) { const k = Math.min(1, side / Math.max(W, H)), w = Math.max(1, Math.round(W * k)), h = Math.max(1, Math.round(H * k)), cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      for (const q of PHOTO_Q) { const b = await new Promise(r => cv.toBlob(r, 'image/jpeg', q)); if (b && b.size <= PHOTO_MAX) { const bytes = new Uint8Array(await b.arrayBuffer()); return { bytes, w, h, sha256: await C.sha256hex(bytes) }; } } }
+    throw new Error('this photo cannot be made small enough: try another one'); } finally { URL.revokeObjectURL(url); } }
+// the records: the clinic's, made on this phone ({ id, rec, to, outbox, parts: { 'face.0': [relays that have it] }, at, handed }),
+// and Streetcat's, received ({ id, rec, from, at, via }); rec is the signed record without its photos
+const CCATS = 'vetlock.clinic.cats', ccats = () => { const a = jget(CCATS, []); return Array.isArray(a) ? a.filter(x => x && x.id && x.rec && x.rec.statement) : []; }, saveCcat = x => jset(CCATS, [...ccats().filter(y => y.id !== x.id), x]);
+const SCATS = 'vetlock.sc.cats', scats = () => { const a = jget(SCATS, []); return Array.isArray(a) ? a.filter(x => x && x.id && x.rec && x.rec.statement) : []; }, saveScat = x => jset(SCATS, [...scats().filter(y => y.id !== x.id), x]);
+const catsOf = role => role === 'clinic' ? ccats() : scats();
+const knownClinics = () => new Set([...camps().map(k => lc(k && k.c && k.c.clinic)), ...sreqs().map(r => lc(r.q.campaign.clinic))].filter(Boolean));
+const clinicCamp = pk => camps().find(k => k && k.c && lc(k.c.clinic) === lc(pk)) || null;
+let CN = { req: null, shots: {} }, CUR_CAT = null, CATSENDING = null;
+// sent: the record by two relays (or the file handed over, which carries the photos) and every part of every photo
+function catState(x){ const s = sentState(x.outbox), need = Math.min(2, relays().length); let have = 0, all = 0;
+  for (const ph of x.rec.statement.photos) for (let i = 0, n = nParts(ph); i < n; i++, all++) if (((x.parts || {})[ph.slot + '.' + i] || []).length >= need) have++;
+  return { s, have, all, done: !!x.handed || (s.state === 'sent' && have === all) }; }
+const catShort = x => { const c = catState(x); return c.done ? ['sent', 'ok'] : c.s.state === 'failed' ? ['not sent', 'bad'] : !online() ? ['offline', 'bad'] : [c.s.state === 'sent' && c.all ? `photos ${c.have} of ${c.all}` : 'sending', '']; };
+function catSentText(x){ const c = catState(x); if (x.handed && !(c.s.state === 'sent' && c.have === c.all)) return 'saved as a file, with its photos: Streetcat adds it from the file';
+  return [c.s.state !== 'none' ? 'record: ' + sentText(c.s) : '', c.all ? `photos: ${c.have} of ${c.all} part${c.all === 1 ? '' : 's'} sent` : 'no photos',
+    c.done ? 'Streetcat gets it the next time its app checks.' : c.s.state === 'failed' ? 'not sent: save it as a file and send it to Streetcat' : online() ? 'It goes on by itself while the app is open.' : 'It goes when this phone has a connection.'].filter(Boolean).join('\n'); }
+// the file: the record and its photos in one (for when no relay takes them, or in person)
+async function catFile(x){ const photos = {}; for (const ph of x.rec.statement.photos) { let b = null; try { b = await IDB.get('photos', ph.sha256); } catch (_) {} if (b) photos[ph.slot] = b64of(new Uint8Array(b)); } return JSON.stringify({ ...x.rec, photos }); }
+const catFileName = st => `cat-${String(st.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'record'}-${st.id}.json`;
+
+// THE CLINIC: a new record, from its request (the cat, the procedure and the date are there already) or from nothing. Short, as StreetCat
+// asked (6 Nov, "la interfaz de clínica es muy larga"): what is known already is one line with "edit" (the cat, the procedure and the
+// date of a request; without one, the procedure of the cat before, or sterilisation, and today); coat and notes are folded.
+const CATPROC = 'vetlock.clinic.proc';
+function openCatnew(reqId){ const r = reqId && creqs().find(x => x.id === reqId), q = r && r.q; CN = { req: q ? r.id : null, shots: {} };
+  $('cn-name').value = q ? q.patient : ''; $('cn-proc').value = q ? q.procedure : (ls.get(CATPROC) || 'sterilisation'); $('cn-date').value = q ? q.date : today();
+  for (const id of ['cn-chip', 'cn-coat', 'cn-notes']) $(id).value = ''; $('cn-colony').value = ls.get('vetlock.clinic.colony') || '';  /* the colony of the cat before: often this one's too */
+  document.querySelectorAll('#cn-sex button, #cn-ear button').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('#cn-shots .shot').forEach(b => { b.classList.remove('has', 'busy'); b.querySelectorAll('img').forEach(i => i.remove()); }); shotsLine();
+  $('cn-namebox').hidden = !!q; $('cn-basics').hidden = true; $('cn-sum').hidden = false; $('cn-more').open = false; catSum();
+  LIKE_RUN++; $('cn-like').hidden = true; $('cn-like-list').textContent = '';
+  unfinish($('cn-go')); $('cn-again').hidden = true; show($('cn-out'), ''); BACK.catnew = q ? 'creq' : 'cats'; openTab('catnew'); window.scrollTo(0, 0); }
+function renderCatnew(){ const head = $('cn-head'), r = CN.req && creqs().find(x => x.id === CN.req), q = r && r.q; head.textContent = '';
+  head.style.setProperty('--h', String(q ? campHue(q.campaign) : HUE.clinic)); head.appendChild(el('div', 'title', $('cn-name').value.trim() || 'New cat'));
+  head.appendChild(el('div', 'mut', q ? `${q.campaign.name} · request ${q.id}` : 'a cat record, signed by the clinic')); catSum(); }
+const catSum = () => { $('cn-sum-t').textContent = [$('cn-proc').value.trim() || 'no procedure', $('cn-date').value || 'no date'].join(' · '); };
+const catEdit = () => { $('cn-namebox').hidden = false; $('cn-basics').hidden = false; $('cn-sum').hidden = true; };  /* the line opens into its fields */
+$('cn-edit').onclick = e => { e.preventDefault(); catEdit(); $(CN.req ? 'cn-name' : 'cn-proc').focus(); };
+$('cn-name').addEventListener('input', () => { const t = $('cn-head').querySelector('.title'); if (t) t.textContent = $('cn-name').value.trim() || 'New cat'; });
+for (const id of ['cn-proc', 'cn-date']) $(id).addEventListener('input', catSum);
+for (const id of ['cn-sex', 'cn-ear']) $(id).querySelectorAll('button').forEach(b => { b.onclick = () => { const on = !b.classList.contains('on'); $(id).querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.toggle('on', on); }; });  /* a second tap unsets it */
+const picked = id => { const b = $(id).querySelector('button.on'); return b ? b.dataset.v : ''; };
+const SHOTS_NOTE = 'Photos with the cat asleep: made small here, without location data.';
+const shotsLine = () => { const a = Object.values(CN.shots), kb = Math.round(a.reduce((s, p) => s + p.bytes.length, 0) / 1000); $('cn-shots-st').textContent = a.length ? `${a.length} of 4 photos · ${kb} kB, made small here, without location data` : SHOTS_NOTE; };
+// the photo is taken with the phone's camera, straight away (StreetCat, 6 Nov: "que directamente la aplicación tome la foto sin elegirla
+// de la galería"): the file input asks for the camera (capture="environment"); a computer, which has none, offers its files
+document.querySelectorAll('#cn-shots .shot').forEach(b => { b.onclick = async () => { const slot = b.dataset.slot, input = $('cn-file');
+  const f = await new Promise(res => { input.value = ''; input.onchange = () => res(input.files && input.files[0]); input.click(); }); if (!f) return;
+  b.classList.add('busy'); try { const p = await shrinkPhoto(f); CN.shots[slot] = p; b.querySelectorAll('img').forEach(i => i.remove()); const img = el('img'); img.alt = SLOTNAME[slot]; img.src = URL.createObjectURL(new Blob([p.bytes], { type: 'image/jpeg' })); b.prepend(img); b.classList.add('has'); shotsLine(); show($('cn-out'), ''); likeCheck(); }
+  catch (e) { show($('cn-out'), failText(e), 'bad'); } b.classList.remove('busy'); }; });
+// "Already in the records?" (StreetCat, 6 Nov: «que les avise de posibles redundancias»): the new cat's photos against the records on this
+// phone, with the cat recognition of catid.js. A hint, never a proof. The first time it waits for a tap: the recognition is 48 MB.
+const LIKE_SLOTS = ['face', 'left', 'right'];  /* the nose, a close-up, says little of which cat it is */
+let LIKE_RUN = 0;
+function likeTile(x, sha){ const st = x.rec.statement, b = el('button'), ph = st.photos.find(p => p.sha256 === sha) || st.photos.find(p => p.slot === 'face') || st.photos[0]; b.type = 'button';
+  const im = el(ph ? 'img' : 'div', ph ? '' : 'none'); if (ph) { im.alt = `${st.name}, ${SLOTNAME[ph.slot] || ph.slot}`; photoUrl(ph.sha256).then(u => { if (u) im.src = u; else im.className = 'none'; }); } b.appendChild(im);
+  b.appendChild(el('div', 'nm', st.name)); b.appendChild(el('div', 'sub2', st.colony || '—')); b.appendChild(el('div', 'sub2', st.date)); b.onclick = () => { CUR_CAT = x.id; BACK.cat = 'catnew'; openTab('cat'); }; return b; }
+async function likeCheck(go){ const run = ++LIKE_RUN, box = $('cn-like'), list = $('cn-like-list'), st = $('cn-like-st'), get = $('cn-like-get');
+  const recs = ccats().filter(x => x.rec.statement.photos.some(p => LIKE_SLOTS.includes(p.slot))), probe = LIKE_SLOTS.filter(s => CN.shots[s]).map(s => ({ slot: s, sha256: CN.shots[s].sha256, bytes: CN.shots[s].bytes }));
+  list.textContent = ''; get.hidden = true; st.classList.remove('bad'); if (typeof CATID === 'undefined' || !recs.length || !probe.length) { box.hidden = true; return; }
+  box.hidden = false; const of = `your ${recs.length} record${recs.length === 1 ? '' : 's'}`;
+  if (!go && !CATID.loaded() && !(await CATID.here())) { if (run !== LIKE_RUN) return; st.textContent = `Its photos can be compared with ${of}, here on this phone. The cat recognition comes once: ${Math.round(CATID.SIZE / 1e6)} MB.`; get.hidden = false; return; }
+  try { if (!CATID.loaded()) { st.textContent = 'getting the cat recognition…'; await CATID.load((got, all) => { if (run === LIKE_RUN) st.textContent = `getting the cat recognition: ${Math.round(got / 1e6)} of ${Math.round(all / 1e6)} MB`; }); }
+    if (run !== LIKE_RUN) return; st.textContent = `comparing with ${of}…`;
+    const ranked = await CATID.rank(probe, recs.map(x => ({ id: x.id, photos: x.rec.statement.photos })), sha => IDB.get('photos', sha), LIKE_SLOTS, (d, all) => { if (run === LIKE_RUN && all > 3) st.textContent = `comparing with ${of}: ${d} of ${all} photos`; });
+    if (run !== LIKE_RUN) return; const top = ranked.slice(0, 3);
+    for (const r of top) { const x = ccats().find(y => y.id === r.id); if (x) list.appendChild(likeTile(x, r.sha)); }
+    st.textContent = (recs.length > 3 ? `The 3 of ${of} that look most like it` : recs.length === 1 ? 'Your only record' : `Your ${recs.length} records, the most alike first`) + ', worked out on this phone. Only an order, not a match: open one to compare the chip.'; }
+  catch (e) { if (run !== LIKE_RUN) return; const m = (e && e.message) || String(e);  /* in red, and the button again: a tap tries again */
+    st.textContent = '✗ ' + (CATID.loaded() ? 'the comparison stopped: ' : 'the cat recognition did not come: ') + m; st.classList.add('bad'); get.hidden = false; } }
+$('cn-like-go').onclick = () => likeCheck(true);
+// a record made without a request goes to the Streetcat of the last request this phone got, or to Streetcat's published key
+const catTo = () => { const r = creqs().slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]; return r ? lc(r.q.campaign.streetcat) : lc(STREETCAT_KEYS[0] || ''); };
+async function catSign(){ const r = CN.req && creqs().find(x => x.id === CN.req), q = r && r.q, sk = q ? clinicSkFor(q) : key('clinic', false), no = m => Object.assign(new Error(m), { byPage: true });
+  if (!sk) throw no(q ? `this phone has no clinic key for ${q.campaign.name}` : 'this phone has no clinic key yet: make one in settings');
+  const name = $('cn-name').value.trim(), chip = $('cn-chip').value.replace(/[\s.-]/g, ''), to = q ? lc(q.campaign.streetcat) : catTo();
+  if (!name) { catEdit(); throw no('write the cat\'s name'); } if (chip && !/^\d{15}$/.test(chip)) throw no(`the microchip number has ${chip.length} character${chip.length === 1 ? '' : 's'}: it must be 15 digits`);
+  if (!$('cn-proc').value.trim() || !$('cn-date').value) { catEdit(); throw no('write the procedure and its date'); } if (!PUBKEY.test(to)) throw no('this phone does not know Streetcat\'s key yet: open a request from Streetcat first');
+  const photos = C.CAT_SLOTS.filter(s => CN.shots[s]).map(s => ({ slot: s, sha256: CN.shots[s].sha256, bytes: CN.shots[s].bytes.length, w: CN.shots[s].w, h: CN.shots[s].h }));
+  try { for (const p of photos) await IDB.put('photos', p.sha256, CN.shots[p.slot].bytes); } catch (_) { throw no('this browser cannot keep the photos (a private window?): open the app in a normal window'); }  /* before signing: the record names only photos this phone keeps */
+  const rec = await C.signCat({ name, colony: $('cn-colony').value, chip, sex: picked('cn-sex'), ear: picked('cn-ear'), coat: $('cn-coat').value, procedure: $('cn-proc').value, date: $('cn-date').value, notes: $('cn-notes').value, photos }, sk, q ? { request: q.id, campaign: q.campaign } : {});
+  const x = { id: rec.id, rec, to, at: nowIso(), parts: {} }; saveCcat(x); if (rec.statement.colony) ls.set('vetlock.clinic.colony', rec.statement.colony); ls.set(CATPROC, rec.statement.procedure); return x; }
+async function catSend(x){ const sk = heldFor('clinic', [x.rec.statement.clinic]); if (!sk || !OUTBOX) return;
+  if (!x.outbox) { const it = await OUTBOX.add(x.rec, sk, x.to, { relays: relays(), label: 'cat ' + x.rec.statement.name }); x.outbox = it.id; saveCcat(x); }
+  await flush(); await catParts(); }
+// every part of a photo that two relays do not have yet, of every record made on this phone: wrapped anew, sent straight to them
+async function catParts(){ if (CATSENDING) return CATSENDING; if (!R || !online()) return; CATSENDING = (async () => { const rels = relays(), need = Math.min(2, rels.length);
+    for (const x0 of ccats()) { const st = x0.rec.statement, sk = heldFor('clinic', [st.clinic]); if (!sk || !x0.outbox) continue;
+      for (const ph of st.photos) { const x = ccats().find(y => y.id === x0.id) || x0; x.parts = x.parts || {};
+        if (Array.from({ length: nParts(ph) }, (_, i) => ph.slot + '.' + i).every(k => (x.parts[k] || []).length >= need)) continue;
+        let bytes = null; try { bytes = await IDB.get('photos', ph.sha256); } catch (_) {} if (!bytes) continue;
+        for (const part of C.catPhotoParts(x.id, ph.slot, ph.sha256, b64of(new Uint8Array(bytes)), st.clinic)) { const acked = x.parts[part.kind] || []; if (acked.length >= need) continue;
+          try { const res = await R.publish(await R.wrap(part, sk, x.to), rels.filter(u => !acked.includes(u)), { timeout: 8000 }); for (const r of res) if (r.ok && !acked.includes(r.url)) acked.push(r.url); } catch (_) {}
+          x.parts[part.kind] = acked; saveCcat(x); } } } })().finally(() => { CATSENDING = null; }); return CATSENDING; }
+function catNewOut(x){ const out = $('cn-out'); show(out, `SIGNED · ${when(x.rec.statement.signed)} · ${x.id}\n` + catSentText(x)); out.appendChild(catActs(x)); }
+function catActs(x){ const clinic = nav.dataset.role === 'clinic', bs = [smallBtn('save as file', async () => { saveFile(catFileName(x.rec.statement), await catFile(x)); if (clinic) { const y = ccats().find(z => z.id === x.id); if (y && !y.handed) { y.handed = true; saveCcat(y); refreshStates(); } } })];
+  if (x.rec.statement.chip) bs.push(copyBtn('copy chip', x.rec.statement.chip));
+  if (clinic && !catState(x).done && OUTBOX && online()) bs.push(smallBtn('send again', async () => { await flush(); await catParts(); refreshStates(); }));
+  const box = el('div'); for (let i = 0; i < bs.length; i += 2) { const row = el('div', bs.length - i === 1 ? 'row1' : 'row2'); if (i) row.style.marginTop = 'var(--u)'; bs.slice(i, i + 2).forEach(b => row.appendChild(b)); box.appendChild(row); } return box; }
+$('cn-go').onclick = async () => { const btn = $('cn-go'); if (btn.classList.contains('fin')) return; busy(btn, true);
+  try { const x = await catSign(); finish(btn, '✓ Signed'); buzz(); $('cn-again').hidden = false; catNewOut(x); await catSend(x); catNewOut(ccats().find(y => y.id === x.id) || x); }
+  catch (e) { show($('cn-out'), failText(e), 'bad'); } busy(btn, false); };
+$('cn-again').querySelector('a').onclick = e => { e.preventDefault(); openCatnew(null); };
+// the request's screen names its cat's record: to make it, or to see it once made
+function creqCat(r){ const p = $('cr-cat'), have = ccats().find(x => x.rec.statement.request === r.id); p.hidden = !clinicSkFor(r.q);
+  $('cr-cat-a').textContent = have ? `${r.q.patient}'s record · ${catShort(have)[0]}` : `${r.q.patient}'s record: photos, chip`; }
+$('cr-cat-a').onclick = e => { e.preventDefault(); const r = creqs().find(x => x.id === CUR_CREQ); if (!r) return; const have = ccats().find(x => x.rec.statement.request === r.id); if (have) { CUR_CAT = have.id; BACK.cat = 'cats'; openTab('cat'); } else openCatnew(r.id); };
+
+// STREETCAT: a record, checked (signed with the clinic key it names, which must be one of a campaign's to be trusted), then its photos
+async function takeCat(p, via){ const v = await C.catCheck(p); if (!v.ok) throw Object.assign(new Error('a cat record that does not check out: ' + v.problems.join('; ')), { byPage: true });
+  const { photos, ...rec } = p, have = scats().find(x => x.id === p.id);
+  if (!have || String(rec.statement.signed) > String(have.rec.statement.signed)) saveScat({ id: p.id, rec, from: lc(p.from || rec.statement.clinic), at: have ? have.at : nowIso(), via: have ? have.via : via });  /* signed again (corrected): the newer one */
+  if (photos && typeof photos === 'object') for (const ph of rec.statement.photos) if (typeof photos[ph.slot] === 'string') { try { await keepPhoto(ph.sha256, unb64(photos[ph.slot])); } catch (_) {} }  /* a file carries its photos */
+  return !have; }
+// a part of a photo (a record's, or a request's): kept until all its parts are here, then the photo, if it is the one its SHA-256 says
+async function takePart(p){ const k = i => p.sha256 + '|' + i; await IDB.put('parts', k(p.part), p.data);
+  const all = []; for (let i = 0; i < p.of; i++) { const d = await IDB.get('parts', k(i)); if (typeof d !== 'string') return false; all.push(d); }
+  let ok = false; try { ok = await keepPhoto(p.sha256, unb64(all.join(''))); } catch (_) {} if (ok) for (let i = 0; i < p.of; i++) await IDB.del('parts', k(i)).catch(() => {}); return ok; }
+async function takeCatPart(p){ if (!C.catPartOk(p) || await photoHere(p.sha256)) return false; const ok = await takePart(p);
+  if (ok && ($('cats').classList.contains('on') || $('cat').classList.contains('on'))) refreshStates(); return ok; }
+async function takeReqPart(p){ if (!C.reqPartOk(p) || await photoHere(p.sha256)) return false; const ok = await takePart(p);
+  if (ok && $('creq').classList.contains('on') && CUR_CREQ === p.id) { const r = creqs().find(x => x.id === p.id); if (r) creqPics(r.q); } return ok; }
+const catPhotos = async st => { let n = 0; for (const p of st.photos) if (await photoHere(p.sha256)) n++; return n; };
+const STERIL = /steril|spay|neuter|castra|ovariect|ovariohyst|orchiect|esteril|castración/i;
+
+// BOTH: the list (searchable by name, chip, colony or coat) and one cat
+async function renderCats(){ const role = nav.dataset.role, clinic = role === 'clinic', all = catsOf(role).sort((a, b) => String(b.rec.statement.date + b.rec.statement.signed).localeCompare(String(a.rec.statement.date + a.rec.statement.signed)));
+  $('ca-new').hidden = !clinic; $('ca-check').hidden = clinic; $('ca-add').hidden = clinic;
+  $('ca-n').textContent = String(all.length); $('ca-m-l').textContent = clinic ? 'to send' : 'sterilised'; $('ca-m').textContent = String(clinic ? all.filter(x => !catState(x).done).length : all.filter(x => STERIL.test(x.rec.statement.procedure)).length);
+  const q = $('ca-q').value.trim().toLowerCase(), qd = q.replace(/[\s.-]/g, ''), shown = all.filter(x => { const st = x.rec.statement; return !q || [st.name, st.colony, st.coat, st.id].some(v => String(v || '').toLowerCase().includes(q)) || (/^\d+$/.test(qd) && String(st.chip || '').includes(qd)); });
+  const list = $('ca-list'), known = clinic ? null : knownClinics(); list.textContent = '';
+  if (all.length && !shown.length) list.appendChild(el('div', 'empty', 'No cat matches that.'));  /* an empty list says nothing, the clinic's or Streetcat's (StreetCat, 6 Nov) */
+  for (const x of shown) { const st = x.rec.statement, it = el('div', 'item'), l = el('div', 'cat'), txt = el('div'), face = st.photos.find(p => p.slot === 'face') || st.photos[0];
+    const th = el(face ? 'img' : 'div', 'th' + (face ? '' : ' none')); if (face) { th.alt = ''; photoUrl(face.sha256).then(u => { if (u) th.src = u; else th.classList.add('none'); }); } l.appendChild(th);
+    txt.appendChild(el('div', 'nm', st.name)); const where = [st.colony, st.chip ? 'chip …' + st.chip.slice(-6) : ''].filter(Boolean).join(' · '); if (where) txt.appendChild(el('div', 'sub2', where)); txt.appendChild(el('div', 'sub2', `${st.procedure} · ${st.date}`)); l.appendChild(txt); it.appendChild(l);
+    const s = el('div', 'st'); if (clinic) { const [t, cls] = catShort(x); s.textContent = t; if (cls) s.classList.add(cls); }
+    else if (!known.has(lc(st.clinic))) { s.textContent = 'unknown clinic'; s.classList.add('bad'); }
+    else { s.textContent = '…'; catPhotos(st).then(n => { const all2 = st.photos.length; s.textContent = n < all2 ? `photos ${n} of ${all2}` : '✓'; s.classList.add(n < all2 ? 'wait' : 'ok'); }); }  /* ✓: signed by a campaign's clinic, every photo here */
+    it.appendChild(s); it.onclick = () => { CUR_CAT = x.id; BACK.cat = 'cats'; openTab('cat'); }; list.appendChild(it); } }
+const chipText = c => String(c).replace(/(\d{3})(?=\d)/g, '$1 ');
+async function renderCat(){ const role = nav.dataset.role, clinic = role === 'clinic', x = catsOf(role).find(y => y.id === CUR_CAT), head = $('c1-head'), pics = $('c1-pics'), dl = $('c1-dl'), acts = $('c1-acts');
+  for (const e of [head, pics, dl, acts]) e.textContent = ''; show($('c1-out'), '');
+  if (!x) { head.appendChild(el('div', 'mut', 'No cat open.')); return; }
+  const st = x.rec.statement; head.style.setProperty('--h', String(st.campaign ? campHue(st.campaign) : HUE.clinic)); head.appendChild(el('div', 'title', st.name)); head.appendChild(el('div', 'mut', [st.colony, st.id].filter(Boolean).join(' · ')));
+  // the photos: the face (or the first there is) big, the others under it; a tap on a small one shows it big
+  const tiles = [];
+  for (const ph of C.CAT_SLOTS.map(s => st.photos.find(p => p.slot === s)).filter(Boolean)) { const b = el('button', tiles.length ? '' : 'big'); b.type = 'button'; const u = await photoUrl(ph.sha256);
+    if (u) { const img = el('img'); img.alt = SLOTNAME[ph.slot]; img.src = u; b.appendChild(img); } else { b.classList.add('none'); b.appendChild(el('span', 'wait', clinic ? 'not on this phone' : 'on its way')); }
+    b.appendChild(el('span', 'lbl', SLOTNAME[ph.slot])); tiles.push(b); pics.appendChild(b); }
+  tiles.forEach(b => { b.onclick = () => { const big = tiles[0]; if (b === big || !b.querySelector('img')) return; const a = [...big.childNodes], c = [...b.childNodes]; a.forEach(n => b.appendChild(n)); c.forEach(n => big.appendChild(n)); for (const t of [big, b]) t.classList.toggle('none', !t.querySelector('img')); }; });
+  const camp = clinicCamp(st.clinic), rows = [['Microchip', st.chip ? chipText(st.chip) : 'none noted'], ['Sex', st.sex || '—'], ['Ear tip', st.ear || '—'], ['Coat', st.coat || '—'], ['Procedure', st.procedure], ['Date', st.date], ...(st.notes ? [['Notes', st.notes]] : []),
+    ...(st.request ? [['Request', `${st.campaign ? st.campaign.name + ' · ' : ''}${st.request}`]] : []), ['Clinic', ''], ['Signed', when(st.signed)], [clinic ? 'Made' : 'Arrived', when(x.at) + (x.via ? ' · ' + ({ relay: 'by relay', file: 'from a file' }[x.via] || x.via) : '')]];
+  for (const [k, v] of rows) { dl.appendChild(el('dt', null, k)); const dd = el('dd'); if (k === 'Clinic') dd.appendChild(withKeys((clinic ? 'this phone · ' : camp ? camp.c.name + ' · ' : '') + abbr(roleOf(st.clinic, 'clinic')))); else dd.textContent = v; dl.appendChild(dd); }
+  const v = await C.catCheck(x.rec), n = await catPhotos(st), lines = [], trusted = v.ok && (clinic || knownClinics().has(lc(st.clinic)));
+  lines.push(!v.ok ? v.text : clinic ? '✓ Signed with your clinic key.' : !trusted ? '✗ Signed with a clinic key that is in none of your campaigns: ask the clinic before trusting it.' : `✓ Signed by the clinic of ${camp ? camp.c.name : 'your campaigns'}${st.photos.length && n === st.photos.length ? ': every photo is the one it signed' : ''}.`);
+  if (st.photos.length && n < st.photos.length) lines.push(`photos: ${n} of ${st.photos.length} here` + (clinic ? '' : ', the rest on their way'));
+  if (clinic) lines.push(catSentText(x));
+  show($('c1-out'), lines.join('\n')); acts.appendChild(catActs(x)); }
+$('ca-q').addEventListener('input', () => renderCats());
+$('ca-new').onclick = () => openCatnew(null);
+$('ca-check').onclick = async () => { const btn = $('ca-check'); busy(btn, true); $('ca-net').textContent = 'checking the relays…'; try { const res = await scCheck(); setLines($('ca-net'), res.text); } catch (e) { setLines($('ca-net'), '✗ ' + (e.message || e)); } renderCats(); busy(btn, false); };
+$('ca-pick').onclick = async () => { try { const p = await C.unpack(await pickFile($('ca-file'))); if (!p || p.t !== 'streetcat.cat') throw Object.assign(new Error('this file is not a cat record'), { byPage: true });
+    await takeCat(p, 'file'); show($('ca-out'), `added ${p.statement.name} · ${p.id}`); buzz(); renderCats(); } catch (e) { show($('ca-out'), failText(e), 'bad'); } };
+for (const id of ['w-cats', 'h-cats']) $(id).onclick = e => { e.preventDefault(); openTab('cats'); };
+
 // ----- links: #q= a request (for the clinic), #a= an answer (for Streetcat), #h= a donation handed over -----
 async function openPayload(text, from){ const p = await C.unpack(text);
+  if (p && p.t === 'streetcat.cat') { await takeCat(p, from); CUR_CAT = p.id; if (nav.dataset.role !== 'streetcat') setRole('streetcat'); BACK.cat = 'cats'; openTab('cat'); return p; }  /* a record, from its file */
   if (p && p.t === 'streetcat.request') { const r = await takeRequest(p, from); CUR_CREQ = r.id; openTab('creq'); return r; }
   if (p && p.t === 'streetcat.answer') { const r = await takeAnswer(p, from); CUR_SREQ = r.id; openTab('sreq'); return r; }
   if (p && p.t === 'streetcat.handover') { openTab('shand'); await vShow(String(text)); return p; }
@@ -1228,18 +1535,21 @@ async function fromLink(){ if (!/#(q|a|h)=/.test(location.hash)) return; const t
 window.addEventListener('hashchange', fromLink); fromLink();
 // every minute while the app is open (and when the connection comes back): send what waits, and pick up what arrived
 function refreshStates(){ const on = id => $(id) && $(id).classList.contains('on'), qr = id => !!$(id).querySelector('.qr');  /* a QR on screen stays until the user leaves it */
-  if (on('work')) renderWork(); if (on('creq') && !qr('creq') && (creqs().find(x => x.id === CUR_CREQ) || {}).state !== 'review') renderCreq(); if (on('scamp')) renderScamp(); if (on('sreq') && !qr('sreq')) renderSreq(); if (on('shand')) renderShand(false); }
+  if (on('work')) renderWork(); if (on('creq') && !qr('creq') && (creqs().find(x => x.id === CUR_CREQ) || {}).state !== 'review') renderCreq(); if (on('scamp')) renderScamp(); if (on('sreq') && !qr('sreq')) renderSreq(); if (on('shand')) renderShand(false);
+  if (on('cats')) renderCats(); if (on('cat')) renderCat(); if (on('catnew') && $('cn-go').classList.contains('fin')) { const x = ccats().slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]; if (x) catNewOut(x); } }
 let TICKING = false;
 async function tick(){ if (TICKING || !R || !online()) return; TICKING = true; try { await flush(); const r = nav.dataset.role;
-    if (r === 'clinic' && heldKeys('clinic').length) { const res = await clinicCheck(); $('w-net').textContent = res.text; }
-    else if (r === 'streetcat' && heldKeys('streetcat').length) { const res = await scCheck(); $('sc-net').textContent = res.text; }
+    if (r === 'clinic' && heldKeys('clinic').length) { const res = await clinicCheck(); $('w-net').textContent = res.text; await catParts(); }
+    else if (r === 'streetcat' && heldKeys('streetcat').length) { const res = await scCheck(); $('sc-net').textContent = res.text; await reqParts(); }
     refreshStates(); } catch (_) {} TICKING = false; }
 setInterval(() => { if (document.visibilityState === 'visible') tick(); }, 60000); addEventListener('online', () => tick()); setTimeout(tick, 1500);
-const RENDER = { work: renderWork, creq: renderCreq, csettings: renderSettings, coffline: renderOffline, scamp: renderScamp, snew: renderSnew, sreq: renderSreq, shand: () => renderShand(true), dhand: renderDhand, dcard: renderDcard, decash: renderEcash };
+const RENDER = { work: renderWork, creq: renderCreq, csettings: renderSettings, coffline: renderOffline, scamp: renderScamp, snew: renderSnew, sreq: renderSreq, shand: () => renderShand(true), dhand: renderDhand, dcard: renderDcard, decash: renderEcash, catnew: renderCatnew, cats: renderCats, cat: renderCat };
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => { const f = RENDER[b.dataset.t]; if (f) Promise.resolve().then(f).catch(() => {}); }));
 $('h-hand').onclick = () => openTab('shand');
 { const on = document.querySelector('nav button.on'); if (on && !nav.hidden && RENDER[on.dataset.t]) Promise.resolve().then(RENDER[on.dataset.t]).catch(() => {}); }  /* the screen the page opened on */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});  // the app also opens without a connection (sw.js)
 window.__vetlock = { campHue, newCampHue, ledgerFor, openTab, setRole, parseCampaign, openCampaign, lockInfo, key, heldKeys, pubOf, donorKeys, pendings, flights, releasedList, mintCheck,
-  receiptOf, melts, wreqs, wCheck, scanFeed: t => SCAN && SCAN.feed(t), scanEnd: () => SCAN && SCAN.end(), frames: id => ($(id) && $(id)._frames) || [], tick, flush, creqs, sreqs, vrecs, openPayload, relays, outbox: () => OUTBOX ? OUTBOX.list() : [] };
+  receiptOf, melts, wreqs, wCheck, scanFeed: t => SCAN && SCAN.feed(t), scanEnd: () => SCAN && SCAN.end(), frames: id => ($(id) && $(id)._frames) || [], tick, flush, creqs, sreqs, vrecs, openPayload, relays, outbox: () => OUTBOX ? OUTBOX.list() : [],
+  ccats, scats, openCatnew, photoHere, catParts, scCheck, catCur: id => { CUR_CAT = id; }, shrinkPhoto, keepPhoto, saveCcat, cnShots: () => CN.shots, likeCheck };
+{ const s0 = navState(); navStack.push(s0); try { history.replaceState({ ...(history.state || {}), ...s0, sc: 1 }, ''); } catch (_) {} navReady = true; }  // the first step of the app's history: the screen it opened on
 })();

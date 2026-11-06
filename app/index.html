@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><script src="fit.js" data-need="612"></script>
+<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><script src="fit.js" data-need="646"></script>
 <title>Vet-certified donations</title>
 <style>
 @font-face{font-family:"Departure Mono";src:url("fonts/DepartureMono-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
@@ -11,12 +11,16 @@ html,body{background:var(--bg);color:var(--fg);font:400 14px/22px var(--mono);-w
 body{display:flex;flex-direction:column;min-height:100svh}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:.25;background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .sc-header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--fg);flex:none;position:sticky;top:0;background:var(--bg);z-index:2}
-.sc-brand{font-size:22px;line-height:24px;letter-spacing:.12em;text-transform:uppercase;flex:1}
-.back{background:none;border:0;color:var(--fg);font:inherit;font-size:22px;line-height:24px;cursor:pointer;padding:0;width:24px}
-.sc-right{font-size:12px;line-height:16px;text-align:right;color:var(--mute)}.sc-right a{margin-left:12px;color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line)}
-/* small phones: the brand already says Streetcat, so Streetcat's screens drop the role's name; below 360 px every role does, and the header tightens */
-@media (max-width:400px){body[data-role="streetcat"] #hd-role{display:none}}
-@media (max-width:360px){#hd-role{display:none}.sc-header{gap:8px}.sc-brand{font-size:20px;letter-spacing:.06em}.sc-right a{margin-left:8px}}
+.back{background:none;border:1px solid var(--line2);border-radius:0;color:var(--fg);font:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0;width:36px;height:36px;margin:-6px 0;flex:none;display:flex;align-items:center;justify-content:center}  /* framed and bigger, easy to see and to tap (StreetCat, 6 Nov: «haz la A»); it takes from the header's padding, so the header keeps its height */
+/* the header is the three roles, the one on screen in its colour (its keys' colour), and the status page apart: it is a page, not a role
+   (StreetCat, 6 Nov: «Donate, Streetcat, Clinic… así es donde se puede alternar»; «en el header, la B»; then «pon rescue»: Donor · Rescue · Clinic). An address of one role shows only that role. */
+.sc-roles{flex:1;display:flex;justify-content:space-between;gap:8px;min-width:0}
+.sc-roles button,.sc-st{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:2px 0 3px;font:400 14px/22px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);text-decoration:none;white-space:nowrap;cursor:pointer}
+.sc-roles button[data-r="donor"]{--c:oklch(.8 .16 55deg)}.sc-roles button[data-r="streetcat"]{--c:oklch(.8 .16 150deg)}.sc-roles button[data-r="clinic"]{--c:oklch(.8 .16 250deg)}
+.sc-roles button.on{color:var(--c);border-bottom-color:var(--c)}
+.sc-st{font-size:12px;letter-spacing:.04em;text-transform:none;border-bottom:0;border-left:1px solid var(--line);padding:0 0 0 12px;display:flex;align-items:center;color:var(--fg)}.sc-st svg{display:block;fill:currentColor}  /* the status page as a magnifier with a tick: check it yourself (StreetCat, 6 Nov: «el icono, pues la lupa») */
+body.fixed .sc-roles button:not(.on){display:none}
+@media (max-width:360px){.sc-header{gap:8px}.sc-roles button{letter-spacing:.03em}.sc-st{padding-left:8px}}
 main{width:100%;max-width:460px;margin:0 auto;padding:calc(var(--u)*3) 20px calc(var(--u)*3);flex:1;display:flex;flex-direction:column}
 section{display:none}section.on{display:flex;flex-direction:column;flex:1;animation:in .22s ease-out}
 @keyframes in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
@@ -41,8 +45,6 @@ button.go.fin,button.go.fin:disabled{--fin:var(--ok);background:transparent;colo
 body[data-role="streetcat"] button.go.fin{--fin:oklch(var(--kl) .16 150deg)}body[data-role="clinic"] button.go.fin{--fin:oklch(var(--kl) .16 250deg)}  /* in the colour of whose screen it is: Streetcat green, the clinic blue (StreetCat, 5 Nov), as their keys */
 button.sm,.out a.sm,a.sm{display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;height:44px;padding:0 14px;font:400 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-decoration:none;margin:var(--u) var(--u) 0 0}
 button.sm.done,.acts button.sm.done{background:var(--fg);color:var(--bg);border-color:var(--fg)}  /* copied: it stays that way */
-.who{display:flex;flex-direction:column;gap:var(--u);margin-top:auto}.who button.go{margin:0;background:transparent;color:var(--fg);border-color:var(--fg)}
-#who{display:flex;flex-direction:column;flex:1}#who .sub{color:var(--mute);margin-bottom:calc(var(--u)*2)}#who label{margin-top:auto}
 .lock{display:grid;grid-template-columns:14px 1fr 14px 1fr 14px;align-items:center;margin:calc(var(--u)*2) 0 0}
 .lock i{width:14px;height:14px;border:2px solid var(--fg);background:transparent;transition:background .4s}.lock i.on{background:var(--fg)}.lock i.ok{background:var(--ok);border-color:var(--ok)}
 .lock b{height:2px;background:var(--line)}.lock b.on{background:var(--fg)}
@@ -83,6 +85,9 @@ details.more{margin-top:var(--u);text-align:center}details.more summary{font-siz
 .list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:16px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
 .empty{color:var(--mute);padding:calc(var(--u)*3) 0}
 .actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
+#d-links{margin-top:var(--u)}  /* Donate: the other two ways under Pay with Lightning, as big as it (StreetCat, 6 Nov: «como los de pay with lightning»; «tres en columna») */
+/* the clinic's home: six buttons of one size, full width, one under another (StreetCat, 6 Nov: «botones grandes… del mismo tamaño»; «pon los botones a pantalla completa largos») */
+.actions button.go.alt.bad{color:var(--bad);border-color:var(--bad)}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0 0 var(--u);font-size:12px;line-height:18px}dt{color:var(--mute)}dd{word-break:break-all}
 details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 .key{overflow-wrap:anywhere;font-size:var(--code)}.key i{font-style:normal;color:oklch(calc(var(--kl) + var(--dl,0)) .16 calc(var(--h,0) * 1deg))}.key i:not([style]){color:var(--mute)}
@@ -117,18 +122,34 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 #donate.sigbad #d-ln,#donate.sigbad #d-toecash,#donate.sigbad~#decash #d-go,#donate.sigbad~#decash .row2{opacity:.35;pointer-events:none}  /* a broken or unpublished link: no way to pay */
 .rcpt .rc-st{margin:6px 0}#donate.done .rcpt details.more{display:block}.rcpt details input{display:block;width:100%;box-sizing:border-box;margin-top:8px;text-align:left}.rcpt details .mut{margin-top:6px}.rcpt .rc-st.ok{color:var(--ok)}.rcpt .rc-st.bad{color:var(--bad)}.rcpt .rc-conf .chk{margin-top:6px}
 #r-gap{flex:0 0 calc(var(--u)*2)}#r-info .panel{border-top:1px solid var(--line);padding:8px 0 4px}#r-info .panel b{display:block;font-weight:normal;color:var(--fg);letter-spacing:.08em;text-transform:uppercase;font-size:11px}#r-info .rstate{color:var(--fg);margin-top:8px}#r-info .rstate.ok{color:var(--ok)}#r-info .rstate.bad{color:var(--bad)}
+/* the cat's record: four photos taken with the cat asleep, then what the clinic knows of it; the list of cats and one cat */
+.shots{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--u)}.shots.three{grid-template-columns:repeat(3,1fr)}
+.shot{position:relative;aspect-ratio:1;min-width:0;border:1px dashed var(--line2);border-radius:0;background:transparent;color:var(--mute);font:400 10px/13px var(--mono);letter-spacing:0;text-transform:uppercase;cursor:pointer;padding:0 0 6px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
+.shot::before{content:"+";position:absolute;left:0;right:0;top:calc(50% - 19px);text-align:center;font-size:22px;line-height:24px;color:var(--fg)}
+.shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.shot span{position:relative;text-align:center;line-height:13px;padding:0 2px}  /* "left side" goes on two lines where the tiles are narrow */
+#cn-out:not(:empty){margin-bottom:calc(var(--u)*2)}#cn-sum{margin:0 0 calc(var(--u)*2)}#cn-more{margin-top:calc(var(--u)*2)}
+/* "Already in the records?": the three records that look most like the new cat, as tiles with the photo that looks most like it */
+#cn-like{margin:calc(var(--u)*2) 0}.alike{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u)}.alike button{display:block;min-width:0;padding:0;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}.alike img,.alike .none{display:block;width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--line2);box-sizing:border-box}.alike .none{border-style:dashed}.alike .nm{font-size:12px;line-height:16px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alike .sub2{font-size:11px;line-height:15px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shot.has{border:1px solid var(--fg)}.shot.has::before{content:none}.shot.has span{background:var(--bg);color:var(--fg);padding:1px 4px}.shot.busy::before{content:"…"}
+.pick{margin:0}.pick button.sm{margin:0;height:44px}.pick button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+#ca-q{margin-bottom:calc(var(--u)*2)}input[type=search]{-webkit-appearance:none;appearance:none}input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
+.item .cat{display:flex;align-items:center;gap:12px;min-width:0}.item .cat>div{min-width:0}.item .cat .sub2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th{width:48px;height:48px;flex:none;object-fit:cover;border:1px solid var(--line2);background:var(--bg);display:block}.th.none{border-style:dashed}
+.pics{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:calc(var(--u)*2) 0}.pics:empty{display:none}
+.pics button{position:relative;display:block;padding:0;border:1px solid var(--line2);border-radius:0;background:var(--bg);color:var(--fg);font:400 11px/14px var(--mono);cursor:pointer;aspect-ratio:1;overflow:hidden;min-width:0}.pics button.big{grid-column:1/-1;aspect-ratio:4/3;cursor:default}
+.pics img{display:block;width:100%;height:100%;object-fit:cover}.pics .lbl{position:absolute;left:6px;bottom:6px;font-size:11px;line-height:14px;letter-spacing:.06em;text-transform:uppercase;background:var(--bg);color:var(--fg);padding:1px 4px}
+.pics .none{border-style:dashed;cursor:default}.pics .none .wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);text-align:center;padding:0 6px}
 [hidden]{display:none!important}
 /* errors, warnings and odd states: the app's bad colour, whatever they sit in (index.js BAD_TEXT) */
 .bad,.tl.bad,.item .st.bad,.lnk a.bad{color:var(--bad)}button.sm.bad,.acts a.sm.bad{color:var(--bad);border-color:var(--bad)}
 </style></head><body>
-<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><span class="sc-brand">Streetcat</span><span class="sc-right"><span id="hd-role">Vet-certified donations</span><a href="status.html" id="hd-status" hidden>status</a><a href="#" id="who-change" hidden>change</a></span></header>
+<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Clinic</button></div><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
 <main>
 <div class="card" id="recovered" hidden></div>
-<div id="who"><p class="sub">Donations in ecash that nobody can spend until the clinic certifies the operation. If it never happens, the donor gets the sats back.</p><label>Who are you?</label><div class="who"><button class="go" data-role="donor">I want to donate</button><button class="go" data-role="clinic">I am the clinic</button><button class="go" data-role="streetcat">I am Streetcat</button></div></div>
-<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="keys" data-role="clinic streetcat">Keys</button></nav>
+<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button></nav>
 
 <section id="donate" class="on">
-<div id="d-paste"><label>Campaign link from Streetcat</label><textarea id="d-camp" placeholder="https://…/donate#c=…"></textarea></div>
+<div id="d-paste"><label for="d-camp">Campaign link</label><textarea id="d-camp" placeholder="https://…/donate#c=…"></textarea></div>
 <div id="d-campinfo" class="camp"></div>
 <div class="pay">
 <div class="term"><div class="hero"><div class="big"><input id="d-amt" type="number" min="1" step="1" inputmode="numeric" placeholder="0"></div><div class="unit">sat</div><div class="fiat" id="d-fiat"></div></div></div>
@@ -136,9 +157,8 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="d-pend" class="mut"></div>
 <div class="out" id="d-out"></div>
 <button class="go big" id="d-ln">Pay with Lightning</button>
-<p class="center">Locked until the clinic certifies. Yours back after the deadline.</p>
 </div>
-<p class="center lnk" id="d-links"><a href="#" id="d-toecash">Pay with ecash</a> · <a href="#" id="d-torefund">Take my sats back</a></p>
+<div class="actions" id="d-links"><button class="go alt" id="d-toecash">Pay with ecash</button><button class="go alt" id="d-torefund">Take my sats back</button></div>
 </section>
 
 <section id="decash">
@@ -187,9 +207,10 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 
 <section id="home">
 <div class="stat"><div><b id="h-n">0</b><span>campaigns</span></div><div><b id="h-rel">0 sat</b><span>released, in this browser</span></div></div>
+<input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div>
 <div class="list" id="h-list"></div>
 <div class="actions"><button class="go" id="h-new">New campaign</button><button class="go alt" id="h-release">Release a certified token</button><button class="go alt" id="h-hand">Receive a donation in person</button></div>
-<p class="center"><a href="#" id="h-keys" style="color:inherit">Keys</a></p>
+<p class="center"><a href="#" id="h-cats" style="color:inherit">Cats</a> · <a href="#" id="h-keys" style="color:inherit">Keys</a></p>
 </section>
 
 <section id="campaign">
@@ -215,14 +236,14 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div class="stat"><div><b id="w-n">0</b><span>to review</span></div><div><b id="w-done">0</b><span>done</span></div></div>
 <div id="w-net" class="mut"></div>
 <div class="list" id="w-list"></div>
-<div class="actions"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button></div>
+<div class="actions" id="w-acts"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button><button class="go alt" id="w-certify">Certify a token</button><button class="go alt" id="w-offline">Offline setup</button><button class="go alt" id="w-cats">Cat records</button><button class="go alt" id="w-settings">Settings</button></div>
 <div id="w-paste" hidden><label>A request from Streetcat: its link, or its file</label><textarea id="w-text" placeholder="https://…#q=…"></textarea><div class="row2"><button class="sm" id="w-read">open it</button><button class="sm" id="w-pick">choose a file</button></div><div class="row1"><button class="sm" id="w-scan">scan Streetcat's QR</button></div><input type="file" id="w-file" hidden><div class="out" id="w-out"></div></div>
-<p class="center lnk"><a href="#" id="w-certify">certify a token</a> · <a href="#" id="w-settings">settings</a> · <a href="#" id="w-offline">ready for offline</a></p>
 </section>
 
 <section id="creq">
 <div id="cr-head" class="camp"></div>
 <dl id="cr-dl"></dl>
+<div id="cr-pics-box" hidden><label>Photos from Streetcat, when caught</label><div class="pics" id="cr-pics"></div><p class="mut" id="cr-pics-st"></p></div>
 <div id="cr-gives" class="mut code"></div>
 <div class="out" id="cr-warn"></div>
 <div id="cr-act">
@@ -233,6 +254,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <details class="more" id="cr-prob"><summary>Report a problem</summary><div class="row3" id="cr-why"><button class="sm" data-r="postponed">postponed</button><button class="sm" data-r="wrong-data">wrong data</button><button class="sm" data-r="other">other</button></div><input id="cr-note" placeholder="what happened (optional)" maxlength="300"><button class="go" id="cr-report" disabled>Send the report</button></details>
 </div>
 <div class="out" id="cr-out"></div>
+<p class="center lnk" id="cr-cat" hidden><a href="#" id="cr-cat-a">the cat's record: photos, chip</a></p>
 </section>
 
 <section id="csettings">
@@ -250,6 +272,8 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <ul class="checks" id="co-list"></ul>
 <button class="go" id="co-install" hidden>Install on this phone</button>
 <p class="center" id="co-ios" hidden>On an iPhone: Share, then Add to Home Screen.</p>
+<button class="go" id="co-ai" hidden>Get the cat recognition (48 MB)</button>
+<div class="out" id="co-ai-out"></div>
 <button class="go alt big" id="co-again">Check again</button>
 </section>
 
@@ -266,6 +290,8 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="snew">
 <div id="sn-head" class="camp"></div>
 <label>Cat</label><input id="sn-cat" placeholder="MOCHI">
+<label>Photos when caught</label><div class="shots three" id="sn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button></div><input type="file" id="sn-file" accept="image/*" capture="environment" hidden>
+<p class="mut" id="sn-shots-st" style="margin-top:var(--u)">Optional. Made small here, without location data. They go with the request, encrypted, so the clinic can check it is this cat.</p>
 <label>Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
 <div class="mut" id="sn-public">Shown on the public status page.</div>
 <label>Date of the procedure</label><input id="sn-date" type="date">
@@ -278,6 +304,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="sreq">
 <div id="sq-head" class="camp"></div>
 <dl id="sq-dl"></dl>
+<div class="pics" id="sq-pics"></div>
 <div class="term" id="sq-term"><div class="ticker" id="sq-steps"></div></div>
 <div id="sq-state" class="mut code"></div>
 <div id="sq-send"><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
@@ -315,6 +342,42 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div class="row2"><button class="sm" id="dk-share">share the card</button><button class="sm" id="dk-save">save the image</button></div>
 <p class="center">Only what is on the card goes with it: no token, no key, no receipt. The picture never changes; the link always shows where the donation is now.</p>
 </section>
+
+<section id="catnew">
+<div id="cn-head" class="camp"></div>
+<p class="mut code lnk" id="cn-sum"><span id="cn-sum-t"></span> · <a href="#" id="cn-edit">edit</a></p>
+<div class="shots" id="cn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button><button type="button" class="shot" data-slot="nose"><span>nose</span></button></div><input type="file" id="cn-file" accept="image/*" capture="environment" hidden>
+<p class="mut" id="cn-shots-st" style="margin-top:var(--u)">Photos with the cat asleep: made small here, without location data.</p>
+<div id="cn-like" hidden><label>Already in the records?</label><div class="alike" id="cn-like-list"></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">compare</button></div></div>
+<div id="cn-namebox"><label for="cn-name">Name</label><input id="cn-name" maxlength="40" placeholder="MOCHI" autocomplete="off" spellcheck="false"></div>
+<div id="cn-basics" hidden><label for="cn-proc">Procedure</label><input id="cn-proc" maxlength="80" placeholder="sterilisation (spay)"><label for="cn-date">Date</label><input id="cn-date" type="date"></div>
+<label for="cn-chip">Microchip</label><input id="cn-chip" inputmode="numeric" maxlength="19" placeholder="15 digits" autocomplete="off">
+<label>Sex</label><div class="row2 pick" id="cn-sex"><button type="button" class="sm" data-v="female">female</button><button type="button" class="sm" data-v="male">male</button></div>
+<label>Ear tip</label><div class="row3 pick" id="cn-ear"><button type="button" class="sm" data-v="left">left</button><button type="button" class="sm" data-v="right">right</button><button type="button" class="sm" data-v="none">none</button></div>
+<label for="cn-colony">Colony</label><input id="cn-colony" maxlength="60" placeholder="the marina" autocomplete="off">
+<details class="more" id="cn-more"><summary>coat and notes</summary><label for="cn-coat">Coat</label><input id="cn-coat" maxlength="80" placeholder="black and white, white chest" autocomplete="off"><label for="cn-notes">Notes</label><input id="cn-notes" maxlength="300" placeholder="weight 3.2 kg" autocomplete="off"></details>
+<p class="mut" style="margin-top:calc(var(--u)*2)">Signed with your clinic key and sent to Streetcat, encrypted. Nothing in it is public.</p>
+<div class="out" id="cn-out"></div>
+<button class="go big" id="cn-go">Sign and send to Streetcat</button>
+<p class="center lnk" id="cn-again" hidden><a href="#">record another cat</a></p>
+</section>
+
+<section id="cats">
+<div class="stat"><div><b id="ca-n">0</b><span>cats</span></div><div><b id="ca-m">0</b><span id="ca-m-l">sterilised</span></div></div>
+<input id="ca-q" type="search" placeholder="name, chip, colony or coat" autocomplete="off" spellcheck="false" aria-label="find a cat">
+<div id="ca-net" class="mut"></div>
+<div class="list" id="ca-list"></div>
+<div class="actions"><button class="go" id="ca-new">New cat record</button><button class="go" id="ca-check">Check for new records</button></div>
+<details class="more" id="ca-add"><summary>Add a record from a file</summary><div class="row1"><button class="sm" id="ca-pick">choose a file</button></div><input type="file" id="ca-file" hidden><div class="out" id="ca-out"></div></details>
+</section>
+
+<section id="cat">
+<div id="c1-head" class="camp"></div>
+<div class="pics" id="c1-pics"></div>
+<dl id="c1-dl"></dl>
+<div class="out" id="c1-out"></div>
+<div id="c1-acts"></div>
+</section>
 </main>
 <div id="scan" hidden><video id="scan-v" playsinline muted></video><canvas id="scan-c" hidden></canvas><div id="scan-msg" class="center"></div><button class="go alt" id="scan-close">Close</button></div>
 <script src="cashu-bundle.js"></script>
@@ -322,5 +385,6 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <script src="nostr-bundle.js"></script>
 <script src="relay.js"></script>
 <script src="qrcode.min.js"></script>
+<script src="catid.js"></script>
 <script src="index.js"></script>
 </body></html>

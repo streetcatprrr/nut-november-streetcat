@@ -70,7 +70,9 @@ check('"Confirm procedure" stays off until the box is ticked', await clinic.isDi
 // the vet's invoice: only its fingerprint goes into the declaration
 const INV = Buffer.from('%PDF-1.4\n% invoice 2026-118 · MOCHI · spay · test only\n'), INV_SHA = crypto.createHash('sha256').update(INV).digest('hex');
 { const [fc] = await Promise.all([clinic.waitForEvent('filechooser'), clinic.click('#cr-inv')]); await fc.setFiles({ name: 'invoice-2026-118.pdf', mimeType: 'application/pdf', buffer: INV }); }
-await shot(clinic, 'r12-clinic-invoice-added'); check('the clinic adds the invoice: its fingerprint is shown, the file stays on the phone', (await waitText(clinic, '#cr-ev', /fingerprint/)).includes(`invoice · fingerprint ${INV_SHA.slice(0, 16)}… · invoice-2026-118.pdf stays on this phone`));
+// wait for the fingerprint itself: the line before a file is picked also says "fingerprint" ("only the file's fingerprint (SHA-256) goes…")
+const evl = await waitText(clinic, '#cr-ev', /fingerprint [0-9a-f]{16}…/); await shot(clinic, 'r12-clinic-invoice-added');
+check('the clinic adds the invoice: its fingerprint is shown, the file stays on the phone', evl.includes(`invoice · fingerprint ${INV_SHA.slice(0, 16)}… · invoice-2026-118.pdf stays on this phone`), evl);
 await clinic._ctx.setOffline(true); await clinic.check('#cr-ok'); await clinic.click('#cr-go'); const conf = await waitText(clinic, '#cr-out', /CONFIRMED/);
 check('offline, the clinic confirms and the answer waits to be sent', /waiting for a connection|waiting for a relay/.test(conf), conf.split('\n').slice(0, 2).join(' / '));
 await shot(clinic, 'r5-clinic-confirmed-offline'); await tab(clinic, 'work'); await shot(clinic, 'r6-clinic-waiting'); check('…listed under "Waiting to be sent"', (await txt(clinic, '#w-list')).includes('Waiting to be sent'));
@@ -107,10 +109,11 @@ check('Streetcat opens the answer link and reads the signed report', /the clinic
 // a third request, in person, with no connection at the clinic: the request is a QR on Streetcat's screen, the answer a QR on the clinic's.
 // It pays 100 sat from the rest of the first donation, so that rest is split again (its own rest goes back under the lock too).
 const scanIn = async (p, parts) => { for (const f of parts.slice().reverse()) { await p.evaluate(t => window.__vetlock.scanFeed(t), f); await p.waitForTimeout(30); } };
+await clinic._ctx.setOffline(true);  /* before the request exists: the app's own check of the relays (every minute) cannot bring it first */
 await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 1, null, { timeout: 30000 });
 await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await sc.fill('#sn-dons input', '100'); await sc.click('#sn-go'); await waitText(sc, '#sq-steps', /made/);
 await sc.click('#sq-qr'); await shot(sc, 'r11-streetcat-request-qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term')); check('Streetcat shows the request as a QR (animated when long)', fq.length >= 1, fq.length + ' part' + (fq.length > 1 ? 's' : ''));
-await clinic._ctx.setOffline(true); await tab(clinic, 'work'); await clinic.click('#w-open'); await clinic.click('#w-scan'); await scanIn(clinic, fq);
+await tab(clinic, 'work'); await clinic.click('#w-open'); await clinic.click('#w-scan'); await scanIn(clinic, fq);
 const dl3 = await waitText(clinic, '#cr-dl', /TEO/); check('the clinic, offline, scans it and the request opens', /in person, by QR/.test(dl3), (dl3.match(/Arrived.*$/) || [''])[0]);
 await clinic.check('#cr-ok'); await clinic.click('#cr-go'); await waitText(clinic, '#cr-out', /CONFIRMED/);
 await clinic.locator('#cr-out button', { hasText: 'show as QR' }).click(); await clinic.waitForSelector('#cr-out .term .qr'); const fans = await clinic.evaluate(() => document.querySelector('#cr-out .term')._frames || []);

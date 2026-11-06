@@ -13,7 +13,7 @@ export const MUST_BE_RED = [
   '^This link is not (signed|from Streetcat)', '^Not yet\\b', '^Still in flight', '^Refund in progress', '^Verification unavailable', '^[Nn]ot ready for offline', '^not sent:', '^no relay took it',
   '^(Donors will have to pay with ecash|Without NUT-09)', 'The copy saved before has no password', '^not found on the relays', '^This campaign is not (signed|from Streetcat)',
   // odd states
-  '^NOT (COUNTED|LISTED)', '^(SPENT · NO WITNESS|SPENT · OTHER KEYS|UNKNOWN|UNREADABLE|OTHER MINT)$', '^spent, but the mint did not say who signed', '^spent with signatures that are not',
+  '^NOT (COUNTED|LISTED)', '^unknown clinic$','^(SPENT · NO WITNESS|SPENT · OTHER KEYS|UNKNOWN|UNREADABLE|OTHER MINT)$', '^spent, but the mint did not say who signed', '^spent with signatures that are not',
   "the clinic's declaration is not in the ledger", 'proofs are counted in an earlier entry', 'listed token\\(s\\) not counted', "released without the clinic's declaration", 'not accounted for',
   // a button saying something did not work
   '^(no key|select it|not copied|not sent|no relay took it: copy it|offline: copy it|tick the box|too large: copy it|not published)$',
