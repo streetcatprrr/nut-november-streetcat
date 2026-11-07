@@ -30,17 +30,19 @@ await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0], camp = JSON.parse(Buffer.from(link.split('#c=')[1], 'base64url').toString()), id = await C.campaignId(camp);
 const donor = await page(); const give = async n => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
   await waitText(donor, '#d-out', /LOCKED|Failed/); await donor.locator('#d-out button', { hasText: 'send it to Streetcat' }).click(); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); };
-const homeRow = async () => { await tab(sc, 'home'); await sc.waitForTimeout(400); if (!(await sc.$('#h-list .row2'))) await sc.click('#h-list .item'); };
-const receive = async () => { await homeRow(); await sc.locator('#h-list .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /checked/); };
-const publish = async () => { await homeRow(); const pb = sc.locator('#h-list .row2 button', { hasText: 'publish ledger' }); await pb.click(); return waitText(sc, '#h-list .row2', /published · \d+ of \d+ relays(?![a-z])|no relay took it|not published|too large: copy it/); };  /* the label settles after its flap */
+const homeRow = async () => { await tab(sc, 'home'); await sc.waitForTimeout(400); await sc.click('#h-kinds button.tile'); if (!(await sc.$('#kd-pots .row2'))) await sc.click('#kd-pots button.req'); };  /* Home, the kind, the pot */
+const receive = async () => { await homeRow(); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /checked/); };
+const publish = async () => { await homeRow(); const pb = sc.locator('#kd-pots .row2 button', { hasText: 'publish ledger' }); await pb.click(); return waitText(sc, '#kd-pots .row2', /published · \d+ of \d+ relays(?![a-z])|no relay took it|not published|too large: copy it/); };  /* the label settles after its flap */
 await give(21); await give(8); await receive();
 
 // Home publishes the ledger; its status link finds it by the campaign's id
 const pub = await publish(); await shot(sc, 'n1-home-published'); check('Home publishes the campaign\'s ledger to the relays', /published · 2 of 2 relays/.test(pub), (pub.match(/published · [^\n]*/) || [pub.slice(0, 40)])[0]);
-const evs = relays[0].events.filter(e => e.kind === 30078), ev = evs[0];
+const evs = relays[0].events.filter(e => e.kind === 30078 && !e.tags.some(t => t[0] === 't' && t[1] === 'streetcat-campaign')), ev = evs[0];
+const ann = relays[0].events.filter(e => e.kind === 30078 && e.tags.some(t => t[0] === 't' && t[1] === 'streetcat-campaign'));
+check('the campaign\'s announcement to donors (made with it) is an event of its own, under another d tag: it never replaces the ledger', ann.length === 1 && ann[0].tags.some(t => t[0] === 'd' && t[1] === 'announce:' + id) && ann[0].pubkey === (await C.derivedPub(C.TAG.ledger, camp.streetcat)).slice(2), ann.map(e => (e.tags.find(t => t[0] === 'd') || [])[1]).join(' · '));
 check('…as one kind 30078 event under the campaign\'s id, signed with the key derived from Streetcat\'s', evs.length === 1 && ev.tags.some(t => t[0] === 'd' && t[1] === id) && ev.pubkey === (await C.derivedPub(C.TAG.ledger, camp.streetcat)).slice(2) && ev.pubkey !== camp.streetcat.slice(2));
 check('…holding the ledger v2, with no key in it', JSON.parse(ev.content).v === 2 && !/refundKey|"sk"|privkey/.test(ev.content) && await R.ledgerOk(ev, id) !== null);
-await homeRow(); const statusHref = await sc.$eval('#h-list .row2 a.sm', a => a.href);
+await homeRow(); const statusHref = await sc.$eval('#kd-pots .row2 a.sm', a => a.href);
 check('the status link names the campaign\'s id', statusHref.includes('status.html?n=' + id), statusHref.replace(BASE, ''));
 const viewer = await page(); const status = async (href = statusHref) => { await viewer.goto(href); await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById('l-out').textContent), null, { timeout: 40000 }); await viewer.waitForTimeout(1200); return viewer.evaluate(() => document.body.innerText); };
 let s = await status(); check('the status page fetches it from the relays and counts both donations at the mint', /29 sat locked · 2/.test(s.replace(/\s+/g, ' ')), (s.match(/ledger from Nostr[^\n]*/) || ['no Nostr note'])[0].slice(0, 90));

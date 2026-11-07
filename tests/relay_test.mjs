@@ -37,6 +37,12 @@ const clBox = R.outbox(store()); await clBox.add(R.receiptFor(q), cl, camp.stree
 const back = await R.receive([sc], { relays: urls, expect: scExpects }), ans = back.messages.find(m => m.payload.t === 'streetcat.answer');
 check('Streetcat gets the receipt and the answer', back.messages.length === 2 && back.messages.some(m => m.payload.t === 'streetcat.received'), back.messages.map(m => m.payload.t).join(', '));
 check('and the answer is certified', ans && (await C.checkAnswer(q, ans.payload)).ok, ans && (await C.checkAnswer(q, ans.payload)).text);
+// 3b) an answer that comes before this browser knows its request (StreetCat, 7 Nov: the app on his home screen got the clinic's answer
+// before Import all brought the request, and lost it): kept for later, it comes once the request is there
+const later = new Map(), laterExpects = p => p && ['streetcat.answer', 'streetcat.received'].includes(p.t) && later.has(p.id) ? later.get(p.id).campaign.clinic : null, seenL = new Set();
+const before = await R.receive([sc], { relays: urls, seen: seenL, expect: laterExpects }); later.set(q.id, q); const after = await R.receive([sc], { relays: urls, seen: seenL, expect: laterExpects });
+check('an answer that comes before its request is known here is not dropped: it comes once the request is there', before.messages.length === 0 && after.messages.length === 2 && after.messages.some(m => m.payload.t === 'streetcat.answer'), `${before.messages.length}, then ${after.messages.length}`);
+check('…and only once', (await R.receive([sc], { relays: urls, seen: seenL, expect: laterExpects })).messages.length === 0);
 
 // 4) forged senders and messages for someone else are dropped
 const thief = newSk(), fake = await C.makeRequest({ campaign: camp, patient: 'MOCHI', procedure: 'sterilisation', date: '2026-11-04', contributions: [{ release: 64, proofs: fakeProofs(camp, C.pubOf(newSk()), [64]) }] });

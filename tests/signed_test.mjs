@@ -81,15 +81,15 @@ for (const [what, l] of [['signed by a key that is not Streetcat\'s published on
   const calls = donor._calls.length, wst = await viaWallet(4);
   check('…and moves no money by any route (ecash, Lightning, a Cashu wallet): no call to the mint', /^Failed: This link is not from Streetcat's published key/.test(r) && /published key/.test(ln) && /published key/.test(wst) && calls === 0 && donor._calls.length === 0, `${calls} + ${donor._calls.length} mint calls · wallet: ${wst.slice(0, 60)}`); }
 const other = await page(); await tab(other, 'release'); await other.click('#s-new'); await other.waitForTimeout(700); const made = await makeCampaign(other, 'MOCHI');
-check('Streetcat\'s own page will not make a campaign with a key that is not the published one', /this is not Streetcat's published key \(0294637dac…\), so donors' pages would refuse the link/.test(made.out) && !made.link, made.out.slice(0, 90));
+check('Streetcat\'s own page will not make a campaign with a key that is not the published one', /this browser's Streetcat key \(0[23][0-9a-f]{8}…\) is not Streetcat's published key \(0294637dac…\): donors' pages would refuse its link/.test(made.out) && !made.link, made.out.slice(0, 120));
 
 // Home: a campaign made before links were signed gets signed here, since this browser holds its key; a browser without it cannot make one
 await sc.evaluate(c => { const a = JSON.parse(localStorage.getItem('vetlock.campaigns')); a.push({ c, link: location.origin + '/index.html#c=' + btoa(JSON.stringify(c)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), slug: 'teo', created: 1 }); localStorage.setItem('vetlock.campaigns', JSON.stringify(a)); },
   { name: 'TEO', op: 'castration', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: camp.deadline });
-await sc.reload(); await tab(sc, 'home'); await sc.waitForTimeout(800); await sc.locator('#h-list .item', { hasText: 'TEO' }).click(); const cb = sc.locator('#h-list .row2 button', { hasText: 'copy signed link' });
+await sc.reload(); await tab(sc, 'home'); await sc.waitForTimeout(800); await sc.click('#h-kinds button.tile'); await sc.locator('#kd-pots button.req', { hasText: 'TEO' }).click(); const cb = sc.locator('#kd-pots .row2 button', { hasText: 'copy signed link' });
 await cb.click(); const old = campOf(await sc.evaluate(() => navigator.clipboard.readText()));
 check('Home signs a campaign made before, as the same campaign', old.name === 'TEO' && old.clinic === clinicPk && old.deadline === camp.deadline && await sc.evaluate(c => window.scCore.campaignSig(c), old) === 'signed');
-const nokey = await page(); await tab(nokey, 'release'); await nokey.click('#s-new'); await nokey.waitForTimeout(500); await tab(nokey, 'campaign'); await nokey.reload(); await tab(nokey, 'campaign'); await nokey.fill('#k-s', scPk);  /* published (pinned here), but held only by sc */
+const nokey = await page(); await tab(nokey, 'release'); await nokey.click('#s-new'); await nokey.waitForTimeout(500); await tab(nokey, 'campaign'); await nokey.reload(); await tab(nokey, 'campaign');  /* its own Streetcat key is not the published one (pinned here, held only by sc): the form has no field for another */
 await nokey.fill('#k-name', 'TEO'); await nokey.fill('#k-mint', MINT); await nokey.fill('#k-c', clinicPk); await nokey.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await nokey.click('#k-go');
 check('a browser without the campaign\'s Streetcat key cannot make its link', /cannot sign the donation link/.test(await waitText(nokey, '#k-out', /sign|ready/)));
 check('the donor\'s screens fit at 320, 375, 390 and 430 px', !FIT.length, FIT.join(' · '));

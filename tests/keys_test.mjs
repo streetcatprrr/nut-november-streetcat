@@ -41,7 +41,7 @@ await other.click('#c-go'); say('other browser certifies:', anon((await waitOut(
 await tab(clinic, 'keys'); await clinic.click('#x-exp'); const exp = JSON.parse(await clinic.inputValue('#x-box'));
 say('export carries the kept key:', exp.clinicOld.length === 1 && exp.clinicOld[0] !== exp.clinic);
 await tab(other, 'keys'); await other.fill('#x-box', JSON.stringify(exp)); await other.click('#x-imp');
-say('import:', dialogs.at(-1), '| clinic keys held there:', await other.evaluate(() => window.__vetlock.heldKeys('clinic').length), '| current:', anon((await out(other, 'x-c')).slice(0, 10) + '…'), anon(await out(other, 'x-c-old')));
+say('import:', await out(other, 'x-out'), '| clinic keys held there:', await other.evaluate(() => window.__vetlock.heldKeys('clinic').length), '| current:', anon((await out(other, 'x-c')).slice(0, 10) + '…'), anon(await out(other, 'x-c-old')));
 await tab(other, 'certify'); await other.fill('#c-token', ''); await other.fill('#c-token', tokB); await waitOut(other, 'c-info', /names|no clinic key/);
 await other.click('#c-go'); const certB = lastToken(await waitOut(other, 'c-out', /CERTIFIED|Failed/)); say('other browser certifies now:', (await out(other, 'c-out')).split('\n')[0]);
 
@@ -56,5 +56,7 @@ await streetcat.fill('#s-token', certB); await streetcat.click('#s-go'); say('re
 await tab(clinic, 'certify'); await clinic.fill('#c-token', lastToken(relA)); say('plain token in the clinic tab:', await waitOut(clinic, 'c-info', /cannot read|names/));
 const before = await out(clinic, 'c-pk');
 await clinic.evaluate(() => { const set = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (/\.old$/.test(k)) throw new Error('quota'); return set.call(this, k, v); }; });
-await clinic.click('#c-new'); say('storage refuses the kept list:', dialogs.at(-1), '| clinic key unchanged:', (await out(clinic, 'c-pk')) === before);
+await clinic.click('#c-new');  /* the key is typed out again on screen: read it once that is over (under load it took longer) */
+const settled = await clinic.waitForFunction(b => document.getElementById('c-pk').textContent.trim() === b, before, { timeout: 8000 }).then(() => true, () => false);
+say('storage refuses the kept list:', dialogs.at(-1), '| clinic key unchanged:', settled && (await out(clinic, 'c-pk')) === before);
 await b.close();

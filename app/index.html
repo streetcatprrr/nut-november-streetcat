@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><script src="fit.js" data-need="646"></script>
+<html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-180.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Streetcat"><meta name="theme-color" content="#111111"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"><script src="fit.js" data-need="712"></script>
 <title>Vet-certified donations</title>
 <style>
 @font-face{font-family:"Departure Mono";src:url("fonts/DepartureMono-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 /* wallet-grade: one column, one thing per screen, an 8px rhythm, four type sizes (12 · 14 · 22 · 64), no boxes inside boxes */
-:root{--bg:#111;--fg:#efede6;--mute:#8d8a81;--line:rgba(239,237,230,.2);--line2:rgba(239,237,230,.45);--ok:#8fd4a4;--bad:#f09a92;--btc:#f7931a;--mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace;--kl:.8;--u:8px;--code:13px;--code-lh:20px}
+:root{--bg:#111;--fg:#efede6;--mute:#8d8a81;--line:rgba(239,237,230,.2);--line2:rgba(239,237,230,.45);--ok:#8fd4a4;--bad:#ff4d4d;--btc:#f7931a;--mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace;--kl:.8;--u:8px;--code:13px;--code-lh:20px}
 /* every code on these pages (keys, tokens, invoices, receipts, ledgers, the terminal) is set at this one size */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--fg);font:400 14px/22px var(--mono);-webkit-font-smoothing:antialiased;height:100%}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}  /* the browser scales the page as a whole (fit.js), never its text alone */
@@ -33,13 +33,36 @@ label{display:block;font-size:12px;line-height:18px;color:var(--mute);margin:cal
 code{font-family:inherit;font-size:var(--code);line-height:var(--code-lh);word-break:break-all}
 .code,.mut.code,#c-info,#s-info,#r-info{font-size:var(--code);line-height:var(--code-lh)}
 input,textarea{width:100%;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;padding:12px;font:400 16px/22px var(--mono);outline:none;min-height:48px}
-textarea,#k-mint,#k-s,#k-c{font-size:var(--code);line-height:var(--code-lh)}
+textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{margin:calc(var(--u)*1.5) 0 calc(var(--u)*2)}#k-keys{margin-bottom:calc(var(--u)*2)}#k-keys .kline small{margin-bottom:2px}#k-keys .kline span.bad{color:var(--bad)}
+#d-reqs button.req .cat{font-size:12px;line-height:18px;color:var(--fg);padding-left:1.5ch;text-indent:-1.5ch}
+/* what Streetcat pays for (StreetCat, 7 Nov): the four kinds two by two, each in its colour; the lists (pots, requests, colonies, partners)
+   as the donor's list; "Choose …" as one wide button that takes the colour of what was chosen. In grey, what cannot be chosen, and why. */
+#h-kinds{margin-top:calc(var(--u)*1)}.plist{margin-bottom:calc(var(--u)*2)}.plist>.mut{margin-bottom:4px}.plist>.empty{padding:calc(var(--u)*1.5) 0}
+.plist button.req{display:block;width:100%;margin:0;padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+.plist button.req .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:oklch(.82 .16 calc(var(--h,345) * 1deg))}.plist .sub2{font-size:12px;line-height:18px;color:var(--mute)}.plist .cat,.plist .ok{font-size:12px;line-height:18px;color:var(--fg)}
+.plist button.req:not([style]):not(.no) .title{color:var(--fg)}.plist button.req .no2{font-size:12px;line-height:18px;color:var(--bad)}.plist button.req.no{cursor:default}.plist button.req.no .title{color:var(--mute)}.plist .row2{margin:8px 0 12px}
+.ptypes{display:flex;flex-wrap:wrap;gap:8px;margin:0}.ptypes button.sm{width:auto;padding:0 14px;margin:0;height:44px}.ptypes.grid{display:grid;grid-template-columns:1fr 1fr}.ptypes.grid button.sm{width:100%;padding:0 8px}
+.ptypes button.sm[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}.ptypes button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}.ptypes button.sm.on[style]{background:oklch(.82 .16 calc(var(--h)*1deg));color:var(--bg);border-color:transparent}
+.ptiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}.ptiles button.tile{display:block;margin:0;padding:12px;min-height:96px;border:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+.ptiles button.tile .title{font-size:15px;line-height:20px;letter-spacing:.06em;color:oklch(.82 .16 calc(var(--h)*1deg));overflow-wrap:anywhere}.ptiles button.tile .sub2{font-size:11px;line-height:16px;color:var(--mute);margin-top:4px}
+.pchoose button.sm{display:flex;width:100%;height:56px;margin:0;letter-spacing:.08em}.pchoose button.sm.set{border-color:currentColor}.pchoose button.sm.set[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}
+#sn-keys,#k-keys{margin-top:calc(var(--u)*2)}#sn-keys .kline small{margin-bottom:2px}#sn-cover{margin-top:calc(var(--u)*1)}#sn-cover:empty{display:none}#sn-sum{margin:calc(var(--u)*1) 0 calc(var(--u)*2)}#kd-head{margin-bottom:calc(var(--u)*1)}#d-kinds{margin-bottom:calc(var(--u)*2)}#pp-new{margin-bottom:calc(var(--u)*2)}#pp-new>label:first-child{margin-top:calc(var(--u)*2)}#sn-catbox>label:first-child{margin-top:calc(var(--u)*2)}
+.paste-over{position:fixed;z-index:60;pointer-events:none;box-sizing:border-box;background:var(--bg);border:1px solid var(--fg);overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;color:oklch(.8 .16 calc(var(--h) * 1deg))}
 /* a pasted campaign link is typed into its field in the campaign's colour, over the field's own text and in its exact place */
 #d-paste{position:relative}.link-type{position:absolute;pointer-events:none;overflow:hidden;background:var(--bg)}.link-type>span{display:block;position:absolute;inset:0;padding:12px;overflow:hidden;font-size:var(--code);line-height:var(--code-lh);white-space:pre-wrap;overflow-wrap:break-word}  /* 16px: iOS zooms into anything smaller */
 input:focus,textarea:focus{border-color:var(--fg)}textarea{min-height:72px;resize:none;flex:1}
 input[type=date]{color-scheme:dark}
 button.go{display:block;width:100%;margin-top:calc(var(--u)*2);background:var(--fg);color:var(--bg);border:1px solid var(--fg);border-radius:0;height:56px;padding:0 16px;font:400 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:opacity .15s}
 button.go.big{margin-top:auto}
+/* hold to confirm (StreetCat, 7 Nov: «que la barra hubiese que pulsarla… hasta que se cargase entera… y luego… algún parpadeo»): a button that moves
+   money or signs fills from the left, in the colour of whose screen it is, while it is held; full, it blinks twice and acts (index.js) */
+body{--hold:oklch(.8 .16 55deg)}body[data-role="streetcat"]{--hold:oklch(.8 .16 150deg)}body[data-role="clinic"]{--hold:oklch(.8 .16 250deg)}
+button.go.hold{position:relative;isolation:isolate;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+button.go.hold::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--hold);transform:scaleX(0);transform-origin:left center;transition:transform .25s ease-out}
+button.go.hold.holding::before{transform:scaleX(1);transition:transform var(--hold-ms,2000ms) linear}
+button.go.hold.held::before{transform:scaleX(1);transition:none;animation:held .36s steps(1,end) 2}
+@keyframes held{50%{opacity:0}}
+button.go.hold.fin::before{display:none}
 button.go:disabled{opacity:.5;cursor:default}
 button.go.fin,button.go.fin:disabled{--fin:var(--ok);background:transparent;color:var(--fin);border-color:var(--fin);opacity:1;cursor:default}  /* done: the button says what happened and cannot be pressed again */
 body[data-role="streetcat"] button.go.fin{--fin:oklch(var(--kl) .16 150deg)}body[data-role="clinic"] button.go.fin{--fin:oklch(var(--kl) .16 250deg)}  /* in the colour of whose screen it is: Streetcat green, the clinic blue (StreetCat, 5 Nov), as their keys */
@@ -86,6 +109,8 @@ details.more{margin-top:var(--u);text-align:center}details.more summary{font-siz
 .empty{color:var(--mute);padding:calc(var(--u)*3) 0}
 .actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
 #d-links{margin-top:var(--u)}  /* Donate: the other two ways under Pay with Lightning, as big as it (StreetCat, 6 Nov: «como los de pay with lightning»; «tres en columna») */
+/* "Check for requests": the campaigns Streetcat announced, one per line in its own colour where the campaign shows, each a tap away */
+#d-reqs{margin-bottom:calc(var(--u)*2)}#d-reqs>.mut{margin-bottom:4px}#d-reqs button.req{display:block;width:100%;margin:0;padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}#d-reqs button.req .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#d-reqs button.req .sub2{font-size:12px;line-height:18px;color:var(--mute)}
 /* the clinic's home: six buttons of one size, full width, one under another (StreetCat, 6 Nov: «botones grandes… del mismo tamaño»; «pon los botones a pantalla completa largos») */
 .actions button.go.alt.bad{color:var(--bad);border-color:var(--bad)}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0 0 var(--u);font-size:12px;line-height:18px}dt{color:var(--mute)}dd{word-break:break-all}
@@ -123,7 +148,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 .rcpt .rc-st{margin:6px 0}#donate.done .rcpt details.more{display:block}.rcpt details input{display:block;width:100%;box-sizing:border-box;margin-top:8px;text-align:left}.rcpt details .mut{margin-top:6px}.rcpt .rc-st.ok{color:var(--ok)}.rcpt .rc-st.bad{color:var(--bad)}.rcpt .rc-conf .chk{margin-top:6px}
 #r-gap{flex:0 0 calc(var(--u)*2)}#r-info .panel{border-top:1px solid var(--line);padding:8px 0 4px}#r-info .panel b{display:block;font-weight:normal;color:var(--fg);letter-spacing:.08em;text-transform:uppercase;font-size:11px}#r-info .rstate{color:var(--fg);margin-top:8px}#r-info .rstate.ok{color:var(--ok)}#r-info .rstate.bad{color:var(--bad)}
 /* the cat's record: four photos taken with the cat asleep, then what the clinic knows of it; the list of cats and one cat */
-.shots{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--u)}.shots.three{grid-template-columns:repeat(3,1fr)}
+.shots{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--u)}.shots.three{grid-template-columns:repeat(3,1fr)}.shots.two{grid-template-columns:repeat(2,1fr)}#cr-shots-box{margin-top:calc(var(--u)*1)}#cr-shots-st{margin-top:var(--u)}
 .shot{position:relative;aspect-ratio:1;min-width:0;border:1px dashed var(--line2);border-radius:0;background:transparent;color:var(--mute);font:400 10px/13px var(--mono);letter-spacing:0;text-transform:uppercase;cursor:pointer;padding:0 0 6px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
 .shot::before{content:"+";position:absolute;left:0;right:0;top:calc(50% - 19px);text-align:center;font-size:22px;line-height:24px;color:var(--fg)}
 .shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.shot span{position:relative;text-align:center;line-height:13px;padding:0 2px}  /* "left side" goes on two lines where the tiles are narrow */
@@ -135,7 +160,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 #ca-q{margin-bottom:calc(var(--u)*2)}input[type=search]{-webkit-appearance:none;appearance:none}input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .item .cat{display:flex;align-items:center;gap:12px;min-width:0}.item .cat>div{min-width:0}.item .cat .sub2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .th{width:48px;height:48px;flex:none;object-fit:cover;border:1px solid var(--line2);background:var(--bg);display:block}.th.none{border-style:dashed}
-.pics{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:calc(var(--u)*2) 0}.pics:empty{display:none}
+.pics{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:calc(var(--u)*2) 0}.pics:empty{display:none}#sq-match-st{margin-top:0}#sq-match-st:empty{display:none}#sq-match-get{margin:8px 0 0}
 .pics button{position:relative;display:block;padding:0;border:1px solid var(--line2);border-radius:0;background:var(--bg);color:var(--fg);font:400 11px/14px var(--mono);cursor:pointer;aspect-ratio:1;overflow:hidden;min-width:0}.pics button.big{grid-column:1/-1;aspect-ratio:4/3;cursor:default}
 .pics img{display:block;width:100%;height:100%;object-fit:cover}.pics .lbl{position:absolute;left:6px;bottom:6px;font-size:11px;line-height:14px;letter-spacing:.06em;text-transform:uppercase;background:var(--bg);color:var(--fg);padding:1px 4px}
 .pics .none{border-style:dashed;cursor:default}.pics .none .wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);text-align:center;padding:0 6px}
@@ -143,12 +168,13 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 /* errors, warnings and odd states: the app's bad colour, whatever they sit in (index.js BAD_TEXT) */
 .bad,.tl.bad,.item .st.bad,.lnk a.bad{color:var(--bad)}button.sm.bad,.acts a.sm.bad{color:var(--bad);border-color:var(--bad)}
 </style></head><body>
-<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Clinic</button></div><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
+<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Partner</button></div><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
 <main>
 <div class="card" id="recovered" hidden></div>
-<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button></nav>
+<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button><button data-t="skind" data-role="streetcat">Kind</button><button data-t="spick" data-role="streetcat">Choose</button></nav>
 
 <section id="donate" class="on">
+<div class="ptypes grid" id="d-kinds" hidden></div><div id="d-reqs" class="camp" hidden></div>
 <div id="d-paste"><label for="d-camp">Campaign link</label><textarea id="d-camp" placeholder="https://…/donate#c=…"></textarea></div>
 <div id="d-campinfo" class="camp"></div>
 <div class="pay">
@@ -158,7 +184,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div class="out" id="d-out"></div>
 <button class="go big" id="d-ln">Pay with Lightning</button>
 </div>
-<div class="actions" id="d-links"><button class="go alt" id="d-toecash">Pay with ecash</button><button class="go alt" id="d-torefund">Take my sats back</button></div>
+<div class="actions" id="d-links"><button class="go alt" id="d-toecash">Pay with ecash</button><button class="go alt" id="d-torefund">Take my sats back</button><button class="go alt" id="d-check">Check for requests</button></div>
 </section>
 
 <section id="decash">
@@ -208,19 +234,25 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="home">
 <div class="stat"><div><b id="h-n">0</b><span>campaigns</span></div><div><b id="h-rel">0 sat</b><span>released, in this browser</span></div></div>
 <input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div>
-<div class="list" id="h-list"></div>
-<div class="actions"><button class="go" id="h-new">New campaign</button><button class="go alt" id="h-release">Release a certified token</button><button class="go alt" id="h-hand">Receive a donation in person</button></div>
+<div class="plist" id="h-kinds"></div>
+<div class="actions"><button class="go" id="h-new">New campaign</button><button class="go" id="h-req">New request</button><button class="go alt" id="h-release">Release a certified token</button><button class="go alt" id="h-hand">Receive a donation in person</button></div>
 <p class="center"><a href="#" id="h-cats" style="color:inherit">Cats</a> · <a href="#" id="h-keys" style="color:inherit">Keys</a></p>
 </section>
 
 <section id="campaign">
-<label>Cat / campaign name</label><input id="k-name" placeholder="MOCHI">
-<label>Operation</label><input id="k-op" value="sterilisation">
-<label>Mint URL</label><input id="k-mint" placeholder="https://mint.minibits.cash/Bitcoin">
-<label>Streetcat public key</label><input id="k-s" placeholder="02…">
-<label>Clinic public key</label><input id="k-c" placeholder="02…">
+<label>What it pays</label><div class="ptypes grid" id="k-type"></div>
+<label id="k-name-l">Name</label><input id="k-name" placeholder="TNR MARINA">
+<label>For</label><div class="pchoose"><button class="sm" type="button" id="k-col">Choose colony</button></div>
+<label>Confirmed by</label><div class="pchoose"><button class="sm" type="button" id="k-par">Choose partner</button></div>
+<p class="mut code lnk" id="k-sum"><span id="k-sum-t"></span> · <a href="#" id="k-edit">edit</a></p>
+<div class="code" id="k-keys"></div>
+<div id="k-more" hidden>
+<label>Operation</label><input id="k-op" placeholder="sterilisation">
+<label>The partner's public key</label><input id="k-c" placeholder="02…">
 <label>Deadline: refunds after this date</label><input id="k-dl" type="date">
+<label>Mint URL</label><input id="k-mint" placeholder="https://mint.minibits.cash/Bitcoin">
 <label>Where donors send the token (optional)</label><input id="k-to" placeholder="donaciones@streetcat.org">
+</div>
 <div class="out" id="k-out"></div>
 <button class="go big" id="k-go">Make the campaign</button>
 </section>
@@ -228,8 +260,8 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="keys">
 <dl hidden><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
 <div class="term" id="x-term"><textarea id="x-box" placeholder="export shows your keys here · paste an export here to import"></textarea></div>
-<div class="row2"><button class="sm" id="x-exp">Export keys</button><button class="sm" id="x-imp">Import keys</button></div>
-<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
+<div class="row2"><button class="sm" id="x-exp">Export all</button><button class="sm" id="x-imp">Import all</button></div><div class="out" id="x-out"></div>
+<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. Export all carries the keys and everything this browser keeps with them: campaigns, donations, requests, partners, colonies and photos; Import all adds them to what the other browser has. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
 </section>
 
 <section id="work">
@@ -247,8 +279,9 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="cr-gives" class="mut code"></div>
 <div class="out" id="cr-warn"></div>
 <div id="cr-act">
-<label class="chk"><input type="checkbox" id="cr-ok"><span>I confirm this procedure was done on this cat, on this date.</span></label>
-<div class="row2"><button class="sm" id="cr-inv">add the invoice</button><button class="sm" id="cr-photo">add a photo</button></div><input type="file" id="cr-file" hidden>
+<label class="chk"><input type="checkbox" id="cr-ok"><span id="cr-ok-t">I confirm this procedure was done on this cat, on this date.</span></label>
+<div id="cr-shots-box" hidden><label id="cr-shots-l">Photos of the delivery</label><div class="shots two" id="cr-shots"><button type="button" class="shot" data-slot="note"><span>delivery note</span></button><button type="button" class="shot" data-slot="goods"><span>the goods</span></button></div><input type="file" id="cr-shot-file" accept="image/*" capture="environment" hidden><p class="mut" id="cr-shots-st"></p></div>
+<div class="row2" id="cr-evrow"><button class="sm" id="cr-inv">add the invoice</button><button class="sm" id="cr-photo">add a photo</button></div><input type="file" id="cr-file" hidden>
 <div class="mut code" id="cr-ev">Optional: only the file's fingerprint (SHA-256) goes with the confirmation. The file stays on this phone.</div>
 <button class="go" id="cr-go" disabled>Confirm procedure</button>
 <details class="more" id="cr-prob"><summary>Report a problem</summary><div class="row3" id="cr-why"><button class="sm" data-r="postponed">postponed</button><button class="sm" data-r="wrong-data">wrong data</button><button class="sm" data-r="other">other</button></div><input id="cr-note" placeholder="what happened (optional)" maxlength="300"><button class="go" id="cr-report" disabled>Send the report</button></details>
@@ -272,7 +305,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <ul class="checks" id="co-list"></ul>
 <button class="go" id="co-install" hidden>Install on this phone</button>
 <p class="center" id="co-ios" hidden>On an iPhone: Share, then Add to Home Screen.</p>
-<button class="go" id="co-ai" hidden>Get the cat recognition (48 MB)</button>
+<button class="go" id="co-ai" hidden>Get the cat recognition (121 MB)</button>
 <div class="out" id="co-ai-out"></div>
 <button class="go alt big" id="co-again">Check again</button>
 </section>
@@ -288,26 +321,59 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 </section>
 
 <section id="snew">
-<div id="sn-head" class="camp"></div>
-<label>Cat</label><input id="sn-cat" placeholder="MOCHI">
+<label>What kind</label><div class="ptypes grid" id="sn-type"></div>
+<div id="sn-catbox"><label>Cat</label><input id="sn-cat" placeholder="MOCHI">
 <label>Photos when caught</label><div class="shots three" id="sn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button></div><input type="file" id="sn-file" accept="image/*" capture="environment" hidden>
-<p class="mut" id="sn-shots-st" style="margin-top:var(--u)">Optional. Made small here, without location data. They go with the request, encrypted, so the clinic can check it is this cat.</p>
-<label>Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
+<p class="mut" id="sn-shots-st" style="margin-top:var(--u)">Optional. Made small here, without location data. They go with the request, encrypted, so the clinic can check it is this cat.</p></div>
+<label id="sn-proc-l">Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
 <div class="mut" id="sn-public">Shown on the public status page.</div>
-<label>Date of the procedure</label><input id="sn-date" type="date">
-<label>Note for the clinic (optional)</label><input id="sn-note" placeholder="invoice 2026-118" maxlength="200">
+<label>Cost</label><input id="sn-cost" inputmode="numeric" autocomplete="off" placeholder="sat">
+<label>For</label><div class="pchoose"><button class="sm" type="button" id="sn-col">Choose colony</button></div>
+<label>Paid from</label><div class="pchoose"><button class="sm" type="button" id="sn-pot">Choose pot</button></div>
+<div class="code" id="sn-keys"></div>
+<p class="mut code" id="sn-cover"></p>
+<p class="mut code lnk" id="sn-sum"><span id="sn-sum-t"></span> · <a href="#" id="sn-edit">edit</a></p>
+<div id="sn-more" hidden>
+<label id="sn-date-l">Date of the procedure</label><input id="sn-date" type="date">
+<label>Note for the partner (optional)</label><input id="sn-note" placeholder="invoice 2026-118" maxlength="200">
 <label>Paid from these donations</label><div class="list" id="sn-dons"></div>
+</div>
 <div class="out" id="sn-out"></div>
-<button class="go big" id="sn-go">Make the request</button>
+<button class="go big" id="sn-go">Send to the partner</button>
+</section>
+
+<section id="skind">
+<div class="camp" id="kd-head"></div>
+<label>Pots</label><div class="plist" id="kd-pots"></div>
+<label>Requests</label><div class="plist" id="kd-reqs"></div>
+<div class="actions"><button class="go" id="kd-req">New request</button><button class="go alt" id="kd-camp">New campaign</button></div>
+</section>
+
+<section id="spick">
+<div class="camp" id="pp-head"></div>
+<div class="plist" id="pp-list"></div>
+<div id="pp-new" hidden>
+<label id="pp-name-l">Name</label><input id="pp-name" maxlength="60" autocomplete="off">
+<div id="pp-pbox"><label>What it is</label><div class="ptypes" id="pp-kind"></div>
+<label>What it confirms</label><div class="ptypes grid" id="pp-does"></div>
+<label>Its public key</label><input id="pp-key" placeholder="02…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></div>
+<div class="out" id="pp-out"></div>
+<button class="go" id="pp-save">Save</button>
+</div>
+<div class="actions" id="pp-acts"><button class="go alt" id="pp-add">+ New</button></div>
 </section>
 
 <section id="sreq">
 <div id="sq-head" class="camp"></div>
 <dl id="sq-dl"></dl>
+<label id="sq-pics-l" hidden>When caught · your photos</label>
 <div class="pics" id="sq-pics"></div>
+<div id="sq-ans" hidden><label id="sq-ans-l"></label><div class="pics" id="sq-ans-pics"></div><p class="mut" id="sq-ans-st"></p></div>
+<div id="sq-rec" hidden><label id="sq-rec-l"></label><div class="pics" id="sq-rec-pics"></div><p class="mut" id="sq-match-st"></p><p id="sq-match-get" hidden><button type="button" class="sm" id="sq-match-go">compare them</button></p><p class="center lnk"><a href="#" id="sq-rec-a"></a></p></div>
 <div class="term" id="sq-term"><div class="ticker" id="sq-steps"></div></div>
 <div id="sq-state" class="mut code"></div>
-<div id="sq-send"><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
+<p class="center lnk" id="sq-qrl" hidden style="margin-bottom:var(--u)"><a href="#" id="sq-qra">Clinic offline? Show it as QR</a></p>
+<div id="sq-send"><p class="mut" id="sq-send-st"></p><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
 <div class="row2" style="margin-top:var(--u)"><button class="sm" id="sq-qr">show as QR</button><button class="sm" id="sq-resend">send again</button></div></div>
 <div class="out" id="sq-out"></div>
 <button class="go big" id="sq-go" disabled>Release</button>
@@ -348,7 +414,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <p class="mut code lnk" id="cn-sum"><span id="cn-sum-t"></span> · <a href="#" id="cn-edit">edit</a></p>
 <div class="shots" id="cn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button><button type="button" class="shot" data-slot="nose"><span>nose</span></button></div><input type="file" id="cn-file" accept="image/*" capture="environment" hidden>
 <p class="mut" id="cn-shots-st" style="margin-top:var(--u)">Photos with the cat asleep: made small here, without location data.</p>
-<div id="cn-like" hidden><label>Already in the records?</label><div class="alike" id="cn-like-list"></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">compare</button></div></div>
+<div id="cn-like" hidden><label>Check the cat</label><div id="cn-req" hidden><div class="mut">Streetcat's photos, when caught</div><div class="pics" id="cn-req-pics"></div><p class="mut" id="cn-req-st"></p></div><div id="cn-recs" hidden style="margin-top:var(--u)"><div class="mut">Already in the records?</div><div class="alike" id="cn-like-list"></div></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">check the cat</button></div></div>
 <div id="cn-namebox"><label for="cn-name">Name</label><input id="cn-name" maxlength="40" placeholder="MOCHI" autocomplete="off" spellcheck="false"></div>
 <div id="cn-basics" hidden><label for="cn-proc">Procedure</label><input id="cn-proc" maxlength="80" placeholder="sterilisation (spay)"><label for="cn-date">Date</label><input id="cn-date" type="date"></div>
 <label for="cn-chip">Microchip</label><input id="cn-chip" inputmode="numeric" maxlength="19" placeholder="15 digits" autocomplete="off">

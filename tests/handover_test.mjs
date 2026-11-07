@@ -84,7 +84,7 @@ await vol._ctx.setOffline(false);
 // forwarded to Streetcat
 await tab(vol, 'shand'); await vol.click('#v-fwd'); const fw = await waitText(vol, '#v-out', /Forwarded|✗/);
 check('the volunteer forwards both to Streetcat by relay', /^Forwarded/.test(fw) && (await vol.evaluate(() => window.__vetlock.outbox().filter(x => x.state === 'sent').length)) === 2, fw);
-await tab(sc, 'home'); await sc.click('#h-list .item'); await sc.locator('#h-list .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
+await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
 const subs = await sc.$$eval('#sc-dons .item .sub2', xs => xs.map(x => x.textContent));
 check('Streetcat\'s campaign lists both, "in person"', subs.length === 2 && subs.every(s => / · in person$/.test(s)), subs.join(' | ')); await fits(sc, 'Streetcat\'s campaign'); await fits(vol, 'the volunteer\'s list'); await shot(sc, 'h5-streetcat-in-person'); await shot(vol, 'h6-volunteer-list');
 

@@ -110,6 +110,18 @@ let foreign = null; try { foreign = await C.signCampaign(camp, newSk()); } catch
 check('the same campaign written another way still checks out (a trailing slash, upper-case keys, the deadline as text)', await C.campaignSig({ ...signed, mint: signed.mint + '/', streetcat: signed.streetcat.toUpperCase(), deadline: String(signed.deadline) }) === 'signed');
 check('a link with no signature is unsigned, not broken', await C.campaignSig(camp) === 'unsigned' && await C.campaignSig({ ...camp, sig: '' }) === 'unsigned');
 check('the ledger carries the signature, and it still checks out there', await C.campaignSig(C.ledgerV2({ campaign: signed, entries: [] }).campaign) === 'signed');
+// what a pot pays for, its colony and its partner (7 Nov): signed when there, optional, and the campaign's id is the same with or without
+const pot = await C.signCampaign({ ...camp, name: 'COMIDA MARINA', op: 'food', type: 'food', colony: ' colony   Marina ', partner: 'Pienso Sur', pkind: 'shop', hue: 85 }, sc);
+check('a pot names what it pays for, its colony and its partner, and its signature covers them', await C.campaignSig(pot) === 'signed' && pot.type === 'food' && pot.colony === 'colony Marina' && pot.partner === 'Pienso Sur' && pot.pkind === 'shop');
+const potChanged = await Promise.all([['type', 'vet'], ['colony', 'colony Playa'], ['partner', 'Pienso Norte'], ['pkind', 'clinic']].map(async ([k, v]) => [k, await C.campaignSig({ ...pot, [k]: v })]));
+check('…changing any of them breaks it, and so does taking one away', potChanged.every(([, st]) => st === 'broken') && await C.campaignSig({ ...pot, partner: undefined }) === 'broken', potChanged.map(([k, st]) => k + ':' + st).join(' '));
+check('…a kind or a partner it does not know is not kept (nor signed)', !('type' in C.campaignOf({ ...camp, type: 'toys' })) && !('pkind' in C.campaignOf({ ...camp, pkind: 'bank' })) && C.TYPES.join() === 'sterilisation,vet,food,other' && C.PKINDS.join() === 'clinic,shop,other');
+check('…and they do not change the campaign\'s id (its ledger, its certificates)', await C.campaignId(pot) === await C.campaignId({ ...pot, type: undefined, colony: undefined, partner: undefined, pkind: undefined }));
+check('a campaign made before, without them, signs and checks as it did', JSON.stringify(Object.keys(C.campSigned(signed)).sort()) === JSON.stringify(['clinic', 'deadline', 'hue', 'mint', 'name', 'op', 'streetcat', 'to']));
+// a key is a point of the curve, not only 66 hex characters: about half of those are not one, and ecash locked to one could only be refunded
+let offCurve = ''; for (let i = 1; !offCurve; i++) { const k = '02' + i.toString(16).padStart(64, '0'); try { cashu.pointFromHex(k); } catch (_) { offCurve = k; } }
+let offErr = ''; try { C.campaignOf({ ...camp, clinic: offCurve }); } catch (e) { offErr = e.message; }
+check('a partner key of 66 hex characters that is not a point of the curve is no key: the campaign is refused', C.pointOk(clPk) && C.pointOk(scPk.toUpperCase()) && !C.pointOk(offCurve) && !C.pointOk('02abc') && offErr === 'the campaign is incomplete', offCurve.slice(0, 12) + '… · ' + offErr);
 
 // 11) the vet's invoice behind a declaration: only its SHA-256, signed with the rest; changed afterwards, the answer no longer checks out
 const inv = { sha256: await C.sha256hex('%PDF-1.4 invoice 2026-118'), kind: 'invoice' }, ae = await C.certify(q, cl, undefined, inv), ve = await C.checkAnswer(q, ae);
@@ -117,4 +129,15 @@ check('a declaration can carry the invoice\'s fingerprint, and the answer still 
 check('…changed afterwards (another fingerprint, or none), it does not', !(await C.checkAnswer(q, { ...ae, statement: { ...ae.statement, evidence: { ...inv, sha256: 'f'.repeat(64) } } })).ok && !(await C.checkAnswer(q, { ...ae, statement: { ...ae.statement, evidence: undefined } })).ok);
 let badEv = ''; try { await C.certify(q, cl, undefined, { sha256: 'abc', kind: 'invoice' }); } catch (e) { badEv = e.message; } check('…and a fingerprint that is not a SHA-256 of an invoice or a photo is refused', /not a SHA-256/.test(badEv));
 check('…and its published declaration checks out with it', await C.certificateOk(camp, { statement: ae.statement, sig: ae.sig }) && !(await C.certificateOk(camp, { statement: { ...ae.statement, evidence: { ...inv, kind: 'photo' } }, sig: ae.sig })));
+// a shop's confirmation names its photos (7 Nov: the delivery note and the goods): signed with the rest; changed afterwards, not certified
+const phN = { slot: 'note', sha256: 'a'.repeat(64), bytes: 41000, w: 640, h: 480 }, phG = { slot: 'goods', sha256: 'b'.repeat(64), bytes: 52000, w: 640, h: 480 };
+const ap = await C.certify(q, cl, undefined, null, [phN, phG]), vp = await C.checkAnswer(q, ap);
+check('a partner\'s confirmation can name its photos (the delivery note and the goods), and it checks out', vp.ok && ap.statement.photos.map(p => p.slot).join() === 'note,goods' && await C.certificateOk(camp, { statement: ap.statement, sig: ap.sig }), vp.text);
+const phChanged = await Promise.all([[phG, phN], [phN], [phN, { ...phG, sha256: 'c'.repeat(64) }], [{ ...phN, bytes: 41001 }, phG]].map(ps => C.checkAnswer(q, { ...ap, statement: { ...ap.statement, photos: ps } }))), phGone = await C.checkAnswer(q, { ...ap, statement: (({ photos, ...st }) => st)(ap.statement) });
+check('…swapped, one taken away, one changed or its size changed afterwards: not certified', phChanged.every(v => !v.ok) && !phGone.ok, phChanged.map(v => v.statement).join(' ') + ' · ' + phGone.statement);
+let notDelivery = ''; try { await C.certify(q, cl, undefined, null, [{ ...phN, slot: 'face' }]); } catch (e) { notDelivery = e.message; }
+check('…photos that are not of a delivery (another slot) are refused', notDelivery === 'the photos of the delivery are not valid', notDelivery);
+const parts = C.ansPhotoParts(q.id, 'note', phN.sha256, 'QUJD'.repeat(10000), clPk, scPk);
+check('…they travel in parts, each one checked: for this request, this slot, from the partner to Streetcat', parts.length === 2 && parts.every(C.ansPartOk) && !C.ansPartOk({ ...parts[0], slot: 'face' }) && !C.ansPartOk({ ...parts[0], to: 'x' }) && !C.ansPartOk({ ...parts[0], kind: 'note.1' }) && C.ANS_SLOTS.join() === 'note,goods');
+check('…and a clinic\'s confirmation without photos is as before', !('photos' in a.statement) && (await C.checkAnswer(q, a)).ok);
 say(bad ? `core: ${bad} check(s) failed` : 'core: every check passed');

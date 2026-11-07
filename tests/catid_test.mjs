@@ -2,7 +2,7 @@
 // record the cat's photos are compared, on this phone, with the clinic's records, and the three most alike are shown in order: a hint,
 // never a proof. The photos are drawn here, six patterns, each drawn as the views of its record and once more, moved and turned, as the
 // new photo: no real photo is kept with the tests. Checked: with no records nothing is offered and nothing is fetched; it asks before the
-// 48 MB come; it shows them coming and the comparing; the drawn cat's record comes first, with its photo; a tile opens that record and ←
+// 121 MB come; it shows them coming and the comparing; the drawn cat's record comes first, with its photo; a tile opens that record and ←
 // comes back to the new one, its photo kept; a photo added works out only that photo; a new record starts clean and needs no second tap;
 // a cat with no record still gets only an order; one record and two say so; if the recognition cannot come it says so in red and a tap
 // tries again; nothing goes to another address; and it fits the phone at 390 and 320 px.
@@ -47,7 +47,7 @@ const until = async (p, re, ms = 300000) => { const seen = new Set(), t0 = Date.
 const tab = p => p.evaluate(() => { const on = document.querySelector('nav button.on'); return on ? on.dataset.t : ''; });
 const kept = p => p.evaluate(() => new Promise(res => { const r = indexedDB.open('streetcat-catid'); r.onsuccess = () => { const q = r.result.transaction('vec').objectStore('vec').count(); q.onsuccess = () => res(q.result); q.onerror = () => res(-1); }; r.onerror = () => res(-1); }));
 const over = p => p.evaluate(() => document.scrollingElement.scrollWidth - innerWidth);
-const engine = u => /\/ai\/1\/|catid-worker/.test(u), DONE = /Only an order/;
+const engine = u => /\/ai\/[12]\/|catid-worker/.test(u), DONE = /Only an order/;
 
 // 1) no records yet: nothing is offered and nothing is fetched
 const A = await clinic(), p = A.p;
@@ -59,14 +59,14 @@ check('with no records yet, nothing is offered and nothing is fetched', await p.
 const REC = [[0, 'CARAMEL', 'the old port', 3], [1, 'SOCKS', 'the marina', 3], [2, 'MOCHI', 'the bakery', 2], [3, 'PEPPER', 'the old port', 3], [4, 'LUNA', 'the marina', 1]];
 say(`(${await seed(p, REC)} records with ${REC.reduce((s, r) => s + r[3], 0)} drawn photos)`);
 await p.evaluate(() => window.__vetlock.openCatnew(null)); await shoot(p, 'face', await jpeg(p, 2, 3, .8)); await p.waitForSelector('#cn-like-go', { timeout: 10000 });
-check('with records there, it asks before the cat recognition comes, saying what it compares and how big it is', (await st(p)) === 'Its photos can be compared with your 5 records, here on this phone. The cat recognition comes once: 48 MB.' && !A.asked.some(engine), await st(p));
+check('with records there, it asks before the cat recognition comes, saying what it compares and how big it is', (await st(p)) === 'Its photos can be compared with your 5 records, here on this phone. The cat recognition comes once: 121 MB.' && !A.asked.some(engine), await st(p));
 await shot(p, 'like-1-ask');
 
 // 3) a tap: it comes, it compares, the three most alike
 const t0 = Date.now(); await p.click('#cn-like-go'); const run = await until(p, DONE); const secs = ((Date.now() - t0) / 1000).toFixed(1);
 await p.waitForFunction(() => document.querySelectorAll('#cn-like-list img[src]').length === document.querySelectorAll('#cn-like-list button').length, null, { timeout: 10000 }).catch(() => {});
 const T = await tiles(p);
-check('…on a tap it shows the 48 MB coming, then the records compared photo by photo', run.seen.some(s => /^getting the cat recognition(…|: \d+ of 48 MB)$/.test(s)) && run.seen.some(s => /^comparing with your 5 records: \d+ of 12 photos$/.test(s)), run.seen.filter(s => !DONE.test(s)).slice(0, 3).join(' | ') + ' …');
+check('…on a tap it shows the 121 MB coming, then the records compared photo by photo', run.seen.some(s => /^getting the cat recognition(…|: \d+ of 121 MB)$/.test(s)) && run.seen.some(s => /^comparing with your 5 records: \d+ of 12 photos$/.test(s)), run.seen.filter(s => !DONE.test(s)).slice(0, 3).join(' | ') + ' …');
 check("the three records most like it, the drawn cat's own first, with its photo", T.length === 3 && T[0].name === 'MOCHI' && /^MOCHI, /.test(T[0].alt) && T.every(t => t.src), T.map(t => t.name).join(' · ') + ` · in ${secs} s`);
 check('…said to be only an order, worked out on this phone', run.s === 'The 3 of your 5 records that look most like it, worked out on this phone. Only an order, not a match: open one to compare the chip.', run.s);
 check('every photo was worked out once and kept: the 12 of the records and the new one', (await kept(p)) === 13, `${await kept(p)} kept`);

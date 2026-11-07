@@ -46,7 +46,7 @@ const A = await give(2100), B = await give(21), REST = A.amount - 1500;  /* 600 
 check('the donor\'s app sends each locked donation to Streetcat by relay', /sent to Streetcat/.test(A.lbl) && /sent to Streetcat/.test(B.lbl), A.lbl + ' | ' + B.lbl);
 
 // Streetcat: the donations arrive by themselves
-await tab(sc, 'home'); await sc.click('#h-list .item'); await sc.locator('#h-list .row2 button', { hasText: 'donations and requests' }).click();
+await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click();
 await sc.click('#sc-check'); const net1 = await waitText(sc, '#sc-net', /donation|checked/);
 const dons = await sc.$$eval('#sc-dons .item .nm', xs => xs.map(x => x.textContent));
 await fits(sc, 'Streetcat\'s campaign'); await shot(sc, 'r1-streetcat-campaign'); check('Streetcat receives both donations from the relays, checked against the campaign', dons.length === 2 && dons.every(x => /^DON-[0-9A-F]{8}$/.test(x)), net1);
@@ -57,9 +57,10 @@ await sc.fill('#sn-cat', 'MOCHI'); await sc.fill('#sn-proc', 'sterilisation (spa
 const rows = await sc.$$eval('#sn-dons .item', xs => xs.map(x => ({ ref: x.querySelector('.nm').textContent, avail: Number(x.querySelector('.sub2').textContent.match(/^([\d ]+) sat/)[1].replace(/ /g, '')) })));
 const big = rows.find(r => r.avail > 1000), small = rows.find(r => r.avail < 1000);
 await sc.fill('#sn-use-' + big.ref, '1500'); await sc.locator(`#sn-dons .item:has-text("${small.ref}") button`, { hasText: 'all' }).click();
-await fits(sc, 'the new request'); await shot(sc, 'r2-new-request'); const total = 1500 + small.avail; check('the request adds up what each donation pays', (await txt(sc, '#sn-go')).replace(/ /g, '').includes(String(total)), await txt(sc, '#sn-go'));
+await fits(sc, 'the new request'); await shot(sc, 'r2-new-request'); const total = 1500 + small.avail; check('the request adds up what each donation pays: it is its cost, and the line under the pot says it is covered', (await sc.inputValue('#sn-cost')) === String(total) && (await txt(sc, '#sn-cover')).replace(/ /g, '').startsWith(`${total}of${total}sat✓`), `${await sc.inputValue('#sn-cost')} · ${await txt(sc, '#sn-cover')}`);
 await sc.click('#sn-go'); const sent = await waitText(sc, '#sq-steps', /sent · [23] of 3/, 30000);
 check('the request goes to the clinic by relay (two relays confirm; the third refuses)', /sent · 2 of 3/.test(sent), sent.split('\n')[1]);
+check('…so no buttons to send it another way, only a small link to show it as QR', await sc.isHidden('#sq-send') && await sc.isVisible('#sq-qra') && (await txt(sc, '#sq-qra')) === 'Clinic offline? Show it as QR');
 
 // the clinic: the request arrives; nothing can be confirmed before ticking the box; offline, the answer waits
 await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic, '#w-n', /^1$/);
@@ -74,15 +75,22 @@ const INV = Buffer.from('%PDF-1.4\n% invoice 2026-118 · MOCHI · spay · test o
 const evl = await waitText(clinic, '#cr-ev', /fingerprint [0-9a-f]{16}…/); await shot(clinic, 'r12-clinic-invoice-added');
 check('the clinic adds the invoice: its fingerprint is shown, the file stays on the phone', evl.includes(`invoice · fingerprint ${INV_SHA.slice(0, 16)}… · invoice-2026-118.pdf stays on this phone`), evl);
 await clinic._ctx.setOffline(true); await clinic.check('#cr-ok'); await clinic.click('#cr-go'); const conf = await waitText(clinic, '#cr-out', /CONFIRMED/);
-check('offline, the clinic confirms and the answer waits to be sent', /waiting for a connection|waiting for a relay/.test(conf), conf.split('\n').slice(0, 2).join(' / '));
+const confRed = await clinic.$$eval('#cr-out .bad', es => es.some(e => /^✗ Not sent: no connection/.test(e.textContent)));
+check('offline, the clinic confirms; the answer says in red that it is not sent, and only then offers the other ways', /✗ Not sent: no connection\. It goes by itself once there is one\.\nOr give it to Streetcat another way:/.test(conf) && confRed && await clinic.isVisible('#cr-out button:has-text("copy link for Streetcat")') && await clinic.isVisible('#cr-out button:has-text("show as QR")'), conf.split('\n').slice(-2).join(' / '));
 await shot(clinic, 'r5-clinic-confirmed-offline'); await tab(clinic, 'work'); await shot(clinic, 'r6-clinic-waiting'); check('…listed under "Waiting to be sent"', (await txt(clinic, '#w-list')).includes('Waiting to be sent'));
 await clinic._ctx.setOffline(false); await clinic.evaluate(() => window.__vetlock.flush()); await clinic.waitForTimeout(800); await tab(clinic, 'work');
 check('back online, it goes out and moves to "Done"', /Done/.test(await txt(clinic, '#w-list')) && !/Waiting to be sent/.test(await txt(clinic, '#w-list')));
+await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const sentNow = await waitText(clinic, '#cr-out', /✓ sent to Streetcat/);
+check('…and the answer says so: sent to Streetcat, no buttons to copy it, a small link to show it as QR', /✓ sent to Streetcat · 2 of 3 relays have it\n· received by Streetcat/.test(sentNow) && !(await clinic.isVisible('#cr-out button:has-text("copy link for Streetcat")')) && await clinic.isVisible('#cr-out a:has-text("Streetcat offline? Show it as QR")'), sentNow.split('\n').slice(-2).join(' / '));
+await fits(clinic, 'the answer, sent'); await shot(clinic, 'r13-clinic-answer-sent');
 
 // Streetcat: the answer arrives, it is checked, and the release puts the rest back under the lock
 await tab(sc, 'scamp'); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /answer/); await sc.click('#sc-reqs .item');
 const steps = await txt(sc, '#sq-steps'); check('Streetcat checks the answer: every proof and the declaration', /✓ certified: all \d+ proofs signed with MOCHI's clinic key, and its declaration names exactly them/.test(steps), steps.split('\n')[3]);
 check('…and sees that the clinic received the request', /received by the clinic · /.test(steps));
+await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const recd = await waitText(clinic, '#cr-out', /✓ received by Streetcat/, 20000);
+check('…and the clinic\'s answer then says "received by Streetcat"', /✓ sent to Streetcat · 2 of 3 relays have it\n✓ received by Streetcat · /.test(recd), recd.split('\n').slice(-2).join(' / '));
+await shot(clinic, 'r14-clinic-answer-received');
 await sc.click('#sq-go'); const rel = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
 await fits(sc, 'the released request'); await shot(sc, 'r7-streetcat-released'); const relAmt = Number((rel.match(/RELEASED ([\d ]+) sat/) || [0, '0'])[1].replace(/ /g, ''));
 check('the release pays the procedure, less only the mint fee', relAmt > 0 && relAmt <= total && relAmt >= total - 3, rel.split('\n')[0]);
@@ -96,13 +104,17 @@ check(`the donor's own token finds the ${REST} sat still locked`, rest === REST,
 
 // a second request, by link only (no relay copy is read): the clinic reports a problem, Streetcat opens the answer link
 await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 1, null, { timeout: 30000 });
-await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await sc.locator('#sn-dons button', { hasText: 'all' }).click(); await sc.click('#sn-go'); await waitText(sc, '#sq-steps', /made/);
-await sc.click('#sq-link'); const qlink = await clip(sc); check('the request also travels as a link that opens as the clinic', /[?&]role=clinic#q=sc[01]\./.test(qlink), qlink.slice(0, 70) + '…');
+await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await sc.locator('#sn-dons button', { hasText: 'all' }).click();
+await sc.evaluate(u => localStorage.setItem('vetlock.relays', u), relays[2].url);  /* for this one, only the relay that refuses every event */
+await sc.click('#sn-go'); await sc.waitForFunction(() => document.getElementById('sreq').classList.contains('on') && /TEO/.test(document.getElementById('sq-dl').textContent), null, { timeout: 30000 });
+const nots = await waitText(sc, '#sq-send-st', /Not sent/); await shot(sc, 'r15-streetcat-request-not-sent');
+check('when no relay takes it, Streetcat\'s request says so in red, and only then offers the other ways', nots === '✗ Not sent: no relay took it.\nOr give it to the clinic another way:' && await sc.$$eval('#sq-send-st .bad', es => es.length === 1) && await sc.isVisible('#sq-link') && await sc.isHidden('#sq-qrl'), nots.split('\n')[0]);
+await sc.click('#sq-link'); const qlink = await clip(sc); await sc.evaluate(u => localStorage.setItem('vetlock.relays', u), RELAYS); check('the request also travels as a link that opens as the clinic', /[?&]role=clinic#q=sc[01]\./.test(qlink), qlink.slice(0, 70) + '…');
 await other.goto(qlink); await waitText(other, '#cr-dl', /TEO/); const ow = await txt(other, '#cr-warn');
 await fits(other, 'a request for another clinic key'); await shot(other, 'r8-clinic-other-key'); check('a phone with another clinic key cannot confirm it', /no clinic key for MOCHI/.test(ow) && await other.isDisabled('#cr-ok'), ow.split('\n')[0]);
-await clinic.goto(qlink); await waitText(clinic, '#cr-dl', /TEO/); await clinic.click('#cr-prob summary'); await clinic.click('#cr-why button[data-r="postponed"]'); await clinic.fill('#cr-note', 'the cat was not caught today'); await clinic.click('#cr-report');
+await clinic.goto(qlink); await waitText(clinic, '#cr-dl', /TEO/); await clinic._ctx.setOffline(true); await clinic.click('#cr-prob summary'); await clinic.click('#cr-why button[data-r="postponed"]'); await clinic.fill('#cr-note', 'the cat was not caught today'); await clinic.click('#cr-report');
 const rep = await waitText(clinic, '#cr-out', /PROBLEM REPORTED/); await shot(clinic, 'r9-clinic-reported'); check('the clinic reports a problem instead of confirming', /PROBLEM REPORTED \(postponed\)/.test(rep));
-await clinic.locator('#cr-out button', { hasText: 'copy link for Streetcat' }).click(); const alink = await clip(clinic);
+await clinic.locator('#cr-out button', { hasText: 'copy link for Streetcat' }).click(); const alink = await clip(clinic); await clinic._ctx.setOffline(false);
 await sc.goto(alink); const st2 = await waitText(sc, '#sq-steps', /reports a problem/);
 check('Streetcat opens the answer link and reads the signed report', /the clinic reports a problem \(postponed\): the cat was not caught today/.test(st2)); check('…and nothing can be released for it', await sc.isDisabled('#sq-go'));
 
@@ -112,7 +124,7 @@ const scanIn = async (p, parts) => { for (const f of parts.slice().reverse()) { 
 await clinic._ctx.setOffline(true);  /* before the request exists: the app's own check of the relays (every minute) cannot bring it first */
 await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 1, null, { timeout: 30000 });
 await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await sc.fill('#sn-dons input', '100'); await sc.click('#sn-go'); await waitText(sc, '#sq-steps', /made/);
-await sc.click('#sq-qr'); await shot(sc, 'r11-streetcat-request-qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term')); check('Streetcat shows the request as a QR (animated when long)', fq.length >= 1, fq.length + ' part' + (fq.length > 1 ? 's' : ''));
+await sc.click('#sq-qra'); await sc.waitForSelector('#sq-term .qr'); await shot(sc, 'r11-streetcat-request-qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term')); check('Streetcat shows the request as a QR (animated when long)', fq.length >= 1, fq.length + ' part' + (fq.length > 1 ? 's' : ''));
 await tab(clinic, 'work'); await clinic.click('#w-open'); await clinic.click('#w-scan'); await scanIn(clinic, fq);
 const dl3 = await waitText(clinic, '#cr-dl', /TEO/); check('the clinic, offline, scans it and the request opens', /in person, by QR/.test(dl3), (dl3.match(/Arrived.*$/) || [''])[0]);
 await clinic.check('#cr-ok'); await clinic.click('#cr-go'); await waitText(clinic, '#cr-out', /CONFIRMED/);
@@ -127,7 +139,7 @@ const rest2 = await donor.evaluate(async tok => { const w = new cashu.Wallet(cas
 check(`the donor's token still finds what is left (${REST - 100} sat), two splits on`, rest2 === REST - 100, rest2 + ' sat');
 
 // the ledger Streetcat publishes: each donation by its code, the split with what it paid and what went back
-await tab(sc, 'home'); await sc.click('#h-list .item'); await sc.locator('#h-list .row2 button', { hasText: 'copy ledger' }).click(); await sc.waitForTimeout(300); const L = JSON.parse(await clip(sc));
+await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'copy ledger' }).click(); await sc.waitForTimeout(300); const L = JSON.parse(await clip(sc));
 const eA = L.entries.find(e => e.amount > 1000); check('the ledger lists the split donation with its parts and its rests', eA && eA.parts.map(x => x.amount).join('+') === '1500+100' && eA.remainders.length === 2, eA && `${eA.ref} ${eA.amount} → ${eA.parts.map(x => x.amount).join('+')} + ${eA.remainders.length} rest tokens`);
 check('…and holds no key', !/refundKey|"sk"|privkey/.test(JSON.stringify(L)));
 const evs = L.certificates.map(x => x.statement.evidence).filter(Boolean);

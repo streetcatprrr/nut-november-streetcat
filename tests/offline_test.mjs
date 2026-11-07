@@ -34,7 +34,7 @@ await clinic.reload(); say('page controlled by it:', await clinic.evaluate(() =>
 await tab(clinic, 'certify'); await clinic.fill('#c-token', tok); say('read online:', (await waitOut(clinic, 'c-info', /names|cannot/)).split('\n').pop());
 await clinic.fill('#c-token', '');
 // the cat recognition (catid.js), got ahead of time in Offline setup, on wifi, without starting it; the numbers to expect for a photo
-// drawn here are worked out on Streetcat's phone. A donor's phone, which never asked for it, keeps none of its 48 MB.
+// drawn here are worked out on Streetcat's phone. A donor's phone, which never asked for it, keeps none of its 121 MB.
 const on = await streetcat.evaluate(async () => { const cv = new OffscreenCanvas(320, 240), cx = cv.getContext('2d'); cx.fillStyle = '#d28a3c'; cx.fillRect(0, 0, 320, 240); cx.fillStyle = '#222'; cx.beginPath(); cx.arc(160, 120, 70, 0, 7); cx.fill();
   const bytes = new Uint8Array(await (await cv.convertToBlob({ type: 'image/jpeg', quality: .9 })).arrayBuffer()); await CATID.load(); const v = await CATID.compute(bytes); return { e: Array.from(v.e), bytes: Array.from(bytes) }; });
 await tab(clinic, 'coffline'); await clinic.waitForSelector('#co-ai', { timeout: 10000 }); const before = await clinic.evaluate(() => CATID.here()); await clinic.click('#co-ai');

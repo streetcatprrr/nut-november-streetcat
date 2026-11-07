@@ -7,7 +7,7 @@
 // browsers); this only chooses the width. It runs in <head>, before anything is drawn, and again when the phone turns.
 (() => {
   const meta = document.querySelector('meta[name="viewport"]'); if (!meta) return;
-  const BASE = meta.getAttribute('content'), DESIGN = 390, WIDEST = 460, PHONE = 500;  // the page's own viewport; the width the screens are drawn for; the widest they are laid out at; narrower than this is a phone
+  const BASE = meta.getAttribute('content'), DESIGN = 390, WIDEST = 500, PHONE = 500;  // the page's own viewport; the width the screens are drawn for; the widest they are laid out at; narrower than this is a phone
   const need = Number((document.currentScript && document.currentScript.dataset.need) || 0);
   const upright = () => { const t = screen.orientation && screen.orientation.type; if (t) return t.indexOf('portrait') === 0;
     if (typeof window.orientation === 'number') return window.orientation % 180 === 0; return innerHeight >= innerWidth; };

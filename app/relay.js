@@ -67,7 +67,11 @@ async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen =
   for (const [id, { ev, from }] of wraps) { if (seen.has(id)) continue; seen.add(id);
     const to = (ev.tags.find(t => t[0] === 'p') || [])[1], k = byPub.get(to); if (!k || !K.verifyEvent(ev)) continue;
     let rumor, payload; try { rumor = K.unwrapEvent(ev, k.sk); payload = await C.unpack(rumor.content); } catch (_) { continue; }  // not for us, or not readable
-    const want = expect ? await expect(payload) : null; if (!want || rumor.pubkey !== await pubOf(want)) continue;  // not from who it says
+    const want = expect ? await expect(payload) : null;
+    // not expected here yet (its request or its campaign is not in this browser yet): asked again next time, not dropped for good
+    // (StreetCat, 7 Nov: the app on his home screen got the clinic's answer before Import all brought the request, and lost it)
+    if (!want) { seen.delete(id); continue; }
+    if (rumor.pubkey !== await pubOf(want)) continue;  // not from who it says
     if (payload && payload.id && seen.has('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''))) continue; if (payload && payload.id) seen.add('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''));
     out.push({ payload, wrap: id, relays: from, at: rumor.created_at }); }
   return { messages: out, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
@@ -89,6 +93,29 @@ async function latestLedger(id, { relays = RELAYS, timeout } = {}){
     if (!best || ev.created_at > best.ev.created_at) best = { ev, L, from: [r.url] }; else if (ev.id === best.ev.id && !best.from.includes(r.url)) best.from.push(r.url); }
   return { found: best, ignored, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
 
+// THE CAMPAIGNS BY NOSTR: each campaign Streetcat makes is announced on the relays (kind 30078, its d tag "announce:" and the campaign's
+// id, so it never replaces the ledger), signed with the same derived ledger key; it holds the signed campaign, as its link does, and
+// expires at its deadline (NIP-40). A donor's "Check for requests" asks the relays for the announcements of Streetcat's published keys
+// and keeps a campaign only when the event names it, its signer is that campaign's ledger key, the campaign's own signature holds, and
+// it is still open: anything else is ignored. Each campaign once, the newest.
+// Since 7 Nov (StreetCat: campaigns and concrete requests, «3»), the announcement also says what it is and which cats it pays for, in
+// tags the same signature covers: ['k', 'request'] for a request on its own (one cat, its own pot) and, for each request made from
+// it, ['cat', name, procedure, state], the state 'requested', 'done' (the clinic certified it) or 'paid' (Streetcat released it).
+const ANNOUNCE = 'streetcat-campaign', CAT_STATES = ['requested', 'done', 'paid'];
+const catTags = cats => (cats || []).slice(0, 40).map(x => ['cat', String(x.name || '').trim().slice(0, 40), String(x.procedure || '').trim().slice(0, 80), CAT_STATES.includes(x.state) ? x.state : 'requested']).filter(t => t[1]);
+async function announceEvent(c, streetcatSk, { kind, cats } = {}){ const id = await C.campaignId(c);
+  return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', 'announce:' + id], ['t', ANNOUNCE], ['expiration', String(Number(c.deadline))], ...(kind === 'request' ? [['k', 'request']] : []), ...catTags(cats)], content: JSON.stringify(c) }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
+async function announcedOk(ev){ try { if (!ev || ev.kind !== LEDGER_KIND || !K.verifyEvent(ev)) return null; const c = JSON.parse(ev.content), id = await C.campaignId(c);
+  if ((ev.tags.find(t => t[0] === 'd') || [])[1] !== 'announce:' + id || ev.pubkey !== (await C.derivedPub(C.TAG.ledger, C.campaignOf(c).streetcat)).slice(2)) return null;
+  const kind = ev.tags.some(t => t[0] === 'k' && t[1] === 'request') ? 'request' : 'campaign', cats = catTags(ev.tags.filter(t => t[0] === 'cat').map(t => ({ name: t[1], procedure: t[2], state: t[3] }))).map(([, name, procedure, state]) => ({ name, procedure, state }));
+  return await C.campaignSig(c) === 'signed' ? { id, c, at: ev.created_at, kind, cats } : null; } catch (_) { return null; } }
+async function openCampaigns(keys, { relays = RELAYS, timeout } = {}){ const authors = await Promise.all(keys.map(async k => (await C.derivedPub(C.TAG.ledger, k)).slice(2)));
+  const per = await Promise.all(relays.map(u => fetchFrom(u, { kinds: [LEDGER_KIND], authors, '#t': [ANNOUNCE] }, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  const best = new Map(), t = now(); let ignored = 0;
+  for (const r of per) for (const ev of r.events) { const a = authors.includes(ev && ev.pubkey) ? await announcedOk(ev) : null; if (!a) { ignored++; continue; }
+    if (Number(a.c.deadline) <= t) continue; const b = best.get(a.id); if (!b || a.at > b.at) best.set(a.id, a); }
+  return { campaigns: [...best.values()].sort((x, y) => Number(x.c.deadline) - Number(y.c.deadline)), ignored, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
+
 // PAYMENTS FROM A CASHU WALLET (NUT-18 over Nostr): the request names an nprofile (NIP-19: a key and the relays to use); the payer's
 // wallet sends its payload ({ id, mint, unit, proofs }) there as a NIP-17 direct message, a gift wrap like ours with plain JSON inside
 const B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -108,5 +135,5 @@ async function receivePayments(skHex, { relays = RELAYS, since = now() - 7 * 864
 // "received": what the app sends back as soon as a request or an answer arrives, so the sender knows it got there
 const receiptFor = payload => ({ t: 'streetcat.received', v: 1, id: payload.id, of: payload.t, at: new Date().toISOString() });
 
-root.scRelay = { RELAYS, keysOf, pubOf, wrap, publish, outbox, receive, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, bech32, nprofile, receivePayments };
+root.scRelay = { RELAYS, keysOf, pubOf, wrap, publish, outbox, receive, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, ANNOUNCE, announceEvent, announcedOk, openCampaigns, bech32, nprofile, receivePayments };
 })(typeof window !== 'undefined' ? window : globalThis);

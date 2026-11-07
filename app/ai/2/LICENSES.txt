@@ -1,0 +1,20 @@
+The cat recognition, version 2: the face as well. In the app since 7 Nov 2026, at Streetcat's decision.
+Streetcat is a non-profit association; the app is its non-commercial entry to Nut November, and it charges nothing.
+
+anyface-384-q8.onnx · 47 598 496 bytes · SHA-256 288cd434fd69d9feee4f2336a458112a93bc331e2d7fa3de2d57a7a44d3669ee
+  AnyFace (ISSAI): YOLOv5l6 that finds faces, of people and animals, with five face points (eyes, nose, mouth corners).
+  Code: https://github.com/IS2AI/AnyFace (commit bed844d23be03334f7fc12b2c4fb3ba2ac530bab), MIT licence, Copyright (c) 2022 ISSAI.
+  Weights: its most accurate model, yolov5l6_best.pt, from the Google Drive link in its README.
+  Here: exported to ONNX at 384 × 384 px (opset 17, batch norms folded, its detection head returning boxes, score, five points and
+  class), then 8-bit weights (onnxruntime quantize_dynamic, QUInt8, Conv / MatMul / Gemm).
+
+petface-r50-q8.onnx · 24 731 418 bytes · SHA-256 bb9bb875682cbc9dbfbbf84c48dcb4d16abe8eee366bafed628ab82c139a5287
+  PetFace: A Large-Scale Dataset and Benchmark for Animal Identification, Risa Shinoda and Kaede Shiohara, ECCV 2024
+  (https://arxiv.org/abs/2407.13555). Code: https://github.com/mapooon/PetFace (commit 69e7be7a82bece98dfaf832ad79d3c80f1a844f9).
+  Weights: its "unified" ArcFace ResNet-50 (a face in, 512 numbers out), from the Google Drive folder in its README.
+  Its README: "Our PetFace dataset, code in this repository, and pretrained models are for non-commercial research purpose only."
+  Here: exported to ONNX (opset 17), then 8-bit weights, as above. Used only that way: non-commercial, never sold, never charged for.
+  Streetcat will write to its authors; should they object, this file comes out and the app goes back to version 1 (ai/1/).
+
+The face template, five points on 224 × 224, is PetFace's keypoints/cat.npy, written into catid.js.
+ai/1/ (ONNX Runtime Web, YOLOS-tiny, DINOv2 small) is unchanged: see ai/1/LICENSES.txt.

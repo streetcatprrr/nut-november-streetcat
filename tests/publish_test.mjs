@@ -28,7 +28,7 @@ await tab(sc, 'release'); await sc.fill('#s-token', B); await waitOut(sc, 's-inf
 await sc.fill('#s-token', ''); await sc.fill('#s-token', cert); await waitOut(sc, 's-info', /certified/); await sc.click('#s-go'); say('release:', (await waitOut(sc, 's-out', /RELEASED|Not possible|refused/)).split('\n')[0]);
 
 // Home: the campaign's row, its "copy ledger"
-await tab(sc, 'home'); await sc.click('#h-list .item'); const btn = sc.locator('#h-list .row2 button', { hasText: 'copy ledger' });
+await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); const btn = sc.locator('#kd-pots .row2 button', { hasText: 'copy ledger' });
 await btn.click(); await sc.waitForTimeout(400); const L = JSON.parse(await sc.evaluate(() => navigator.clipboard.readText()));
 check('"copy ledger" gives a version 2 ledger with both donations', L.v === 2 && L.entries.length === 2 && L.donations.length === 2 && /^DON-[0-9A-F]{8}$/.test(L.entries[0].ref), L.entries.map(e => `${e.ref} ${e.amount} sat${e.parts.length ? ' → ' + e.parts.map(p => p.amount).join('+') : ''}`).join(' | '));
 check('the released one says what it released, and it holds no key', L.entries.some(e => e.amount === 21 && e.parts.length === 1 && e.parts[0].amount === 21) && !/refundKey|"sk"|privkey/.test(JSON.stringify(L)));

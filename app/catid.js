@@ -1,12 +1,20 @@
 // Which cat is this? A hint on the phone, never a proof (StreetCat, 6 Nov: «sí, empieza»). A photo is cut down to its cat (YOLOS-tiny)
 // and turned into 384 numbers (DINOv2 small); photos of one cat give numbers close to each other. Chosen on 6 Nov among four models,
-// on 58 photos of 14 named cats from Wikimedia Commons (docs/HANDOFF.md). The models run in catid-worker.js; their files (ai/1/,
-// 48 MB) come only when the clinic or Streetcat asks for them, and then the service worker keeps them, for without a connection.
+// on 58 photos of 14 named cats from Wikimedia Commons (docs/HANDOFF.md). The models run in catid-worker.js; their files (ai/1/ and
+// ai/2/, 121 MB) come only when the clinic or Streetcat asks for them, and then the service worker keeps them, for without a connection.
 // A photo's numbers are kept here, in IndexedDB, under the photo's SHA-256, so each photo is worked out once.
+// VERSION 2 (7 Nov; in the app at Streetcat's decision, PetFace's weights being for non-commercial research: ai/2/LICENSES.txt): the cat's
+// FACE as well. AnyFace (YOLOv5l6 with five face points, MIT; 8-bit, at 384 px) finds the face, its eyes, nose and mouth corners; the face
+// is turned and scaled onto PetFace's cat template (224 × 224), and PetFace (ResNet-50, Shinoda and Shiohara, ECCV 2024) turns it into 512
+// numbers. Two photos are compared by both: each cosine is put on one scale (how far above the usual cosine of two different cats it is,
+// in their spread, Z below) and the two are averaged; when either photo has no face found, by DINOv2 alone. On 45 photos of 13 cats
+// (docs/HANDOFF.md) the right cat came first 89 % of the time, against 63 % with DINOv2 alone (the browser's numbers, 54 photos). Its two files are in ai/2/ (72 MB more).
 const CATID = (() => {
-  const DIR = new URL('ai/1/', location.href).href, TAG = 'catid1', CAT = 17;  // COCO's class 17: cat
+  const ROOT = new URL('./', location.href).href, DIR = ROOT + 'ai/1/', TAG = 'catid2', CAT = 17;  // COCO's class 17: cat
   const MEAN = [.485, .456, .406], STD = [.229, .224, .225], PAD = MEAN.map(m => Math.trunc(m * 255));
-  const FILES = ['ort-wasm-simd-threaded.wasm', 'yolos-tiny-q8.onnx', 'dinov2-small-q8.onnx'], SIZE = 48328808;
+  const KEEP = { 'ai/1/ort.wasm.bundle.min.js': 73054, 'ai/1/ort-wasm-simd-threaded.wasm': 14239897, 'ai/1/yolos-tiny-q8.onnx': 9661148, 'ai/1/dinov2-small-q8.onnx': 24427763,
+    'ai/2/anyface-384-q8.onnx': 47598496, 'ai/2/petface-r50-q8.onnx': 24731418 };
+  const FILES = Object.keys(KEEP).filter(f => !f.endsWith('.js')), SIZE = FILES.reduce((s, f) => s + KEEP[f], 0);
 
   // resizing as Pillow does it (the library of the evaluation): bicubic or bilinear, the filter widened when shrinking, rounded to
   // whole values after each pass; so a photo gives the same numbers on every browser, which resizing on a canvas would not
@@ -47,12 +55,12 @@ const CATID = (() => {
   const call = m => (chain = chain.then(() => ask(m), () => ask(m)));
   async function load(onProgress){ progress = onProgress || null; try { await call({ op: 'load' }); LOADED = true; } finally { progress = null; } }
   // are its files kept on this phone, for without a connection? (the engine's code too: the worker imports it)
-  const AI = 'streetcat-ai-1', KEEP = { 'ort.wasm.bundle.min.js': 73054, 'ort-wasm-simd-threaded.wasm': 14239897, 'yolos-tiny-q8.onnx': 9661148, 'dinov2-small-q8.onnx': 24427763 };
-  async function here(){ try { if (!self.caches) return false; for (const f in KEEP) if (!(await caches.match(DIR + f))) return false; return true; } catch (_) { return false; } }
+  const AI = 'streetcat-ai-1';
+  async function here(){ try { if (!self.caches) return false; for (const f in KEEP) if (!(await caches.match(ROOT + f))) return false; return true; } catch (_) { return false; } }
   // Offline setup: the files kept ahead of time, on wifi, without starting the recognition, in the service worker's copy (sw.js reads
   // it under the same name, AI), so this works even before the service worker controls the page; what is kept already is skipped
   async function keep(onProgress){ const c = await caches.open(AI), all = Object.values(KEEP).reduce((s, n) => s + n, 0); let got = 0;
-    for (const [f, size] of Object.entries(KEEP)) { const u = DIR + f; if (await c.match(u)) { got += size; continue; }
+    for (const [f, size] of Object.entries(KEEP)) { const u = ROOT + f; if (await c.match(u)) { got += size; continue; }
       const res = await fetch(u); if (!res.ok || !res.body) throw new Error(`${f} could not be fetched (${res.status})`);
       const put = c.put(u, res.clone()), rd = res.body.getReader(); put.catch(() => {}); let n = 0;
       for (;;) { const { done, value } = await rd.read(); if (done) break; n += value.length; if (onProgress) onProgress(got + n, all); }
@@ -75,8 +83,30 @@ const CATID = (() => {
     for (let i = 0; i < side * side; i++) { sq[i * 3] = PAD[0]; sq[i * 3 + 1] = PAD[1]; sq[i * 3 + 2] = PAD[2]; }
     for (let y = 0; y < ch; y++) sq.set(px.subarray(((y0 + y) * w + x0) * 3, ((y0 + y) * w + x0 + cw) * 3), ((oy + y) * side + ox) * 3);
     const { e } = await call({ op: 'embed', x: tensor(resize(sq, side, side, 256, 256, CUBIC), 256, 256, 16, 16, 224), dims: [1, 3, 224, 224] });
-    let t = 0; for (const v of e) t += v * v; t = Math.sqrt(t) || 1; for (let i = 0; i < e.length; i++) e[i] /= t;
-    return { e, box: [x0, y0, x1, y1], p, n }; }
+    unit(e); const fc = await faceOf(px, w, h);
+    return { e, box: [x0, y0, x1, y1], p, n, f: fc ? fc.f : null, fs: fc ? fc.s : 0, fl: fc ? fc.l : null }; }
+  const unit = v => { let t = 0; for (const x of v) t += x * x; t = Math.sqrt(t) || 1; for (let i = 0; i < v.length; i++) v[i] /= t; return v; };
+
+  // the face (version 2): the photo letterboxed into 384 × 384 on grey, as AnyFace was trained; its best face (score: object × class,
+  // above .3) and five points, back in the photo's pixels; the face moved onto PetFace's cat template by the similarity (turn, scale,
+  // shift) that fits the five points best, sampled as OpenCV's warp does (bilinear, black outside); then PetFace's 512 numbers
+  const FS = 384, TPL = [[56, 114.75323], [168, 114.5801], [111.15503, 156.37077], [76.158394, 183.4699], [147.3222, 183.47365]];  // PetFace's keypoints/cat.npy
+  function fit(P, Q){ const n = P.length, mp = [0, 0], mq = [0, 0]; for (let i = 0; i < n; i++) { mp[0] += P[i][0] / n; mp[1] += P[i][1] / n; mq[0] += Q[i][0] / n; mq[1] += Q[i][1] / n; }
+    let sa = 0, sb = 0, sp = 0; for (let i = 0; i < n; i++) { const px = P[i][0] - mp[0], py = P[i][1] - mp[1], qx = Q[i][0] - mq[0], qy = Q[i][1] - mq[1]; sa += qx * px + qy * py; sb += qy * px - qx * py; sp += px * px + py * py; }
+    const a = sa / sp, b = sb / sp; return [a, b, mq[0] - (a * mp[0] - b * mp[1]), mq[1] - (b * mp[0] + a * mp[1])]; }  // x' = a x - b y + tx, y' = b x + a y + ty
+  function warp(px, w, h, [a, b, tx, ty], S = 224){ const out = new Uint8Array(S * S * 3), d = a * a + b * b, at = (x, y, c) => x < 0 || y < 0 || x >= w || y >= h ? 0 : px[(y * w + x) * 3 + c];
+    for (let v = 0; v < S; v++) for (let u = 0; u < S; u++) { const X = u - tx, Y = v - ty, sx = (a * X + b * Y) / d, sy = (a * Y - b * X) / d, x0 = Math.floor(sx), y0 = Math.floor(sy), fx = sx - x0, fy = sy - y0;
+      for (let c = 0; c < 3; c++) out[(v * S + u) * 3 + c] = r8((at(x0, y0, c) * (1 - fx) + at(x0 + 1, y0, c) * fx) * (1 - fy) + (at(x0, y0 + 1, c) * (1 - fx) + at(x0 + 1, y0 + 1, c) * fx) * fy); }
+    return out; }
+  async function faceOf(px, w, h){ const g = Math.min(FS / h, FS / w), nw = Math.max(1, half(w * g)), nh = Math.max(1, half(h * g)), left = Math.floor((FS - nw) / 2), top = Math.floor((FS - nh) / 2), n = FS * FS;
+    const sm = resize(px, w, h, nw, nh, LINEAR), x = new Float32Array(3 * n).fill(114 / 255);
+    for (let y = 0; y < nh; y++) for (let k = 0; k < nw; k++) { const o = (y * nw + k) * 3, p = (y + top) * FS + k + left; x[p] = sm[o] / 255; x[n + p] = sm[o + 1] / 255; x[2 * n + p] = sm[o + 2] / 255; }
+    const r = await call({ op: 'face', x, dims: [1, 3, FS, FS] }), [, N, R] = r.dims, o = r.o; let best = -1, bs = .3;
+    for (let i = 0; i < N; i++) { const sc = o[i * R + 4] * o[i * R + R - 1]; if (sc > bs) { bs = sc; best = i; } }
+    if (best < 0) return null;
+    const l = []; for (let k = 0; k < 5; k++) l.push([(o[best * R + 5 + 2 * k] - left) / g, (o[best * R + 6 + 2 * k] - top) / g]);
+    const { e } = await call({ op: 'pet', x: tensor(warp(px, w, h, fit(l, TPL)), 224, 224), dims: [1, 3, 224, 224] });
+    return { f: unit(e), s: bs, l }; }
 
   // kept: the numbers of a photo, under its SHA-256
   const DB = (() => { let d = null;
@@ -86,21 +116,29 @@ const CATID = (() => {
   async function vecOf(sha, bytes){ const k = TAG + ':' + sha; try { const v = await DB.get(k); if (v && v.e) return v; } catch (_) {}
     const b = typeof bytes === 'function' ? await bytes() : bytes; if (!b) return null; const v = await compute(b); try { await DB.put(k, v); } catch (_) {} return v; }
   const sim = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  // two photos: each model's cosine on one scale, (cosine − the median of two different cats') / their spread, and the two averaged;
+  // without a face in either, DINOv2's alone. A face counts only from a score of 0.6 (FACE): on the evaluation's photos real cat faces
+  // scored 0.69–0.99 but one (0.43), while AnyFace also "found" faces of 0.56–0.72 in the tests' drawn rings, and below 0.6 in a drawn
+  // triangle, which hid another cat. The medians and spreads are those of the browser's own numbers for the evaluation's 54 photos of
+  // 13 cats (docs/HANDOFF.md). WARN: below it, a record "may not be the cat" of a request (index.js); at it, the right cat was flagged
+  // 5 % of the time with two or three photos a side, as v1's 0.40 was, and another cat 84–89 % (v1: 66–76 %).
+  const Z = { e: [.2871, .1272], f: [.0793, .1445] }, WARN = 1.0, FACE = .6, face = v => v.f && v.fs >= FACE;
+  const pair = (a, b) => { const d = (sim(a.e, b.e) - Z.e[0]) / Z.e[1]; return face(a) && face(b) ? (d + (sim(a.f, b.f) - Z.f[0]) / Z.f[1]) / 2 : d; };
 
-  // the records in the order of how much they look like a new cat: each photo of it finds its closest photo in a record, and the
-  // record's score is the mean of those. Only an order: in the evaluation the right record came first 66 % of the time and among the
-  // first three 97 % (one new photo, 14 records), but no score told a cat already recorded from a new one (to warn of only one new
-  // cat in ten, it would have warned of three recorded cats in ten), so the app shows the first three and says nothing more.
+  // the records in the order of how much they look like a new cat: each photo of it finds its closest photo in a record (by pair()),
+  // and the record's score is the mean of those. Only an order: with v2, one new photo against 13 cats' others, the right cat came
+  // first 89 % of the time and among the first three 98 % (v1, DINOv2 alone: 63 % and 96 %); no score tells a recorded cat from a new
+  // one, so the app shows the first three and says nothing more.
   // probe: [{ slot, sha256, bytes }]; recs: [{ id, photos: [{ slot, sha256 }] }]; bytesOf(sha) → bytes; slots: the views compared
   // (the nose, a close-up, is not); onStep(done, of): the records' photos, each worked out once
   async function rank(probe, recs, bytesOf, slots, onStep){ const use = p => !slots || slots.includes(p.slot), pv = [];
     for (const p of probe.filter(use)) { const v = await vecOf(p.sha256, p.bytes); if (v) pv.push(v); }
     const out = [], of = recs.reduce((s, r) => s + r.photos.filter(use).length, 0); let done = 0;
-    for (const r of recs) { const best = pv.map(() => -2); let top = -2, sha = null;  /* sha: the record's photo most like one of the new ones, to show */
+    for (const r of recs) { const best = pv.map(() => -Infinity); let top = -Infinity, sha = null;  /* sha: the record's photo most like one of the new ones, to show */
       for (const ph of r.photos.filter(use)) { const v = await vecOf(ph.sha256, () => bytesOf(ph.sha256)); done++; if (onStep) onStep(done, of); if (!v) continue;
-        pv.forEach((q, i) => { const s = sim(q.e, v.e); best[i] = Math.max(best[i], s); if (s > top) { top = s; sha = ph.sha256; } }); }
-      if (pv.length && best[0] > -2) out.push({ id: r.id, s: best.reduce((a, b) => a + b, 0) / best.length, sha }); }
+        pv.forEach((q, i) => { const s = pair(q, v); best[i] = Math.max(best[i], s); if (s > top) { top = s; sha = ph.sha256; } }); }
+      if (pv.length && Number.isFinite(best[0])) out.push({ id: r.id, s: best.reduce((a, b) => a + b, 0) / best.length, sha }); }
     return out.sort((a, b) => b.s - a.s); }
 
-  return { SIZE, FILES, DIR, here, keep, load, loaded: () => LOADED, vecOf, compute, sim, rank };
+  return { V: 2, WARN, SIZE, FILES, KEEP, DIR, ROOT, here, keep, load, loaded: () => LOADED, vecOf, compute, sim, pair, Z, rank };
 })();

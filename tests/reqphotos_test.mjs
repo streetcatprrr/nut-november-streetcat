@@ -47,14 +47,14 @@ await tab(sc, 'release'); await sc.click('#s-new'); await sc.waitForTimeout(1200
 await tab(sc, 'campaign'); await sc.reload(); await tab(sc, 'campaign'); await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill('#k-c', clinicPk);
 await sc.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await sc.click('#k-go'); await waitText(sc, '#k-out', /is ready|cannot|pick another/); await sc.waitForTimeout(1200);
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0];
-for (const n of [2100, 300]) { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
+for (const n of [2100, 300, 210]) { await donor.goto(link);  /* the third pays the request saved as a file (4) */ await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
   await waitText(donor, '#d-out', /LOCKED|Failed/); await donor.locator('#d-out button', { hasText: 'send it to Streetcat' }).click(); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); }
-await tab(sc, 'home'); await sc.click('#h-list .item'); await sc.locator('#h-list .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
+await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
 
 // 1) Streetcat's request with three photos of the cat as caught
-await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 2, null, { timeout: 30000 });
+await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 3, null, { timeout: 30000 });
 const dons = await sc.$$eval('#sn-dons .item', xs => xs.map(x => ({ ref: x.querySelector('.nm').textContent, avail: Number(x.querySelector('.sub2').textContent.match(/^([\d ]+) sat/)[1].replace(/ /g, '')) })));
-const bigRef = dons.find(d => d.avail > 1000).ref, smallRef = dons.find(d => d.avail < 1000).ref;
+const smalls = dons.filter(d => d.avail < 1000).sort((x, y) => y.avail - x.avail), bigRef = dons.find(d => d.avail > 1000).ref, smallRef = smalls[0].ref, spareRef = smalls[1].ref;
 check('the new request offers three photos of the cat as caught, optional', (await sc.$$eval('#sn-shots .shot', bs => bs.map(b => b.dataset.slot).join())) === 'face,left,right' && /^Optional\. Made small here, without location data\. They go with the request, encrypted, so the clinic can check it is this cat\.$/.test(await txt(sc, '#sn-shots-st')));
 await sc.fill('#sn-cat', 'MOCHI'); await sc.fill('#sn-proc', 'sterilisation (spay)'); await shoot(sc, 2);
 await sc.fill('#sn-use-' + bigRef, '1500');
@@ -79,7 +79,7 @@ check('a tap shows a photo big, first; a second tap, small again', big && small)
 await clinic._ctx.setOffline(true);
 await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForSelector('#sn-use-' + smallRef, { timeout: 30000 });
 await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await shoot(sc, 4); await sc.fill('#sn-use-' + smallRef, '100'); await sc.click('#sn-go'); await waitText(sc, '#sq-steps', /its 3 photos sent/, 60000);
-await sc.click('#sq-qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term'));
+await sc.click('#sq-qra'); await sc.waitForSelector('#sq-term .qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term'));  /* sent by relay: its small "Clinic offline? Show it as QR" */
 await tab(clinic, 'work'); await clinic.click('#w-open'); await clinic.click('#w-scan'); for (const f of fq.slice().reverse()) { await clinic.evaluate(t => window.__vetlock.scanFeed(t), f); await clinic.waitForTimeout(30); }
 const dl2 = await waitText(clinic, '#cr-dl', /TEO/); await clinic.waitForTimeout(400);
 check('in person, by QR, the request comes without its photos: "on their way"', /in person, by QR/.test(dl2) && (await txt(clinic, '#cr-pics-st')) === '3 of 3 on their way: they come by relay, with a connection.' && (await imgs(clinic, '#cr-pics')) === 0, await txt(clinic, '#cr-pics-st'));
@@ -88,8 +88,14 @@ await clinic._ctx.setOffline(false); await clinic.evaluate(() => window.__vetloc
 const came = await clinic.waitForFunction(() => document.querySelectorAll('#cr-pics img[src]').length === 3, null, { timeout: 30000 }).then(() => true, () => false);
 check('…with a connection they arrive by relay, and the ticked box stays ticked', came && await clinic.isChecked('#cr-ok') && (await txt(clinic, '#cr-pics-st')).startsWith('Taken by Streetcat'), await txt(clinic, '#cr-pics-st'));
 
-// 4) a file carries the photos: another phone sees them at once, with no relay
+// 4) a file carries the photos: another phone sees them at once, with no relay. A request no relay took offers the file (one that went
+// by relay offers only its small QR link), so this one is made with Streetcat's relays pointed where nothing listens
+await sc.evaluate(() => localStorage.setItem('vetlock.relays', 'ws://127.0.0.1:7239'));
+await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForSelector('#sn-use-' + spareRef, { timeout: 30000 });
+await sc.fill('#sn-cat', 'PIP'); await sc.fill('#sn-proc', 'castration'); await shoot(sc, 3); await sc.fill('#sn-use-' + spareRef, '100'); await sc.click('#sn-go');
+await sc.waitForSelector('#sq-file', { state: 'visible', timeout: 30000 });
 const [file] = await Promise.all([sc.waitForEvent('download'), sc.click('#sq-file')]); const ftext = fs.readFileSync(await file.path(), 'utf8'), fj = JSON.parse(ftext);
+await sc.evaluate(r => localStorage.setItem('vetlock.relays', r), RELAYS);
 await phone2.evaluate(t => window.__vetlock.openPayload(t, 'file'), ftext); await phone2.waitForFunction(() => document.querySelectorAll('#cr-pics img[src]').length === 3, null, { timeout: 10000 }).catch(() => {});
 check('a request saved as a file carries its photos: another phone sees them at once', Object.keys(fj.photoData || {}).sort().join() === 'face,left,right' && (await imgs(phone2, '#cr-pics')) === 3 && !(await phone2.evaluate(() => window.__vetlock.creqs().some(r => 'photoData' in r.q))), `${Math.round(ftext.length / 1000)} kB`);
 check('every screen with photos fits the phone at 320, 375, 390 and 430 px', !FITBAD.length, FITBAD.join(' | ') || FIT.length + ' screens');
