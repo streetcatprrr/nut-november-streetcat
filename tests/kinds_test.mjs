@@ -101,7 +101,7 @@ check('…a new partner for sterilisation is a clinic; the pot names it', pk1 ==
 
 // a donor gives to each pot, from the app; Rescue receives them, each in its own pot
 const give = async (link, n) => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => window.__vetlock.openTab('decash')); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
-  const s = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 30000); if (!/LOCKED/.test(s)) throw new Error(s); await donor.locator('#d-out button', { hasText: 'send it to Streetcat' }).click(); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); };
+  const s = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 30000); if (!/LOCKED/.test(s)) throw new Error(s); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); };
 await give(L2, 5000); await give(L1, 21000); await give(L1, 21000); await give(L3, 30000);
 await tab(sc, 'home'); await sc.locator('#h-kinds button.tile', { hasText: 'Food' }).click(); await sc.locator('#kd-pots button.req', { hasText: 'COMIDA MARINA' }).click(); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click();
 await sc.click('#sc-check'); await waitText(sc, '#sc-net', /checked/, 30000);

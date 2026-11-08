@@ -48,7 +48,7 @@ await tab(sc, 'campaign'); await sc.reload(); await tab(sc, 'campaign'); await s
 await sc.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await sc.click('#k-go'); await waitText(sc, '#k-out', /is ready|cannot|pick another/); await sc.waitForTimeout(1200);
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0];
 for (const n of [2100, 300, 210]) { await donor.goto(link);  /* the third pays the request saved as a file (4) */ await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
-  await waitText(donor, '#d-out', /LOCKED|Failed/); await donor.locator('#d-out button', { hasText: 'send it to Streetcat' }).click(); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); }
+  await waitText(donor, '#d-out', /LOCKED|Failed/); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); }
 await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
 
 // 1) Streetcat's request with three photos of the cat as caught

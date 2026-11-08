@@ -40,7 +40,7 @@ const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0];
 
 // two donations, each sent to Streetcat from the donor's app
 const give = async n => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
-  const s = await waitText(donor, '#d-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); const send = donor.locator('#d-out button', { hasText: 'send it to Streetcat' }); await send.click();
+  const s = await waitText(donor, '#d-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); /* it goes to Streetcat by itself */
   const lbl = await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); return { token: lastToken(s), lbl, amount: Number(s.match(/LOCKED ([\d ]+) sat/)[1].replace(/ /g, '')) }; };
 const A = await give(2100), B = await give(21), REST = A.amount - 1500;  /* 600 sat on a free mint; on a mint with input fees the lock itself cost one */
 check('the donor\'s app sends each locked donation to Streetcat by relay', /sent to Streetcat/.test(A.lbl) && /sent to Streetcat/.test(B.lbl), A.lbl + ' | ' + B.lbl);
@@ -94,7 +94,8 @@ await shot(clinic, 'r14-clinic-answer-received');
 await sc.click('#sq-go'); const rel = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
 await fits(sc, 'the released request'); await shot(sc, 'r7-streetcat-released'); const relAmt = Number((rel.match(/RELEASED ([\d ]+) sat/) || [0, '0'])[1].replace(/ /g, ''));
 check('the release pays the procedure, less only the mint fee', relAmt > 0 && relAmt <= total && relAmt >= total - 3, rel.split('\n')[0]);
-check(`the ${REST} sat not needed go back under the same lock`, new RegExp(REST + ' sat went back under the same lock').test(rel));
+const back1 = Number((rel.match(/(\d+) sat went back under the same lock/) || [0, 0])[1]);
+check(`what the one split proof gives back goes under the same lock, and it is small: the donation is cut in tenths (8 Nov), so under 128 sat of the ${REST} not needed; the rest was never touched`, back1 > 0 && back1 < 128 && back1 <= REST, `${back1} sat went back`);
 const released = lastToken(await sc.evaluate(() => window.__vetlock.releasedList().map(r => r.token).join(' ')));
 const relProofs = w.decodeToken(released).proofs; check('the released ecash is plain (Streetcat\'s to spend)', relProofs.every(p => !String(p.secret).startsWith('["P2PK"')), relProofs.length + ' proofs');
 
@@ -133,7 +134,8 @@ await fits(clinic, 'the answer as a QR'); await shot(clinic, 'r10-clinic-answer-
 await tab(sc, 'scamp'); await sc.evaluate(() => { document.getElementById('sc-add').open = true; }); await sc.click('#sc-scan'); await scanIn(sc, fans);
 const st3 = await waitText(sc, '#sq-steps', /certified|✗/); check('Streetcat scans the answer and checks it like any other', /✓ certified: all \d+ proofs signed with MOCHI's clinic key/.test(st3));
 await sc.click('#sq-go'); const rel3 = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
-check(`…and releases it: the rest of the rest (${REST - 100} sat) goes back under the lock`, /^RELEASED/.test(rel3) && new RegExp((REST - 100) + ' sat went back under the same lock').test(rel3), rel3.split('\n')[0].slice(0, 90));
+const back3 = Number((rel3.match(/(\d+) sat went back under the same lock/) || [0, 0])[1]);
+check('…and releases it: what a split gives back, if any, is small again (under 128 sat)', /^RELEASED/.test(rel3) && back3 < 128, rel3.split('\n')[0].slice(0, 90));
 await clinic._ctx.setOffline(false);
 const rest2 = await donor.evaluate(async tok => { const w = new cashu.Wallet(cashu.getTokenMetadata(tok).mint); await w.loadMint(); const t = await window.scCore.traceDonation(w, w.decodeToken(tok).proofs); return t.filter(x => x.state === 'UNSPENT').reduce((s, x) => s + window.scCore.amt(x.proof.amount), 0); }, A.token);
 check(`the donor's token still finds what is left (${REST - 100} sat), two splits on`, rest2 === REST - 100, rest2 + ' sat');
@@ -151,7 +153,8 @@ const evLines = await evText(); check('the status page shows the fingerprint, an
 const checkFile = async buffer => { const [fc] = await Promise.all([viewer.waitForEvent('filechooser'), viewer.locator('.ev a', { hasText: 'check a file' }).first().click()]); await fc.setFiles({ name: 'invoice-2026-118.pdf', mimeType: 'application/pdf', buffer }); await viewer.waitForTimeout(500); return (await evText()).find(t => t.startsWith('invoice fingerprint')); };
 check('…the invoice itself matches it, checked in the browser', /✓ invoice-2026-118\.pdf is the file the clinic declared/.test(await checkFile(INV))); await viewer.evaluate(() => { const e = document.querySelector('.ev'); if (e) e.scrollIntoView({ block: 'center' }); }); await shot(viewer, 'r13-status-fingerprint-matches');
 check('…and a changed copy does not', /✗ invoice-2026-118\.pdf is not the file the clinic declared/.test(await checkFile(Buffer.concat([INV, Buffer.from(' ')]))));
-check('the status page shows the splits from the mint', /1500 sat released/.test(page2) && new RegExp((REST - 100) + ' sat locked \\(put back\\)').test(page2), (page2.match(/1500 sat released[^\n]*/) || [''])[0]);
+const sumOnPage = re => [...page2.matchAll(re)].reduce((t, m) => t + Number(m[1].replace(/ /g, '')), 0), lockedOnPage = sumOnPage(/(\d[\d ]*) sat locked/g), releasedOnPage = sumOnPage(/(\d[\d ]*) sat released/g);
+check(`the status page shows the splits from the mint: 1600 released in two releases (whole proofs, and a put-back rest spent later), and what is locked (put back, or never touched) adds up to ${REST - 100}`, releasedOnPage === 1600 && lockedOnPage === REST - 100, (page2.match(/\d+ sat released[^\n]*/g) || []).join(' | ') + ` · locked on page: ${lockedOnPage}`);
 
 check('these filled screens fit at 320, 375, 390 and 430 px', !FITBAD.length, FITBAD.length ? 'wider: ' + FITBAD.join(' · ') : FIT.join(' · '));
 await b.close(); await Promise.all(relays.map(r => r.close()));

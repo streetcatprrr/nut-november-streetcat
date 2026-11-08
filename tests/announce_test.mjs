@@ -50,6 +50,12 @@ const forged = await sc.evaluate(async () => { const V = window.__vetlock, C = w
   const other = await C.signCampaign({ ...C.campaignOf(c0), name: 'NOT STREETCAT', streetcat: opk, deadline: c0.deadline }, osk); out.push((await R.publish(await R.announceEvent(other, osk), relays)).filter(x => x.ok).length);
   return out; });
 check('three announcements that must not be listed are on the relays too (changed, closed, another key)', forged.every(n => n === 2), forged.join(' · '));
+// the states a request may show donors (review of 8 Nov, point 5): never 'paid' (the sats go to Streetcat's reserve, not to the partner);
+// an announcement of before that says 'paid' is read as 'released'
+const states = await sc.evaluate(async () => { const V = window.__vetlock, C = window.scCore, R = window.scRelay, sk = V.key('streetcat', false), c0 = JSON.parse(localStorage.getItem('vetlock.campaigns')).find(k => k.c.name === 'THE OLD PORT').c;
+  const ev = await R.announceEvent(c0, sk, { cats: [{ name: 'A', procedure: 'spay', state: 'released' }, { name: 'B', procedure: 'spay', state: 'paid' }, { name: 'C', procedure: 'spay', state: 'done' }, { name: 'D', procedure: 'spay', state: 'nonsense' }] });
+  const ok = await R.announcedOk(ev); return { tags: ev.tags.filter(t => t[0] === 'cat').map(t => t[3]), read: ok ? ok.cats.map(x => x.state) : null }; });
+check('an announcement names a request released as "released", never "paid"; an older "paid" is read as "released"; anything else as "requested"', states.tags.join() === 'released,released,done,requested' && states.read && states.read.join() === 'released,released,done,requested', JSON.stringify(states));
 
 // the donor, with no link: the fourth big button
 await donor.reload(); const four = await donor.$$eval('#donate .pay button.go.big, #d-links button.go', bs => bs.map(b => b.textContent.trim()));
@@ -87,5 +93,26 @@ await sc.evaluate(() => { const a = JSON.parse(localStorage.getItem('vetlock.cam
 await tab(sc, 'campaign'); await tab(sc, 'home'); const old = await annOf('TNR MARINA');
 await checkReqs(2); const L3 = await lines(); check('a campaign from before the announcements is announced by itself too when Home opens, and donors see it', old && L3.map(x => x.name).join(' · ') === 'TNR MARINA · BAKERY COLONY', L3.map(x => x.name).join(' · '));
 
+// relays slow to confirm (StreetCat, 8 Nov, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»): the campaign was on nostr.mom,
+// which confirmed half a minute late, and nos.lol never answered; the app said "Not announced". Here one relay keeps the announcement
+// 10 s after it is sent and the other never answers: the line says it is still asking (not in red), then that one relay has it, and
+// names in red the one that never answered
+const LATE = startRelay({ port: 7284, storeDelay: 10000 }), MUTE = startRelay({ port: 7285, mute: true }); await Promise.all([LATE.ready, MUTE.ready]);
+await sc.evaluate(u => localStorage.setItem('vetlock.relays', u), [LATE.url, MUTE.url].join(','));
+await tab(sc, 'campaign'); await sc.locator('#k-out button', { hasText: 'another campaign' }).click();
+await sc.fill('#k-name', 'TNR CALLE'); await sc.fill('#k-op', 'sterilisation'); await sc.fill('#k-mint', MINT); await sc.fill('#k-c', clinicPk); await sc.fill('#k-dl', day(30)); await sc.click('#k-go');
+await waitText(sc, '#k-out', /is ready/, 30000); const redK = re => sc.$$eval('#k-out .bad', (es, s) => es.some(e => new RegExp(s).test(e.textContent)), re.source);
+const ask = await waitText(sc, '#k-out', /· announcing it to donors: no relay has confirmed it yet/, 15000); await shot(sc, 'an-6-streetcat-announcing-late');
+check('a relay that confirms late: the campaign is not said "Not announced"; the line says the relays are asked again, not in red', /· announcing it to donors: no relay has confirmed it yet, they are asked again in a moment…/.test(ask) && !/Not announced/.test(ask) && !(await redK(/announcing/)), (ask.match(/· announcing[^\n]*/) || [''])[0]);
+const got = await waitText(sc, '#k-out', /✓ Announced to donors: 1 of 2 relays have it\./, 30000);
+check('…asked again, the late relay has it: "Announced to donors: 1 of 2", and the other is said to be still asked', /✓ Announced to donors: 1 of 2 relays have it\. "Check for requests" lists it until its deadline\.\n· 127\.0\.0\.1:7285: not confirmed yet, asked again in a moment/.test(got), (got.match(/✓ Announced[^\n]*\n?[^\n]*/) || [''])[0]);
+const end = await waitText(sc, '#k-out', /✗ 127\.0\.0\.1:7285: no answer/, 40000); await shot(sc, 'an-7-streetcat-announced-late');
+check('…and the relay that never answers is named in red, with why; the campaign stays announced', /✓ Announced to donors: 1 of 2 relays have it\./.test(end) && await redK(/^✗ 127\.0\.0\.1:7285: no answer$/) && !/Not announced/.test(end), (end.match(/✗ 127[^\n]*/) || [''])[0]);
+const annLate = await sc.evaluate(() => (JSON.parse(localStorage.getItem('vetlock.campaigns')).find(k => k.c.name === 'TNR CALLE') || {}).ann || null);
+check('…and Home keeps it as announced (1 of 2), so its own pass does not send it again', annLate && annLate.ok === 1 && annLate.n === 2, JSON.stringify(annLate));
+const lateDonor = await page(LATE.url); await lateDonor.goto(BASE + 'index.html'); await lateDonor.click('#d-check'); await lateDonor.waitForFunction(() => document.querySelectorAll('#d-reqs button.req').length > 0 || /✗|No open/.test(document.getElementById('d-reqs').textContent), null, { timeout: 30000 }).catch(() => {}); await lateDonor.waitForTimeout(4500);  /* the lines type in */
+const seenLate = await lateDonor.$$eval('#d-reqs button.req .title', ts => ts.map(t => t.textContent)); check('…donors reading that relay see it', seenLate.includes('TNR CALLE'), seenLate.join(' · '));
+await sc.evaluate(u => localStorage.setItem('vetlock.relays', u), RELAYS);
+
 check('every screen fits the phone at 320, 375, 390 and 430 px', FITBAD.length === 0, FITBAD.join(' | ') || `${FIT.length} screens`);
-await b.close(); for (const r of [...relays, EMPTY]) if (r.close) await r.close(); say(bad ? `announce: ${bad} check(s) failed` : 'announce: every check passed'); process.exit(bad ? 1 : 0);
+await b.close(); for (const r of [...relays, EMPTY, LATE, MUTE]) if (r.close) await r.close(); say(bad ? `announce: ${bad} check(s) failed` : 'announce: every check passed'); process.exit(bad ? 1 : 0);

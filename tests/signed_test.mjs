@@ -50,7 +50,7 @@ const donate = async n => { await donor.evaluate(() => { window.__vetlock.openTa
 let s = await open(link); check('the donor sees that the link is signed by Streetcat', s.includes(`✓ signed by Streetcat ${scPk.slice(0, 10)}…`) && !/not signed|does not match/.test(s)); await fits(donor, 'signed'); await shot(donor, 'sg1-donor-signed');
 let r = await donate(21); const rc = (await donor.evaluate(t => window.__vetlock.receiptOf(t), r.match(/cashuB[A-Za-z0-9_\-=]+/g).pop())).campaign;
 check('…and the donation goes through, its receipt naming the signed campaign', /LOCKED 21 sat for MOCHI/.test(r) && rc.sig === camp.sig);
-const thief = await page(); await tab(thief, 'csettings'); await thief.click('#cs-new'); await thief.waitForTimeout(700); const thiefPk = await txt(thief, '#cs-pk');
+const thief = await page(); await tab(thief, 'csettings'); await thief.click('#cs-new'); await thief.waitForTimeout(700); const thiefPk = await thief.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));  /* from the store: on screen the key may still be typing itself out */
 for (const [what, c] of [['the clinic key', { ...camp, clinic: thiefPk }], ['the deadline', { ...camp, deadline: camp.deadline + 86400 }]]) {
   s = await open(linkWith(link, c)); donor._calls.length = 0;
   check(`a link with ${what} changed says its signature does not match, and greys out all three ways to pay`, /✗ The signature on this link does not match/.test(s) && await donor.evaluate(() => document.getElementById('donate').classList.contains('sigbad')) && await greyed());

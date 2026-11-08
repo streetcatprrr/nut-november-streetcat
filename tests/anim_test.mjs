@@ -31,11 +31,12 @@ await p.fill('#k-name', 'MOCHI'); await p.evaluate(() => { const c = document.ge
 check('drawn again on the same screen, they do not type again', k1.every(k => !k.cur && !k.typing) && k1.map(k => k.text).join() === real.join());
 
 // a tap shuffles the coloured texts of the screen; they land again
-await p.click('#k-edit'); await p.waitForTimeout(90); const k2 = await keysNow(p);
+await p.click('#k-more summary'); await p.waitForTimeout(90); const k2 = await keysNow(p);
 check('a tap shuffles the keys on the screen', k2.length === 2 && k2.some(k => !real.includes(k.text)) && k2.every(k => /^[0-9a-f]{66}$/.test(k.text)), k2.map(k => k.text.slice(0, 8) + '…').join(' · '));
 check('…and they land again', await until(p, r => [...document.querySelectorAll('#k-keys .kk')].map(k => k.textContent).join() === r.join(), real, 3000));
 
 // what is pasted types itself over its field, in its colours, and goes; the field keeps it
+await p.evaluate(() => document.getElementById('k-c').scrollIntoView({ block: 'center' })); await p.waitForTimeout(150);  /* the field is lower now (the fold): on screen before pasting, as a user has it; a scroll ends the overlay */
 const pasted = await p.evaluate(k => { const f = document.getElementById('k-c'); f.focus(); f.value = k; const dt = new DataTransfer(); dt.setData('text/plain', k); f.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); return f.value; }, real[1]);
 await p.waitForTimeout(250); const over = await p.evaluate(() => { const o = document.querySelector('.paste-over'); return o ? { cur: !!o.querySelector('.cur'), text: o.textContent, key: (o.querySelector('.key') || { dataset: {} }).dataset.role || '' } : null; });
 check('a pasted key types itself over its field, cursor ahead, in the clinic\'s colour', !!over && over.cur && over.text.length < 66 && over.key === 'clinic', over ? `${over.text.length} of 66 · ${over.key}` : 'no overlay');
@@ -43,7 +44,7 @@ check('…then goes, and the field keeps it', await until(p, () => !document.que
 
 // a red line never moves: a browser without Streetcat's key
 const n = await page(); await tab(n, 'campaign'); await n.waitForTimeout(400); const red0 = await n.textContent('#k-keys');
-await n.click('#k-edit').catch(() => {}); await n.fill('#k-name', 'X'); await n.click('#k-c'); await n.waitForTimeout(60); const red1 = await n.textContent('#k-keys'), typingRed = await n.$$eval('#k-keys [data-typing]', e => e.length);
+await n.evaluate(() => { document.getElementById('k-more').open = true; }); await n.fill('#k-name', 'X'); await n.click('#k-c'); await n.waitForTimeout(60); const red1 = await n.textContent('#k-keys'), typingRed = await n.$$eval('#k-keys [data-typing]', e => e.length);
 check('a red line never moves', /^✗ This browser does not hold Streetcat's key/.test(red0) && red0 === red1 && !typingRed && await n.$eval('#k-keys', e => e.classList.contains('bad')), red1.slice(0, 60));
 
 // still: with vetlock.anim off nothing types nor shuffles

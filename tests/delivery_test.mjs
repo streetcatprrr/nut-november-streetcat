@@ -43,7 +43,7 @@ await sc.fill('#k-mint', MINT); await sc.click('#k-go'); const made = await wait
 check('Rescue makes a food pot for colony Marina, confirmed by the shop', /Campaign COMIDA MARINA is ready/.test(made), made.slice(-60));
 // a donor gives to it
 await donor.goto(link); await donor.reload(); await donor.evaluate(() => window.__vetlock.openTab('decash')); await donor.fill('#d-token', await plain(21000)); await donor.click('#d-go');
-const locked = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 30000); await donor.locator('#d-out button', { hasText: 'send it to Streetcat' }).click(); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000);
+const locked = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 30000); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000);
 // Rescue: the donation, then a food request to the shop
 await tab(sc, 'home'); await sc.locator('#h-kinds button.tile', { hasText: 'Food' }).click(); await sc.locator('#kd-pots button.req', { hasText: 'COMIDA MARINA' }).click(); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click();
 await sc.click('#sc-check'); await waitText(sc, '#sc-net', /checked/, 30000);

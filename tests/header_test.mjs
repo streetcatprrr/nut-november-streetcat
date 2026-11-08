@@ -58,6 +58,9 @@ for (const r of ['clinic', 'streetcat', 'donor']) { const F = await open(BASE + 
 const K = await open(BASE + 'index.html', { 'vetlock.role': 'clinic', 'vetlock.clinic.sk': clSk });
 for (const q of reqs.slice(0, 2)) { await K.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(q)); await K.waitForSelector('#creq.on'); }
 await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForSelector('#work.on'); await K.waitForFunction(() => /offline/.test(document.getElementById('w-offline').title) && document.querySelectorAll('#w-list .item').length === 2, null, { timeout: 10000 }).catch(() => {}); await K.waitForTimeout(800);
+/* measured with the line of its check of the relays there, as a phone shows it: the relays here cannot be reached, and how long that takes to
+   say varies (0.6 to 5 s each; five relays since 8 Nov), so the line is waited for rather than a fixed time */
+await K.waitForFunction(() => document.getElementById('w-net').textContent.trim().length > 0, null, { timeout: 30000 }).catch(() => {});
 const g = await K.evaluate(() => { const bs = [...document.querySelectorAll('#work .actions button')], r = bs.map(x => x.getBoundingClientRect());
   return { ids: bs.map(x => x.id), sizes: [...new Set(r.map(x => Math.round(x.width) + 'x' + Math.round(x.height)))], cols: new Set(r.map(x => Math.round(x.left))).size, bottom: Math.round(Math.max(...r.map(x => x.bottom)) + scrollY), page: document.scrollingElement.scrollHeight, view: innerHeight, links: document.querySelectorAll('#work p.lnk a').length,
     off: document.getElementById('w-offline').textContent, offTitle: document.getElementById('w-offline').title, offRed: getComputedStyle(document.getElementById('w-offline')).color === getComputedStyle(document.documentElement).getPropertyValue('--bad').trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)}, ${parseInt(b, 16)}, ${parseInt(c, 16)})`) }; });

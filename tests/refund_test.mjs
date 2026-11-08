@@ -48,7 +48,7 @@ const release = async (proofs, amount) => { const plan = C.planRelease(proofs, a
   const sigs = C.clinicSigsByY(q, a), inputs = cashu.signP2PKProofs(plan.inputs.map(p => C.withSig(p, sigs.get(C.yOf(p.secret)))), sc), fee = amt(w.getFeesForProofs(inputs)), ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id);
   const bits = n => { const o = []; for (let x = 1; n; x *= 2) { if (n & x) { o.push(x); n -= x; } } return o.reverse(); }, back = plan.split ? await C.remainderOutputs(plan.split, bits(plan.remainder), ks.id) : [];
   await w.ops.receive(inputs).asCustom([...cashu.OutputData.createRandomData(amount - fee, ks), ...back]).run(); return plan.remainder || 0; };
-await release(B.proofs, total(B.proofs)); const restD = await release(D.proofs, 1500);
+await release(B.proofs, total(B.proofs)); const restD = await release(D.proofs, 1500), backD = total(D.proofs) - 1500;  /* restD: what the one split proof put back; backD: all that is still locked, the untouched proofs too (the donation is cut in tenths, 8 Nov) */
 await new Promise(r => setTimeout(r, Math.max(0, camp.deadline - now() + 2) * 1000));
 
 // after the deadline
@@ -58,10 +58,10 @@ s = await open(viewer, A.receipt); check('a donation still locked: "Refund avail
 let out = await go(viewer, /REFUNDED|Failed|Not possible|Mint refused/); s = await waitText(viewer, '#r-info', /Refund completed/, 15000);
 check('taken back as ecash: REFUNDED, and then "Refund completed"', /^REFUNDED \d+ sat\. Import this token into your wallet:/.test(out) && /Refund completed/.test(s), out.split('\n')[0]);
 const other = await page(); await tab(other, 'refund'); s = await open(other, A.receipt); check('…in another browser the same receipt says "Already refunded"', /Already refunded/.test(s));
-s = await open(viewer, D.receipt); check(`a split donation: its rest (${restD} sat) is found and can be taken back`, /Refund available/.test(s) && new RegExp(`${restD} sat can be taken back now\\. 1 500 sat of this donation were released; the rest went back under the lock\\.`).test(s), (s.match(/\d[\d ]* sat can be taken back now\.[^\n]*/) || [''])[0]);
+s = await open(viewer, D.receipt); check(`a split donation: its rest (${restD} sat put back, ${backD} sat still locked in all) is found and can be taken back`, /Refund available/.test(s) && restD > 0 && restD < 128 && new RegExp(`${backD} sat can be taken back now\\. 1 500 sat of this donation were released; the rest is still under the lock\\.`).test(s), (s.match(/\d[\d ]* sat can be taken back now\.[^\n]*/) || [''])[0]);
 await shot(viewer, 'q2-refund-split-rest');
 const big = await w.createMintQuoteBolt11(5000); await viewer.fill('#r-ln', big.request); out = await go(viewer, /Not possible|REFUNDED|Failed/);
-const most = Number((out.match(/at most (\d+) sat/) || [0, -1])[1]); check('an invoice for more than there is: refused before anything moves, with the exact most', /^Not possible: this invoice is for 5000 sat/.test(out) && most > 0 && most <= restD && !!(await viewer.$(`#r-out button:has-text("copy ${most}")`)), `at most ${most}`);
+const most = Number((out.match(/at most (\d+) sat/) || [0, -1])[1]); check('an invoice for more than there is: refused before anything moves, with the exact most', /^Not possible: this invoice is for 5000 sat/.test(out) && most > 0 && most <= backD && !!(await viewer.$(`#r-out button:has-text("copy ${most}")`)), `at most ${most}`);
 await viewer.fill('#r-ln', `donor@127.0.0.1:${LN.port}`); out = await go(viewer, /sent to your Lightning wallet|Failed|Not possible|Mint refused|in progress|Interrupted/);
 const paidQ = LN.quotes.length ? await w.checkMintQuoteBolt11(LN.quotes[LN.quotes.length - 1].quote) : null;
 s = await waitText(viewer, '#r-info', /Refund completed/, 15000); check('…and the panel then says how much went to the Lightning wallet', /came back to you: \d+ sat to your Lightning wallet\./.test(s), (s.match(/[^\n]*came back to you[^\n]*/) || [''])[0]);

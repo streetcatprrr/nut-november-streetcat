@@ -45,7 +45,7 @@ textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{ma
 .ptypes button.sm[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}.ptypes button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}.ptypes button.sm.on[style]{background:oklch(.82 .16 calc(var(--h)*1deg));color:var(--bg);border-color:transparent}
 .ptiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}.ptiles button.tile{display:block;margin:0;padding:12px;min-height:96px;border:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
 .ptiles button.tile .title{font-size:15px;line-height:20px;letter-spacing:.06em;color:oklch(.82 .16 calc(var(--h)*1deg));overflow-wrap:anywhere}.ptiles button.tile .sub2{font-size:11px;line-height:16px;color:var(--mute);margin-top:4px}
-.pchoose button.sm{display:flex;width:100%;height:56px;margin:0;letter-spacing:.08em}.pchoose button.sm.set{border-color:currentColor}.pchoose button.sm.set[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}
+.pchoose button.sm{display:flex;width:100%;height:56px;margin:0;letter-spacing:.08em}.pchoose input.sm{display:flex;align-items:center;justify-content:center;width:100%;height:56px;margin:0;padding:0 14px;border:1px solid var(--line2);background:none;color:var(--fg);font:inherit;font-size:13px;letter-spacing:.08em;text-transform:uppercase;text-align:center;border-radius:0;-webkit-appearance:none;appearance:none}.pchoose input.sm::-webkit-date-and-time-value{text-align:center}.pchoose input.sm::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6}.pchoose button.sm.set{border-color:currentColor}.pchoose button.sm.set[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}
 #sn-keys,#k-keys{margin-top:calc(var(--u)*2)}#sn-keys .kline small{margin-bottom:2px}#sn-cover{margin-top:calc(var(--u)*1)}#sn-cover:empty{display:none}#sn-sum{margin:calc(var(--u)*1) 0 calc(var(--u)*2)}#kd-head{margin-bottom:calc(var(--u)*1)}#d-kinds{margin-bottom:calc(var(--u)*2)}#pp-new{margin-bottom:calc(var(--u)*2)}#pp-new>label:first-child{margin-top:calc(var(--u)*2)}#sn-catbox>label:first-child{margin-top:calc(var(--u)*2)}
 .paste-over{position:fixed;z-index:60;pointer-events:none;box-sizing:border-box;background:var(--bg);border:1px solid var(--fg);overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;color:oklch(.8 .16 calc(var(--h) * 1deg))}
 /* a pasted campaign link is typed into its field in the campaign's colour, over the field's own text and in its exact place */
@@ -240,19 +240,18 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 </section>
 
 <section id="campaign">
-<label>What it pays</label><div class="ptypes grid" id="k-type"></div>
+<div class="ptypes grid" id="k-type"></div>
 <label id="k-name-l">Name</label><input id="k-name" placeholder="TNR MARINA">
 <label>For</label><div class="pchoose"><button class="sm" type="button" id="k-col">Choose colony</button></div>
 <label>Confirmed by</label><div class="pchoose"><button class="sm" type="button" id="k-par">Choose partner</button></div>
-<p class="mut code lnk" id="k-sum"><span id="k-sum-t"></span> · <a href="#" id="k-edit">edit</a></p>
+<label>Refunds after</label><div class="pchoose"><input id="k-dl" type="date" class="sm" aria-label="deadline: donors may take their sats back after this date"></div>
 <div class="code" id="k-keys"></div>
-<div id="k-more" hidden>
+<details class="mut" id="k-more"><summary>Operation, partner key and mint</summary>
 <label>Operation</label><input id="k-op" placeholder="sterilisation">
 <label>The partner's public key</label><input id="k-c" placeholder="02…">
-<label>Deadline: refunds after this date</label><input id="k-dl" type="date">
 <label>Mint URL</label><input id="k-mint" placeholder="https://mint.minibits.cash/Bitcoin">
 <label>Where donors send the token (optional)</label><input id="k-to" placeholder="donaciones@streetcat.org">
-</div>
+</details>
 <div class="out" id="k-out"></div>
 <button class="go big" id="k-go">Make the campaign</button>
 </section>
@@ -261,7 +260,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <dl hidden><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
 <div class="term" id="x-term"><textarea id="x-box" placeholder="export shows your keys here · paste an export here to import"></textarea></div>
 <div class="row2"><button class="sm" id="x-exp">Export all</button><button class="sm" id="x-imp">Import all</button></div><div class="out" id="x-out"></div>
-<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. Export all carries the keys and everything this browser keeps with them: campaigns, donations, requests, partners, colonies and photos; Import all adds them to what the other browser has. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
+<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. Export all carries this actor's keys and everything this browser keeps with them (Rescue: Streetcat's keys, campaigns, donations, requests, partners, colonies, photos, and this browser's refund keys; Partner: the clinic keys and its requests, records and photos); Import all adds this actor's part to what the other browser has, and leaves out another actor's. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
 </section>
 
 <section id="work">

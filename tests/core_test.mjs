@@ -24,6 +24,10 @@ check('derived statement key: its public key is computed from the clinic public 
 check('each tag gives another key', (await C.derivedPub(C.TAG.messaging, clPk)) !== dpk && dpk !== clPk);
 check('a signature by the spending key does not pass as a declaration', !cashu.schnorrVerifyMessage(cashu.schnorrSignMessage('x', cl), 'x', dpk));
 
+// 1b) how a donation is cut when it is locked (8 Nov, review point 3): no proof over a tenth of it, about a dozen proofs
+for (const [a, max, n] of [[21, 2, 11], [100, 8, 13], [1000, 64, 17], [21000, 2048, 12], [1000000, 65536, 18]]) { const s = C.donationSplit(a);
+  check(`a donation of ${a} sat is cut into ${n} proofs, none over ${max} (a tenth of it)`, s.length === n && Math.max(...s) === max && s.reduce((x, y) => x + y, 0) === a, `${s.length} proofs, max ${Math.max(...s)}`); }
+check('with the mint\'s denominations: only those (a mint of 1, 10, 100)', (C.donationSplit(250, [1, 10, 100]) || []).join('+') === '10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10+10' && C.donationSplit(5, [10, 100]) === null);
 // 2) donations and DON- codes
 const A = await donate(camp, 2100), B = await donate(camp, 21);
 const refA = await C.donRef(ys(A.proofs)); check('a DON- code is the same whatever the order of the proofs', refA === await C.donRef(ys(A.proofs).reverse()) && /^DON-[0-9A-F]{8}$/.test(refA), refA);

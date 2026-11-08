@@ -3,16 +3,20 @@
 // Both ends' messaging keys are derived from the campaign keys (core.js, TAG.messaging), so a campaign needs no new keys and the
 // spending keys never sign a message. Inside, the sender is checked against the campaign: a request must come from the campaign's
 // Streetcat key, an answer from its clinic key; anything else is ignored.
-// A message goes to every relay at once. It counts as sent when one relay confirms it (OK) and is sent again, with growing pauses,
-// until two have (or every relay has), or it is a day old. Receiving asks each relay for what is waiting, from shortly before the
+// A message goes to every relay at once. It counts as sent when one relay confirms it (OK), or, not confirmed, shows it when asked for
+// it by its id, and is sent again, with growing pauses, until two have (or every relay has), or it is a day old. Receiving asks each relay for what is waiting, from shortly before the
 // last time, and drops what was already seen. Links and files carry the same payload when there is no relay, or in person.
 // The same relays carry the campaign's published ledger (kind 30078, below).
 // Needs cashu-bundle.js, core.js and nostr-bundle.js. Runs in the browser and in Node 22 (its global WebSocket).
 (function (root) {
 'use strict';
 const C = root.scCore, K = root.nostrkit; if (!C || !K) throw new Error('relay.js needs core.js and nostr-bundle.js first');
-// the three that carried the live test from StreetCat's network (5 Nov 2026); damus and 0xchat could not be reached from there
-const RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom'];
+// the three that carried the live test from StreetCat's network (5 Nov 2026); damus and 0xchat could not be reached from there. On 8 Nov,
+// from there, nos.lol took nothing new (no answer), relay.primal.net came and went, and nostr.mom confirmed some 20–30 s late; of
+// eighteen relays tried that day, nostr.oxtr.dev and purplerelay.com took an announcement and a gift wrap in under 1.5 s and gave both
+// back (by id, by tag, and a wrap by its recipient), so they joined. Left out: relays that refused one of the two kinds (relay.nos.social,
+// offchain.pub) or would not give a wrap back to its recipient (relay.snort.social, relay.nostr.net).
+const RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://nostr.mom', 'wss://nostr.oxtr.dev', 'wss://purplerelay.com'];
 const KIND = 14, WRAP = 1059, TWO_DAYS = 2 * 86400, MAX = 60000;  // NIP-44 v2 carries up to 65535 bytes
 const unhex = s => Uint8Array.from(String(s).match(/../g) || [], h => parseInt(h, 16));
 const now = () => Math.floor(Date.now() / 1000);
@@ -28,7 +32,9 @@ function visit(url, onOpen, { timeout = 8000 } = {}){ return new Promise((resolv
   t = setTimeout(() => end(new Error('no answer in ' + Math.round(timeout / 1000) + ' s')), timeout);
   ws.onerror = () => end(new Error('could not connect')); ws.onclose = () => end(new Error('closed'));
   ws.onopen = () => onOpen(ws, v => end(null, v), e => end(e)); }); }
-const publishTo = (url, ev, o) => visit(url, (ws, ok) => { ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'OK' && x[1] === ev.id) ok({ url, ok: !!x[2], msg: String(x[3] || '') }); }; ws.send(JSON.stringify(['EVENT', ev])); }, o);
+// a failure says whether the event had been sent (`sent`): a relay that was sent it and did not answer may have taken it all the same
+const publishTo = (url, ev, o) => { let sent = false; return visit(url, (ws, ok) => { ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'OK' && x[1] === ev.id) ok({ url, ok: !!x[2], msg: String(x[3] || '') }); }; ws.send(JSON.stringify(['EVENT', ev])); sent = true; }, o)
+  .catch(e => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { sent }); }); };
 const fetchFrom = (url, filter, o) => visit(url, (ws, ok) => { const id = 'sc' + Math.random().toString(36).slice(2, 10), got = [];
   ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'EVENT' && x[1] === id && x[2]) got.push(x[2]); if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && x[1] === id) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} ok(got); } };
   ws.send(JSON.stringify(['REQ', id, filter])); }, o);
@@ -37,25 +43,55 @@ const fetchFrom = (url, filter, o) => visit(url, (ws, ok) => { const id = 'sc' +
 async function wrap(payload, fromSk, toPk){ const from = await keysOf(fromSk), to = await pubOf(toPk), content = await C.pack(payload);
   if (content.length > MAX) throw new Error('too large for a relay message: send it as a file');
   return K.wrapEvent({ kind: KIND, content, tags: [['p', to]] }, from.sk, to); }
-async function publish(ev, relays = RELAYS, o){ return Promise.all(relays.map(u => publishTo(u, ev, o).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e) })))); }
+// does a relay have this event? Asked by its id: reading answers quickly even while a relay is slow to confirm what it is sent
+const has = (url, id, o = {}) => fetchFrom(url, { ids: [id] }, { timeout: (o && o.timeout) || 8000 }).then(evs => evs.some(e => e && e.id === id), () => false);
+const late = r => ({ url: r.url, ok: true, msg: '', late: true });
+// One event to every relay at once. A relay that was sent it but gave no answer in time may have taken it all the same: on 8 Nov
+// nostr.mom confirmed half a minute late and nos.lol never, and Rescue said "no relay took it" of campaigns donors could already see
+// (StreetCat, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»; 18:22: «Si. Arréglalo»). So such a relay is asked
+// whether it has the event before it counts as not taken (`late`). One that answered no (OK false, with its reason) is believed, and
+// one that could not be reached was never sent it. `silent`: sent, and no answer yet.
+async function publish(ev, relays = RELAYS, o){
+  const res = await Promise.all(relays.map(u => publishTo(u, ev, o).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), silent: !!(e && e.sent) }))));
+  return Promise.all(res.map(async r => r.silent && await has(r.url, ev.id, o) ? late(r) : r)); }
+// …and what is sent once and said on screen (a campaign's announcement, its ledger): a relay that was sent it and has not shown it is
+// asked again at each of `later` (ms after sending), as long as one is left. `onState(results, done)` hears the first answer and each change.
+async function publishChecked(ev, relays = RELAYS, { timeout = 8000, later = [20000, 45000], onState = () => {} } = {}){ const t0 = Date.now(); let res = await publish(ev, relays, { timeout });
+  const open = () => res.some(r => r.silent && !r.ok); onState(res, !open() || !later.length);
+  if (open() && later.length) (async () => { for (let i = 0; i < later.length; i++) { await new Promise(r => setTimeout(r, Math.max(0, t0 + later[i] - Date.now())));
+      const was = res.filter(r => r.ok).length; res = await Promise.all(res.map(async r => r.silent && !r.ok && await has(r.url, ev.id, { timeout }) ? late(r) : r));
+      const done = !open() || i === later.length - 1; if (done || res.filter(r => r.ok).length !== was) onState(res, done); if (done) return; } })().catch(() => {});
+  return res; }
 
 // THE OUTBOX: what is sent waits here until relays confirm it, so a closed app or a lost connection loses nothing. `store` is
-// { get(key), set(key, value) } (localStorage in the app); it keeps the wrapped events, which are already encrypted.
-const OUTBOX = 'vetlock.outbox';
-function outbox(store){ const all = () => { try { const a = JSON.parse(store.get(OUTBOX) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }, save = a => store.set(OUTBOX, JSON.stringify(a));
+// { get(key), set(key, value) } (localStorage in the app; its set answers false when the phone has no room left); it keeps the
+// wrapped events, which are already encrypted, only while they wait: once sent (or given up), only how it went is kept, the last
+// 300 of those. It kept every event it ever sent, photos too, and filled the app's storage (about 5 MB for everything it keeps):
+// after that nothing it received could be saved, and donations went missing without a word (StreetCat, 8 Nov, 04:51: «la pago, sale
+// de mi wallet, pero no llega a la campaña en el rescue»).
+const OUTBOX = 'vetlock.outbox', KEEP_DONE = 300;
+const NO_ROOM = 'this phone has no room left to save it: the app\'s storage is full';
+const slim = a => { const done = a.filter(x => x.state !== 'sending'), drop = new Set(done.slice(0, Math.max(0, done.length - KEEP_DONE)).map(x => x.id));
+  return a.filter(x => !drop.has(x.id)).map(x => x.state === 'sending' || !('ev' in x) ? x : (({ ev, ...rest }) => rest)(x)); };
+function outbox(store){ const all = () => { try { const a = JSON.parse(store.get(OUTBOX) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }, save = a => store.set(OUTBOX, JSON.stringify(slim(a))) !== false;
   return {
     list: all,
     async add(payload, fromSk, toPk, { relays = RELAYS, label = '' } = {}){ const ev = await wrap(payload, fromSk, toPk), item = { id: ev.id, ev, relays, label, ref: payload.id || '', t: payload.t, acked: [], tries: 0, next: 0, created: Date.now(), state: 'sending' };
-      save([...all().filter(x => x.id !== item.id), item]); return item; },
-    // send what is waiting: each relay that has not confirmed yet is tried again, after 0 s, 15 s, 1 min, 5 min, 15 min, then hourly
+      if (!save([...all().filter(x => x.id !== item.id), item])) throw new Error(NO_ROOM); return item; },
+    // send what is waiting: each relay that has not confirmed yet is tried again, after 0 s, 15 s, 1 min, 5 min, 15 min, then hourly.
+    // What was added while this ran is kept: the list is read again before it is saved (it was overwritten with the one read first).
+    // Sent before and not confirmed, a relay may have it all the same (publish, above): one that was sent it last time and gave no answer
+    // is asked first, and not sent it again if it has it (one that refused it, or could not be reached, has nothing to be asked)
     async flush(o = {}){ const a = all(), t = Date.now(), changed = [];
-      for (const it of a) { if (it.state !== 'sending' || (it.next > t && !o.force)) continue;
-        const todo = it.relays.filter(u => !it.acked.includes(u)), res = await publish(it.ev, todo, o);
+      for (const it of a) { if (it.state !== 'sending' || !it.ev || (it.next > t && !o.force)) continue;
+        const ask = it.tries ? (it.last || []).filter(r => r && r.silent && !r.ok && !it.acked.includes(r.url)).map(r => r.url) : [];
+        for (const [u, yes] of await Promise.all(ask.map(async u => [u, await has(u, it.ev.id, o)]))) if (yes) it.acked.push(u);
+        const todo = it.relays.filter(u => !it.acked.includes(u)), res = todo.length ? await publish(it.ev, todo, o) : [];
         for (const r of res) if (r.ok && !it.acked.includes(r.url)) it.acked.push(r.url);
         it.last = res; it.tries++; it.next = t + [15, 60, 300, 900, 3600][Math.min(it.tries - 1, 4)] * 1000;
         if (it.acked.length >= Math.min(2, it.relays.length)) it.state = 'sent'; else if (t - it.created > 86400e3) it.state = it.acked.length ? 'sent' : 'failed';
         changed.push(it); }
-      save(a); return changed; } }; }
+      const done = new Map(changed.map(x => [x.id, x])); save(all().map(x => done.get(x.id) || x)); return changed; } }; }
 
 // THE INBOX: what waits for these spending keys (the messaging keys derived from them), from every relay, each message once.
 // `expect(payload)` names the spending key that must have sent it (the campaign's Streetcat key for a request, its clinic key for an
@@ -100,9 +136,11 @@ async function latestLedger(id, { relays = RELAYS, timeout } = {}){
 // it is still open: anything else is ignored. Each campaign once, the newest.
 // Since 7 Nov (StreetCat: campaigns and concrete requests, «3»), the announcement also says what it is and which cats it pays for, in
 // tags the same signature covers: ['k', 'request'] for a request on its own (one cat, its own pot) and, for each request made from
-// it, ['cat', name, procedure, state], the state 'requested', 'done' (the clinic certified it) or 'paid' (Streetcat released it).
-const ANNOUNCE = 'streetcat-campaign', CAT_STATES = ['requested', 'done', 'paid'];
-const catTags = cats => (cats || []).slice(0, 40).map(x => ['cat', String(x.name || '').trim().slice(0, 40), String(x.procedure || '').trim().slice(0, 80), CAT_STATES.includes(x.state) ? x.state : 'requested']).filter(t => t[1]);
+// it, ['cat', name, procedure, state], the state 'requested', 'done' (the partner confirmed it) or 'released' (Streetcat released the
+// sats to its own reserve: the partner is not paid by the app, so it is not called 'paid'; StreetCat, 8 Nov, review point 5). Announcements
+// of before said 'paid' for that: read as 'released'.
+const ANNOUNCE = 'streetcat-campaign', CAT_STATES = ['requested', 'done', 'released'], catState = s => s === 'paid' ? 'released' : CAT_STATES.includes(s) ? s : 'requested';
+const catTags = cats => (cats || []).slice(0, 40).map(x => ['cat', String(x.name || '').trim().slice(0, 40), String(x.procedure || '').trim().slice(0, 80), catState(x.state)]).filter(t => t[1]);
 async function announceEvent(c, streetcatSk, { kind, cats } = {}){ const id = await C.campaignId(c);
   return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', 'announce:' + id], ['t', ANNOUNCE], ['expiration', String(Number(c.deadline))], ...(kind === 'request' ? [['k', 'request']] : []), ...catTags(cats)], content: JSON.stringify(c) }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
 async function announcedOk(ev){ try { if (!ev || ev.kind !== LEDGER_KIND || !K.verifyEvent(ev)) return null; const c = JSON.parse(ev.content), id = await C.campaignId(c);
@@ -135,5 +173,5 @@ async function receivePayments(skHex, { relays = RELAYS, since = now() - 7 * 864
 // "received": what the app sends back as soon as a request or an answer arrives, so the sender knows it got there
 const receiptFor = payload => ({ t: 'streetcat.received', v: 1, id: payload.id, of: payload.t, at: new Date().toISOString() });
 
-root.scRelay = { RELAYS, keysOf, pubOf, wrap, publish, outbox, receive, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, ANNOUNCE, announceEvent, announcedOk, openCampaigns, bech32, nprofile, receivePayments };
+root.scRelay = { RELAYS, NO_ROOM, keysOf, pubOf, wrap, publish, publishChecked, has, outbox, receive, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, ANNOUNCE, announceEvent, announcedOk, openCampaigns, bech32, nprofile, receivePayments };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -204,6 +204,17 @@ async function remainderPart(proof, i){ const r = proof.dleq && proof.dleq.r; if
   return { secret, r: bf, B_: cashu.blindMessage(enc.encode(secret), bf).B_.toHex(true) }; }
 const remainderSlots = amount => { const a = amt(amount); return a > 1 ? Math.ceil(Math.log2(a)) : 0; };  // a rest is smaller than its proof: at most this many pieces
 // which proofs pay `amount` out of a donation: whole proofs, largest first, then at most one proof split
+// How a donation is cut when it is locked (StreetCat, 8 Nov, review point 3): a release takes whole proofs and splits at most one, and the
+// mint does not bind what a split proof's rest becomes (SIG_INPUTS), so the piece that is split is what a changed Rescue client could
+// take beyond the amount confirmed. Cut small, that piece is small: no proof holds more than a tenth of the donation (the largest
+// denomination the mint has at or under that), the rest in the usual powers of two; about a dozen proofs, never more than twenty-odd.
+// `denoms` are the mint's denominations (its keyset's amounts); without them, powers of two.
+function donationSplit(amount, denoms){ amount = Number(amount); if (!(amount > 0)) return [];
+  const ds = (denoms && denoms.length ? denoms.map(Number).filter(d => d > 0) : Array.from({ length: 40 }, (_, i) => 2 ** i)).sort((a, b) => b - a);
+  const cap = ds.find(d => d <= Math.max(1, Math.floor(amount / 10))) || ds[ds.length - 1], out = []; let left = amount;
+  while (left >= cap) { out.push(cap); left -= cap; }
+  for (const d of ds) while (d <= left && d < cap) { out.push(d); left -= d; }
+  return left ? null : out; }  /* null: the mint's denominations cannot make this amount */
 function planRelease(proofs, amount){ amount = Number(amount); const ps = proofs.slice().sort((a, b) => amt(b.amount) - amt(a.amount)); let need = amount; const whole = [], rest = [];
   if (!Number.isInteger(amount) || amount < 1) throw new Error('nothing to release');
   for (const p of ps) { if (amt(p.amount) <= need) { whole.push(p); need -= amt(p.amount); } else rest.push(p); }
@@ -389,7 +400,7 @@ async function lnAddressInvoice(address, sat, { fetch: f = root.fetch.bind(root)
 
 root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf, TYPES, PKINDS,
   makeRequest, requestProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
-  pack, unpack, linkFor, remainderPart, remainderSlots, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
+  pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
   ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,
   STREETCAT_KEYS, published, RECEIPT, makeReceipt, receiptCheck, receiptPng, readReceipt, sealKey, openSealed, isPng, pngTexts, pngWithText, crc32, lnAddressUrl, lnAddressInvoice };
