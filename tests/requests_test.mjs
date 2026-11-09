@@ -63,7 +63,7 @@ check('the request goes to the clinic by relay (two relays confirm; the third re
 check('…so no buttons to send it another way, only a small link to show it as QR', await sc.isHidden('#sq-send') && await sc.isVisible('#sq-qra') && (await txt(sc, '#sq-qra')) === 'Clinic offline? Show it as QR');
 
 // the clinic: the request arrives; nothing can be confirmed before ticking the box; offline, the answer waits
-await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic, '#w-n', /^1$/);
+await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic, '#w-n', /^1$/); await showW(clinic, 'w-pend');
 check('the request appears on the clinic\'s list, to review', (await txt(clinic, '#w-list')).includes('MOCHI · sterilisation (spay)')); await fits(clinic, 'the clinic\'s requests'); await shot(clinic, 'r3-clinic-requests');
 await clinic.click('#w-list .item'); const dl = await txt(clinic, '#cr-dl');
 check('the clinic sees the cat, the procedure and what it releases', /MOCHI/.test(dl) && dl.replace(/ /g, '').includes(String(total)), dl.replace(/\s+/g, ' ').slice(0, 120));
@@ -77,9 +77,10 @@ check('the clinic adds the invoice: its fingerprint is shown, the file stays on 
 await clinic._ctx.setOffline(true); await clinic.check('#cr-ok'); await clinic.click('#cr-go'); const conf = await waitText(clinic, '#cr-out', /CONFIRMED/);
 const confRed = await clinic.$$eval('#cr-out .bad', es => es.some(e => /^✗ Not sent: no connection/.test(e.textContent)));
 check('offline, the clinic confirms; the answer says in red that it is not sent, and only then offers the other ways', /✗ Not sent: no connection\. It goes by itself once there is one\.\nOr give it to Streetcat another way:/.test(conf) && confRed && await clinic.isVisible('#cr-out button:has-text("copy link for Streetcat")') && await clinic.isVisible('#cr-out button:has-text("show as QR")'), conf.split('\n').slice(-2).join(' / '));
-await shot(clinic, 'r5-clinic-confirmed-offline'); await tab(clinic, 'work'); await shot(clinic, 'r6-clinic-waiting'); check('…listed under "Waiting to be sent"', (await txt(clinic, '#w-list')).includes('Waiting to be sent'));
+await shot(clinic, 'r5-clinic-confirmed-offline'); await tab(clinic, 'work'); await showW(clinic, 'w-pend'); await shot(clinic, 'r6-clinic-waiting'); check('…listed under "Waiting to be sent"', (await txt(clinic, '#w-list')).includes('Waiting to be sent'));
 await clinic._ctx.setOffline(false); await clinic.evaluate(() => window.__vetlock.flush()); await clinic.waitForTimeout(800); await tab(clinic, 'work');
-check('back online, it goes out and moves to "Done"', /Done/.test(await txt(clinic, '#w-list')) && !/Waiting to be sent/.test(await txt(clinic, '#w-list')));
+await showW(clinic, 'w-pend'); const pend82 = await txt(clinic, '#w-list'); await showW(clinic, 'w-dn'); const done82 = await txt(clinic, '#w-list');
+check('back online, it goes out and moves to "Done"', /Done/.test(done82) && /MOCHI/.test(done82) && !/Waiting to be sent/.test(pend82), pend82 + ' | ' + done82);
 await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const sentNow = await waitText(clinic, '#cr-out', /✓ sent to Streetcat/);
 check('…and the answer says so: sent to Streetcat, no buttons to copy it, a small link to show it as QR', /✓ sent to Streetcat · 2 of 3 relays have it\n· received by Streetcat/.test(sentNow) && !(await clinic.isVisible('#cr-out button:has-text("copy link for Streetcat")')) && await clinic.isVisible('#cr-out a:has-text("Streetcat offline? Show it as QR")'), sentNow.split('\n').slice(-2).join(' / '));
 await fits(clinic, 'the answer, sent'); await shot(clinic, 'r13-clinic-answer-sent');
@@ -88,7 +89,7 @@ await fits(clinic, 'the answer, sent'); await shot(clinic, 'r13-clinic-answer-se
 await tab(sc, 'scamp'); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /answer/); await sc.click('#sc-reqs .item');
 const steps = await txt(sc, '#sq-steps'); check('Streetcat checks the answer: every proof and the declaration', /✓ certified: all \d+ proofs signed with MOCHI's clinic key, and its declaration names exactly them/.test(steps), steps.split('\n')[3]);
 check('…and sees that the clinic received the request', /received by the clinic · /.test(steps));
-await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const recd = await waitText(clinic, '#cr-out', /✓ received by Streetcat/, 20000);
+await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); await showW(clinic, 'w-dn'); await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const recd = await waitText(clinic, '#cr-out', /✓ received by Streetcat/, 20000);
 check('…and the clinic\'s answer then says "received by Streetcat"', /✓ sent to Streetcat · 2 of 3 relays have it\n✓ received by Streetcat · /.test(recd), recd.split('\n').slice(-2).join(' / '));
 await shot(clinic, 'r14-clinic-answer-received');
 await sc.click('#sq-go'); const rel = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
@@ -156,6 +157,14 @@ check('…and a changed copy does not', /✗ invoice-2026-118\.pdf is not the fi
 const sumOnPage = re => [...page2.matchAll(re)].reduce((t, m) => t + Number(m[1].replace(/ /g, '')), 0), lockedOnPage = sumOnPage(/(\d[\d ]*) sat locked/g), releasedOnPage = sumOnPage(/(\d[\d ]*) sat released/g);
 check(`the status page shows the splits from the mint: 1600 released in two releases (whole proofs, and a put-back rest spent later), and what is locked (put back, or never touched) adds up to ${REST - 100}`, releasedOnPage === 1600 && lockedOnPage === REST - 100, (page2.match(/\d+ sat released[^\n]*/g) || []).join(' | ') + ` · locked on page: ${lockedOnPage}`);
 
+// the app keeps how far each relay was read (review of 9 Nov: relay load): after a check, the next asks from two days back, not nine
+{ const marks = await clinic.evaluate(() => JSON.parse(localStorage.getItem('vetlock.clinic.relaymarks') || '{}')), n0 = relays[0].stats.reqs.length;
+  await clinic.evaluate(() => window.__vetlock.tick()); await clinic.waitForTimeout(1500); const asked = relays[0].stats.reqs.slice(n0).flat().filter(f => f.kinds && f.kinds.includes(1059)).map(f => f.since), t = Math.floor(Date.now() / 1000);
+  check('the partner\'s app keeps a mark per relay, and its next check reads two days back, not nine', Object.keys(marks).some(u => u === relays[0].url) && asked.length > 0 && asked.every(s => t - s < 2 * 86400 + 1200), `${Object.keys(marks).length} relays marked · read back ${asked.map(s => ((t - s) / 86400).toFixed(2)).join(', ')} days`); }
+
 check('these filled screens fit at 320, 375, 390 and 430 px', !FITBAD.length, FITBAD.length ? 'wider: ' + FITBAD.join(' · ') : FIT.join(' · '));
 await b.close(); await Promise.all(relays.map(r => r.close()));
 say(bad ? `requests: ${bad} check(s) failed` : 'requests: every check passed'); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

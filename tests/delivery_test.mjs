@@ -53,7 +53,7 @@ await sc.click('#sn-go'); const sent = await waitText(sc, '#sq-steps', /sent · 
 check('the request goes to the shop: 20 kg dry feed for colony Marina, 18 000 sat', /sent · 2 of 2/.test(sent) && /^Forcolony MarinaWhat20 kg dry feed/.test(await txt(sc, '#sq-dl')), (await txt(sc, '#sq-dl')).slice(0, 60));
 
 // THE SHOP: the request, in its words
-await tab(shop, 'work'); await shop.click('#w-check'); await waitText(shop, '#w-list', /20 kg dry feed/, 30000); await shop.click('#w-list .item'); await shop.waitForSelector('#creq.on');
+await tab(shop, 'work'); await shop.click('#w-check'); await showW(shop, 'w-pend'); await waitText(shop, '#w-list', /20 kg dry feed/, 30000); await shop.click('#w-list .item'); await shop.waitForSelector('#creq.on');
 const dl = await txt(shop, '#cr-dl');
 check('the shop sees what to deliver and for which colony, not a cat and a procedure', /^Forcolony MarinaWhat20 kg dry feedDate\d{4}-\d{2}-\d{2}Releases18 000 sat/.test(dl), dl.slice(0, 70));
 check('…a box to say it was delivered, and the photos it takes: the delivery note and the goods; no invoice\'s fingerprint', (await txt(shop, '#cr-ok-t')) === 'I confirm this was delivered as it says, on this date.' && await shop.isVisible('#cr-shots') && (await shop.$$eval('#cr-shots .shot span', ss => ss.map(s => s.textContent).join())) === 'delivery note,the goods' && await shop.isHidden('#cr-evrow') && await shop.isHidden('#cr-ev') && (await txt(shop, '#cr-shots-l')) === 'Photos of the delivery');
@@ -91,3 +91,6 @@ check('a confirmation whose photos were swapped afterwards is not certified', sw
 check('these screens fit at 320, 375, 390 and 430 px', !FIT.length, FIT.join(' · '));
 say(bad ? `delivery: ${bad} check(s) failed` : 'delivery: every check passed');
 await b.close(); for (const r of relays) await r.close(); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

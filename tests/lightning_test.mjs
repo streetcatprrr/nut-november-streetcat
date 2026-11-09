@@ -71,7 +71,7 @@ await streetcat.waitForFunction(() => !document.getElementById('recovered').hidd
 say('after reopening:', (await out(streetcat, 'recovered')).split('\n').slice(0, 2).join(' / ').slice(0, 110), '| unfinished:', await streetcat.evaluate(() => window.__vetlock.flights().length), '| released kept:', await streetcat.evaluate(() => window.__vetlock.releasedList().length));
 
 // 4) a short campaign nobody certifies: two Lightning donations, then refunds after the deadline
-const teo = { name: 'TEO', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 12 };
+const teo = await streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { name: 'TEO', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 12 });  /* signed by Streetcat: an unsigned link takes no donation */
 const lnDonate = async (camp, n) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.fill('#d-amt', String(n)); await donor.click('#d-ln'); return lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/)); };
 const tok3 = await lnDonate(teo, 13), tok4 = await lnDonate(teo, 5);
 await donor.waitForTimeout(Math.max(0, teo.deadline - now() + 1) * 1000);

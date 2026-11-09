@@ -35,6 +35,12 @@ code{font-family:inherit;font-size:var(--code);line-height:var(--code-lh);word-b
 input,textarea{width:100%;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;padding:12px;font:400 16px/22px var(--mono);outline:none;min-height:48px}
 textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{margin:calc(var(--u)*1.5) 0 calc(var(--u)*2)}#k-keys{margin-bottom:calc(var(--u)*2)}#k-keys .kline small{margin-bottom:2px}#k-keys .kline span.bad{color:var(--bad)}
 #d-reqs button.req .cat{font-size:12px;line-height:18px;color:var(--fg);padding-left:1.5ch;text-indent:-1.5ch}
+#d-reqs .rold{margin-top:4px}
+#d-reqs .rold button.req{padding:0 0 10px;border:0}
+#d-reqs .rold button.req .title{font-size:var(--code);line-height:var(--code-lh);color:oklch(.8 .16 calc(var(--h,345) * 1deg))}
+#d-reqs .rold button.req .sub2,#d-reqs .rold button.req .cat{overflow-wrap:break-word;line-break:auto}
+#d-reqs .rold button.req .sub2{font-size:11px;line-height:16px;color:oklch(.88 .15 95deg)}
+#d-reqs .rold button.req .cat{font-size:11px;line-height:16px;color:oklch(.7 .14 68deg)}
 /* what Streetcat pays for (StreetCat, 7 Nov): the four kinds two by two, each in its colour; the lists (pots, requests, colonies, partners)
    as the donor's list; "Choose …" as one wide button that takes the colour of what was chosen. In grey, what cannot be chosen, and why. */
 #h-kinds{margin-top:calc(var(--u)*1)}.plist{margin-bottom:calc(var(--u)*2)}.plist>.mut{margin-bottom:4px}.plist>.empty{padding:calc(var(--u)*1.5) 0}
@@ -83,7 +89,7 @@ button.sm.done,.acts button.sm.done{background:var(--fg);color:var(--bg);border-
 #refund .center a,details.more summary{color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line)}
 details.more{margin-top:var(--u);text-align:center}details.more summary{font-size:12px;cursor:pointer;list-style:none;display:inline-block}details.more summary::-webkit-details-marker{display:none}details.more[open]{text-align:left}details.more[open] summary{margin-bottom:var(--u)}
 #donate.paying .pay>:not(.out),#donate.paying #d-links,#donate.paying #d-paste,#donate.done .pay>:not(.out),#donate.done #d-links,#donate.done #d-paste{display:none}
-.out{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--code);line-height:var(--code-lh);margin-top:calc(var(--u)*2)}.out:empty{display:none}.out.bad{color:var(--bad);border-left:2px solid var(--bad);padding-left:14px}
+.out{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--code);line-height:var(--code-lh);margin-top:calc(var(--u)*2)}#k-name{height:56px;text-align:center}#k-name::placeholder{color:var(--fg);opacity:1;font-size:12px;letter-spacing:.08em;text-transform:uppercase}.out:empty{display:none}#cr-ev:empty,#cr-pics-st:empty,#cn-req-st:empty,#cn-like-st:empty{display:none}#cn-req-st.ok,#sq-match-st.ok{color:var(--ok)}#sn-time:empty,#cr-fund:empty,#x-ver:empty,#cs-ver:empty,#sn-from:empty,#sn-recent:empty,#sn-last:empty,#sq-from:empty{display:none}#sn-from{margin-bottom:calc(var(--u)*2)}#sn-recent{margin-bottom:calc(var(--u)*2)}#sn-recent button.sm{height:auto;min-height:44px;padding:10px 8px;line-height:1.5}#sn-keep{margin-top:calc(var(--u)*2)}#sn-time{margin:var(--u) 0 calc(var(--u)*2)}#sn-time .ok,#cr-fund .ok{color:var(--ok)}#sn-alt{gap:var(--u);margin-bottom:calc(var(--u)*2)}#sn-alt button.sm{height:auto;min-height:44px;padding:10px 8px;line-height:1.5}.out.bad{color:var(--bad);border-left:2px solid var(--bad);padding-left:14px}
 #d-out{flex:1;display:flex;flex-direction:column}
 .qr{background:#fff;padding:10px;margin:calc(var(--u)*2) auto;width:min(100%,44svh)}.qr svg{display:block;width:100%;height:auto}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:var(--u);margin-top:calc(var(--u)*2)}.row2 button.sm,.row2 a.sm{margin:0;height:52px;text-align:center}.row1{display:grid;margin-top:calc(var(--u)*2)}.row1 button.sm{margin:0;height:52px}
@@ -105,6 +111,8 @@ details.more{margin-top:var(--u);text-align:center}details.more summary{font-siz
 .invtext{flex:1 1 0;min-height:0;overflow:hidden;margin-top:var(--u);font-size:var(--code);line-height:var(--code-lh);color:var(--fg);white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;text-align:center;-webkit-mask-image:linear-gradient(#000 calc(100% - 20px),transparent);mask-image:linear-gradient(#000 calc(100% - 20px),transparent)}
 #s-saved,#r-saved{font-size:12px;line-height:18px;margin-top:calc(var(--u)*2)}#s-saved:not(:empty){margin-bottom:calc(var(--u)*2)}#s-saved button.sm,#r-saved button.sm{display:flex;width:100%;justify-content:flex-start;margin:var(--u) 0 0}
 .stat{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}.stat b{display:block;font-size:22px;line-height:28px;font-weight:400}.stat span{font-size:12px;color:var(--mute)}
+.wtabs>div{cursor:pointer;border-bottom:2px solid transparent;padding-bottom:4px;-webkit-tap-highlight-color:transparent;user-select:none}.wtabs>div.on{border-bottom-color:oklch(.8 .16 250deg)}.wtabs>div.on span{color:oklch(.8 .16 250deg)}  /* the partner's two numbers: a tap shows their requests (its colour, as the header's) */
+#x-ln-box{margin-top:var(--u)}  /* Keys, as Rescue: the Lightning address under its long button */
 .list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:16px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
 .empty{color:var(--mute);padding:calc(var(--u)*3) 0}
 .actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
@@ -191,7 +199,8 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="de-head" class="camp"></div>
 <p class="mut">Pay with any Cashu wallet that reads payment requests (cashu.me, Minibits…). Keep this page open until it says received.</p>
 <div class="term scan" id="dw-term"></div>
-<div class="row2"><button class="sm" id="dw-copy">copy request</button><button class="sm" id="dw-check">check now</button></div>
+<div class="row2"><a class="sm" id="dw-open">open in wallet</a><button class="sm" id="dw-copy">copy request</button></div>
+<div class="row1"><button class="sm" id="dw-check">check now</button></div>
 <div class="out" id="dw-state"></div>
 <label>Or paste ecash from the campaign's mint</label><textarea id="d-token" placeholder="cashuB…"></textarea>
 <button class="go" id="d-go">Lock my donation</button>
@@ -232,8 +241,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 </section>
 
 <section id="home">
-<div class="stat"><div><b id="h-n">0</b><span>campaigns</span></div><div><b id="h-rel">0 sat</b><span>released, in this browser</span></div></div>
-<input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div>
+<div class="stat"><div><b id="h-n">0</b><span>campaigns</span></div><div><b id="h-rel">0 sat</b><span>released</span></div></div>
 <div class="plist" id="h-kinds"></div>
 <div class="actions"><button class="go" id="h-new">New campaign</button><button class="go" id="h-req">New request</button><button class="go alt" id="h-release">Release a certified token</button><button class="go alt" id="h-hand">Receive a donation in person</button></div>
 <p class="center"><a href="#" id="h-cats" style="color:inherit">Cats</a> · <a href="#" id="h-keys" style="color:inherit">Keys</a></p>
@@ -241,7 +249,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 
 <section id="campaign">
 <div class="ptypes grid" id="k-type"></div>
-<label id="k-name-l">Name</label><input id="k-name" placeholder="TNR MARINA">
+<label id="k-name-l">Name</label><input id="k-name" placeholder="Choose name">
 <label>For</label><div class="pchoose"><button class="sm" type="button" id="k-col">Choose colony</button></div>
 <label>Confirmed by</label><div class="pchoose"><button class="sm" type="button" id="k-par">Choose partner</button></div>
 <label>Refunds after</label><div class="pchoose"><input id="k-dl" type="date" class="sm" aria-label="deadline: donors may take their sats back after this date"></div>
@@ -260,13 +268,16 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <dl hidden><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
 <div class="term" id="x-term"><textarea id="x-box" placeholder="export shows your keys here · paste an export here to import"></textarea></div>
 <div class="row2"><button class="sm" id="x-exp">Export all</button><button class="sm" id="x-imp">Import all</button></div><div class="out" id="x-out"></div>
+<div class="actions" id="x-ln-row" hidden><button class="go alt" id="x-ln-b" aria-expanded="false">Lightning address</button></div>
+<div id="x-ln-box" hidden><input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div></div>
+<p class="mut code center" id="x-ver"></p>
 <details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. Export all carries this actor's keys and everything this browser keeps with them (Rescue: Streetcat's keys, campaigns, donations, requests, partners, colonies, photos, and this browser's refund keys; Partner: the clinic keys and its requests, records and photos); Import all adds this actor's part to what the other browser has, and leaves out another actor's. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
 </section>
 
 <section id="work">
-<div class="stat"><div><b id="w-n">0</b><span>to review</span></div><div><b id="w-done">0</b><span>done</span></div></div>
+<div class="stat wtabs"><div id="w-pend" role="button" tabindex="0" aria-pressed="false"><b id="w-n">0</b><span>pending</span></div><div id="w-dn" role="button" tabindex="0" aria-pressed="false"><b id="w-done">0</b><span>done</span></div></div>
 <div id="w-net" class="mut"></div>
-<div class="list" id="w-list"></div>
+<div class="list" id="w-list" hidden></div>
 <div class="actions" id="w-acts"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button><button class="go alt" id="w-certify">Certify a token</button><button class="go alt" id="w-offline">Offline setup</button><button class="go alt" id="w-cats">Cat records</button><button class="go alt" id="w-settings">Settings</button></div>
 <div id="w-paste" hidden><label>A request from Streetcat: its link, or its file</label><textarea id="w-text" placeholder="https://…#q=…"></textarea><div class="row2"><button class="sm" id="w-read">open it</button><button class="sm" id="w-pick">choose a file</button></div><div class="row1"><button class="sm" id="w-scan">scan Streetcat's QR</button></div><input type="file" id="w-file" hidden><div class="out" id="w-out"></div></div>
 </section>
@@ -274,14 +285,14 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="creq">
 <div id="cr-head" class="camp"></div>
 <dl id="cr-dl"></dl>
-<div id="cr-pics-box" hidden><label>Photos from Streetcat, when caught</label><div class="pics" id="cr-pics"></div><p class="mut" id="cr-pics-st"></p></div>
-<div id="cr-gives" class="mut code"></div>
+<div id="cr-pics-box" hidden><label>Photos from Streetcat</label><div class="pics" id="cr-pics"></div><p class="mut" id="cr-pics-st"></p></div>
+<div id="cr-gives" class="mut code"></div><div id="cr-fund" class="code"></div>
 <div class="out" id="cr-warn"></div>
 <div id="cr-act">
 <label class="chk"><input type="checkbox" id="cr-ok"><span id="cr-ok-t">I confirm this procedure was done on this cat, on this date.</span></label>
 <div id="cr-shots-box" hidden><label id="cr-shots-l">Photos of the delivery</label><div class="shots two" id="cr-shots"><button type="button" class="shot" data-slot="note"><span>delivery note</span></button><button type="button" class="shot" data-slot="goods"><span>the goods</span></button></div><input type="file" id="cr-shot-file" accept="image/*" capture="environment" hidden><p class="mut" id="cr-shots-st"></p></div>
 <div class="row2" id="cr-evrow"><button class="sm" id="cr-inv">add the invoice</button><button class="sm" id="cr-photo">add a photo</button></div><input type="file" id="cr-file" hidden>
-<div class="mut code" id="cr-ev">Optional: only the file's fingerprint (SHA-256) goes with the confirmation. The file stays on this phone.</div>
+<div class="mut code" id="cr-ev"></div>
 <button class="go" id="cr-go" disabled>Confirm procedure</button>
 <details class="more" id="cr-prob"><summary>Report a problem</summary><div class="row3" id="cr-why"><button class="sm" data-r="postponed">postponed</button><button class="sm" data-r="wrong-data">wrong data</button><button class="sm" data-r="other">other</button></div><input id="cr-note" placeholder="what happened (optional)" maxlength="300"><button class="go" id="cr-report" disabled>Send the report</button></details>
 </div>
@@ -297,6 +308,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div class="row2"><button class="sm" id="cs-save">save backup</button><button class="sm" id="cs-restore">restore a backup</button></div><input type="file" id="cs-file" accept=".json,application/json" hidden>
 <div class="out" id="cs-out"></div>
 <p class="center lnk"><a href="#" id="cs-offline">ready for offline</a></p>
+<p class="mut code center" id="cs-ver"></p>
 </section>
 
 <section id="coffline">
@@ -320,25 +332,30 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 </section>
 
 <section id="snew">
+<div class="code" id="sn-from"></div><div id="sn-recent"></div>
 <label>What kind</label><div class="ptypes grid" id="sn-type"></div>
 <div id="sn-catbox"><label>Cat</label><input id="sn-cat" placeholder="MOCHI">
-<label>Photos when caught</label><div class="shots three" id="sn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button></div><input type="file" id="sn-file" accept="image/*" capture="environment" hidden>
-<p class="mut" id="sn-shots-st" style="margin-top:var(--u)">Optional. Made small here, without location data. They go with the request, encrypted, so the clinic can check it is this cat.</p></div>
+<label>Photos</label><div class="shots three" id="sn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button></div><input type="file" id="sn-file" accept="image/*" capture="environment" hidden>
+</div>
 <label id="sn-proc-l">Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
-<div class="mut" id="sn-public">Shown on the public status page.</div>
+
 <label>Cost</label><input id="sn-cost" inputmode="numeric" autocomplete="off" placeholder="sat">
+<p class="mut code" id="sn-last"></p>
 <label>For</label><div class="pchoose"><button class="sm" type="button" id="sn-col">Choose colony</button></div>
 <label>Paid from</label><div class="pchoose"><button class="sm" type="button" id="sn-pot">Choose pot</button></div>
 <div class="code" id="sn-keys"></div>
 <p class="mut code" id="sn-cover"></p>
+<div class="code" id="sn-time"></div><div class="row1" id="sn-alt" hidden></div>
 <p class="mut code lnk" id="sn-sum"><span id="sn-sum-t"></span> · <a href="#" id="sn-edit">edit</a></p>
 <div id="sn-more" hidden>
 <label id="sn-date-l">Date of the procedure</label><input id="sn-date" type="date">
+<label>Margin (days)</label><input id="sn-margin" type="number" min="0" max="60" step="1" inputmode="numeric" autocomplete="off">
 <label>Note for the partner (optional)</label><input id="sn-note" placeholder="invoice 2026-118" maxlength="200">
 <label>Paid from these donations</label><div class="list" id="sn-dons"></div>
 </div>
 <div class="out" id="sn-out"></div>
 <button class="go big" id="sn-go">Send to the partner</button>
+<p class="center lnk" id="sn-keep"><a href="#" id="sn-draft">Keep as draft</a><span id="sn-del-w" hidden> · <a href="#" id="sn-del">Delete draft</a></span></p>
 </section>
 
 <section id="skind">
@@ -355,6 +372,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <label id="pp-name-l">Name</label><input id="pp-name" maxlength="60" autocomplete="off">
 <div id="pp-pbox"><label>What it is</label><div class="ptypes" id="pp-kind"></div>
 <label>What it confirms</label><div class="ptypes grid" id="pp-does"></div>
+<label>Days to confirm</label><input id="pp-days" type="number" min="0" max="60" step="1" inputmode="numeric" autocomplete="off">
 <label>Its public key</label><input id="pp-key" placeholder="02…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></div>
 <div class="out" id="pp-out"></div>
 <button class="go" id="pp-save">Save</button>
@@ -364,6 +382,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 
 <section id="sreq">
 <div id="sq-head" class="camp"></div>
+<p class="mut code" id="sq-from"></p>
 <dl id="sq-dl"></dl>
 <label id="sq-pics-l" hidden>When caught · your photos</label>
 <div class="pics" id="sq-pics"></div>
@@ -371,6 +390,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="sq-rec" hidden><label id="sq-rec-l"></label><div class="pics" id="sq-rec-pics"></div><p class="mut" id="sq-match-st"></p><p id="sq-match-get" hidden><button type="button" class="sm" id="sq-match-go">compare them</button></p><p class="center lnk"><a href="#" id="sq-rec-a"></a></p></div>
 <div class="term" id="sq-term"><div class="ticker" id="sq-steps"></div></div>
 <div id="sq-state" class="mut code"></div>
+<p class="center lnk" id="sq-rep-w"><a href="#" id="sq-rep">Repeat request</a></p>
 <p class="center lnk" id="sq-qrl" hidden style="margin-bottom:var(--u)"><a href="#" id="sq-qra">Clinic offline? Show it as QR</a></p>
 <div id="sq-send"><p class="mut" id="sq-send-st"></p><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
 <div class="row2" style="margin-top:var(--u)"><button class="sm" id="sq-qr">show as QR</button><button class="sm" id="sq-resend">send again</button></div></div>
@@ -413,7 +433,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <p class="mut code lnk" id="cn-sum"><span id="cn-sum-t"></span> · <a href="#" id="cn-edit">edit</a></p>
 <div class="shots" id="cn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button><button type="button" class="shot" data-slot="nose"><span>nose</span></button></div><input type="file" id="cn-file" accept="image/*" capture="environment" hidden>
 <p class="mut" id="cn-shots-st" style="margin-top:var(--u)">Photos with the cat asleep: made small here, without location data.</p>
-<div id="cn-like" hidden><label>Check the cat</label><div id="cn-req" hidden><div class="mut">Streetcat's photos, when caught</div><div class="pics" id="cn-req-pics"></div><p class="mut" id="cn-req-st"></p></div><div id="cn-recs" hidden style="margin-top:var(--u)"><div class="mut">Already in the records?</div><div class="alike" id="cn-like-list"></div></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">check the cat</button></div></div>
+<div id="cn-like" hidden><label>Check the cat</label><div id="cn-req" hidden><div class="pics" id="cn-req-pics"></div><p class="mut" id="cn-req-st"></p></div><div id="cn-recs" hidden style="margin-top:var(--u)"><div class="mut">Already in the records?</div><div class="alike" id="cn-like-list"></div></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">check the cat</button></div></div>
 <div id="cn-namebox"><label for="cn-name">Name</label><input id="cn-name" maxlength="40" placeholder="MOCHI" autocomplete="off" spellcheck="false"></div>
 <div id="cn-basics" hidden><label for="cn-proc">Procedure</label><input id="cn-proc" maxlength="80" placeholder="sterilisation (spay)"><label for="cn-date">Date</label><input id="cn-date" type="date"></div>
 <label for="cn-chip">Microchip</label><input id="cn-chip" inputmode="numeric" maxlength="19" placeholder="15 digits" autocomplete="off">
@@ -421,7 +441,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <label>Ear tip</label><div class="row3 pick" id="cn-ear"><button type="button" class="sm" data-v="left">left</button><button type="button" class="sm" data-v="right">right</button><button type="button" class="sm" data-v="none">none</button></div>
 <label for="cn-colony">Colony</label><input id="cn-colony" maxlength="60" placeholder="the marina" autocomplete="off">
 <details class="more" id="cn-more"><summary>coat and notes</summary><label for="cn-coat">Coat</label><input id="cn-coat" maxlength="80" placeholder="black and white, white chest" autocomplete="off"><label for="cn-notes">Notes</label><input id="cn-notes" maxlength="300" placeholder="weight 3.2 kg" autocomplete="off"></details>
-<p class="mut" style="margin-top:calc(var(--u)*2)">Signed with your clinic key and sent to Streetcat, encrypted. Nothing in it is public.</p>
+
 <div class="out" id="cn-out"></div>
 <button class="go big" id="cn-go">Sign and send to Streetcat</button>
 <p class="center lnk" id="cn-again" hidden><a href="#">record another cat</a></p>

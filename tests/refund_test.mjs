@@ -5,6 +5,7 @@
 // ("Refund completed" here, "Already refunded" in another browser); the split one's rest is found and paid to a Lightning address
 // (LNURL-pay, a local test server); an invoice too large is refused with the exact most it can be; and a Lightning refund whose answer
 // is lost shows "Refund in progress · Do not pay or claim again" until "check now" finds it paid. The estimate comes before any invoice.
+// When the answer is lost, what the invoice did not ask for still comes back as ecash, once (review of 9 Nov, A05).
 import { chromium } from 'playwright';
 import http from 'http';
 import fs from 'fs';
@@ -31,11 +32,11 @@ const go = async (p, re, ms = 40000) => { await p.evaluate(() => { document.getE
 const shot = async (p, name) => { if (SHOT) { await p.waitForTimeout(1200); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };
 
 // the campaign and four donations, locked in the donor's page
-const sc = newSk(), cl = newSk(), now = () => Math.floor(Date.now() / 1000), camp = { name: 'TEO', op: 'castration', mint: MINT, streetcat: C.pubOf(sc), clinic: C.pubOf(cl), deadline: now() + 40 }; await pin(camp.streetcat);  /* the test's own Streetcat key, pinned next to the published one (pin.mjs) */
+const sc = newSk(), cl = newSk(), now = () => Math.floor(Date.now() / 1000), camp = await C.signCampaign({ name: 'TEO', op: 'castration', mint: MINT, streetcat: C.pubOf(sc), clinic: C.pubOf(cl), deadline: now() + 40 }, sc);  /* signed: an unsigned link takes no donation */ await pin(camp.streetcat);  /* the test's own Streetcat key, pinned next to the published one (pin.mjs) */
 const donor = await page(); await tab(donor, 'donate');
 const lock = async n => { await donor.evaluate(() => { const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => { window.__vetlock.openTab('decash'); });
   await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); const s = await waitText(donor, '#d-out', /LOCKED|Failed/); const token = s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop(); return { token, receipt: JSON.stringify(await donor.evaluate(t => window.__vetlock.receiptOf(t), token)), proofs: w.decodeToken(token).proofs }; };
-const A = await lock(21), B = await lock(13), D = await lock(2100), E = await lock(8);
+const A = await lock(21), B = await lock(13), D = await lock(2100), E = await lock(8), F = await lock(16);
 
 // a browser with no key reads a receipt: before the deadline
 const viewer = await page(); await tab(viewer, 'refund'); const open = async (p, r) => { await p.evaluate(() => { document.getElementById('r-out').textContent = ''; }); await p.fill('#r-receipt', r); return waitText(p, '#r-info', /Checked with the mint[\s\S]*(Refund|Released|refunded|Nothing|unavailable)/, 30000); };
@@ -76,5 +77,23 @@ check('…and taking it back again is refused meanwhile', /a refund of these sat
 await viewer.unroute('**/v1/melt/bolt11'); await viewer.unroute('**/v1/melt/quote/bolt11/**'); await viewer.click('#r-check');
 out = await waitText(viewer, '#r-out', /Refund completed|did not go|Still in flight|did not answer/); check('"check now" asks the mint: the invoice was paid, "Refund completed"', /^Refund completed: 5 sat reached your Lightning wallet/.test(out) && (await w.checkMintQuoteBolt11(inv.quote)).state !== 'UNPAID', out.split('\n')[0]);
 const ml = await viewer.evaluate(() => window.__vetlock.melts()); check('the melt log kept it from the start, and now says paid', ml.length >= 2 && ml.find(m => m.quote && m.state === 'paid' && m.amount === 5) && !ml.some(m => m.state === 'pending'));
+// …and what the invoice did not ask for (8 sat refunded, 5 asked) comes back as ecash, asked back from the mint with the blank outputs the
+// payment was sent with (review of 9 Nov, A05: a lost answer lost the change): live at the mint, kept with the receipt's key, once
+// what the mint owes back: the refunded sats less the invoice and the payment's input fee (its test Lightning backend charges no routing fee);
+// on the fee mint 8 sat come back as 6 after the refund's swap and nothing is left for change, so none is claimed
+const owed = m => { const ps = m.token ? w.decodeToken(m.token).proofs : []; return Math.max(0, total(ps) - (m.amount || 0) - amt(w.getFeesForProofs(ps))); };
+const changeOf = async (text, m) => { const tok = (text.match(/came back as ecash\. Import it into any Cashu wallet:\n(cashuB[A-Za-z0-9_\-=]+)$/) || [])[1] || '', ps = tok ? w.decodeToken(tok).proofs : [], due = owed(m);
+  const liveP = ps.length ? (await w.checkProofsStates(ps)).every(x => x.state === 'UNSPENT') : false, kept = await viewer.evaluate(pk => (window.__vetlock.donorKeys().find(k => k.pk === pk) || {}).refundToken, m.pk);
+  const line = new RegExp(`\\nThe other ${due} sat \\(what the invoice did not ask for, plus any unused fee\\) came back as ecash\\.`).test(text);
+  return { tok, n: total(ps), due, liveP, ok: m.state === 'paid' && !m.changeDue && (due ? line && total(ps) === due && liveP && m.change === tok && kept === tok : !tok && !/came back as ecash/.test(text)) }; };
+const mE = ml.find(m => m.amount === 5 && m.state === 'paid') || {}, cE = await changeOf(out, mE);
+check('…and the rest, which the invoice did not ask for, comes back as ecash: live at the mint, kept with the receipt\'s key', cE.ok && (MINT.endsWith('3339') || cE.due === 3), `${cE.n} of ${cE.due} sat owed · live ${cE.liveP}`); await shot(viewer, 'q4-refund-change');
+// the answer lost but the mint answers at once: "REFUNDED", paid, and the rest comes back the same way
+s = await open(viewer, F.receipt); const invF = await w.createMintQuoteBolt11(5); await viewer.fill('#r-ln', invF.request); await viewer.route('**/v1/melt/bolt11', async r => { await r.fetch(); await r.abort('failed'); });
+out = await go(viewer, /went through|in progress|sent to your|Failed|did not go/); await viewer.unroute('**/v1/melt/bolt11');
+const mF = (await viewer.evaluate(() => window.__vetlock.melts())).find(m => m.amount === 5 && m.pk !== mE.pk && m.state === 'paid') || {}, cF = await changeOf(out, mF);
+check('an answer lost, the mint asked at once: "REFUNDED…the Lightning payment went through", and its rest comes back as ecash, last, to be copied', /^REFUNDED \d+ sat, and the mint says the Lightning payment went through, although its answer was lost: check your wallet\./.test(out) && cF.ok && cF.due > 0 && (MINT.endsWith('3339') || cF.due === 11), `${out.split('\n')[0].slice(0, 110)} · ${cF.n} of ${cF.due} sat owed · live ${cF.liveP}`); await shot(viewer, 'q5-refund-answer-lost-change');
+await viewer.reload(); await viewer.waitForTimeout(4000); const mF2 = (await viewer.evaluate(() => window.__vetlock.melts())).find(m => m.id === mF.id) || {};
+check('…and opened again, that rest is not asked back twice', mF2.change === cF.tok && !mF2.changeDue && (await viewer.evaluate(pk => (window.__vetlock.donorKeys().find(k => k.pk === pk) || {}).refundToken, mF.pk)) === cF.tok);
 
 await b.close(); lnServer.close(); say(bad ? `refund: ${bad} check(s) failed` : 'refund: every check passed'); process.exit(bad ? 1 : 0);

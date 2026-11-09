@@ -23,7 +23,8 @@ const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');  // the key flips in
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 
-const donate = async (camp, amount) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(amount)); await donor.click('#d-go');
+const signed = c => streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), c);  /* an unsigned link takes no donation */
+const donate = async (camp, amount) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(await signed(camp))); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(amount)); await donor.click('#d-go');
   const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return { receipt: JSON.stringify(await donor.evaluate(t => window.__vetlock.receiptOf(t), lastToken(s))), token: lastToken(s) }; };
 
 const open = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 30 * 86400 };

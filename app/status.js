@@ -147,15 +147,10 @@ function evidenceLine(e){ const d = el('div', 'mut code ev'); if (!e || !/^[0-9a
     res.textContent = h === e.sha256 ? ` ✓ ${f.name} is the file the clinic declared` : ` ✗ ${f.name} is not the file the clinic declared (or it was changed)`; res.className = h === e.sha256 ? 'okc' : 'badc'; }; i.click(); };
   d.appendChild(a); d.appendChild(res); return d; }
 
-// the spending conditions written inside one proof's secret (NUT-10 / NUT-11)
-function lockOf(p){ let s; try { s = JSON.parse(p.secret); } catch (_) { return null; } if (!Array.isArray(s) || s[0] !== 'P2PK' || !s[1]) return null; const d = s[1];
-  const tags = Object.fromEntries((d.tags || []).map(t => [t[0], t.slice(1)]));
-  return { pubkeys: [d.data].concat(tags.pubkeys || []), nsigs: Number((tags.n_sigs || ['1'])[0]), refund: tags.refund || [], nsigsRefund: Number((tags.n_sigs_refund || ['1'])[0]), locktime: Number((tags.locktime || ['0'])[0]), sigflag: (tags.sigflag || ['SIG_INPUTS'])[0] }; }
-function lockProblem(l, c){ if (!l) return 'not a P2PK lock';
-  const want = [c.streetcat, c.clinic].map(k => k.toLowerCase()).sort().join(), got = l.pubkeys.map(k => String(k).toLowerCase()).sort().join();
-  if (got !== want) return 'locked to other keys than Streetcat + the clinic'; if (l.nsigs !== 2) return `needs ${l.nsigs} signature(s), not 2`;
-  if (l.locktime !== c.deadline) return 'its deadline is not the campaign deadline'; if (!l.refund.length) return 'no refund key: anyone could take it after the deadline';
-  if (l.nsigsRefund !== 1) return 'unusual refund rule'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule'; return ''; }  // as core.js lockProblem
+// the spending conditions written inside one proof's secret (NUT-10 / NUT-11): read by core.js, as in the app (review of 9 Nov, A06:
+// this page had its own reader, which kept the last of a tag given twice)
+function lockOf(p){ const l = scCore.lockOf(p.secret); return l && { pubkeys: l.main, nsigs: l.n, refund: l.refund, nsigsRefund: l.nRefund, locktime: l.locktime, sigflag: l.sigflag, core: l }; }
+function lockProblem(l, c){ return scCore.lockProblem(l && l.core, c); }
 
 // one donation token, checked against the mint
 async function checkToken(c, token){
@@ -322,6 +317,10 @@ const deepLook = () => { if (!deep || !LAST) return; document.body.classList.add
   if (q) { $('l-src').value = q; await run(); if (nid && LAST) note('not found on the relays: this is the ledger\'s file'); deepLook(); return; }
   if (nid) show($('l-out'), 'Failed: this campaign\'s ledger was not found on the relays.', 'bad'); })();
 runHere();
-if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});  // the pages open without a connection (sw.js)
+// the pages open without a connection (sw.js); a new version comes whole and, this page holding nothing under way, is taken at once
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) { let took = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (took) location.reload(); });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => { const take = () => { if (reg.waiting && navigator.serviceWorker.controller && !took) { took = true; reg.waiting.postMessage({ type: 'take' }); } };
+    take(); reg.addEventListener('updatefound', () => { const nw = reg.installing; if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed') take(); }); }); }).catch(() => {}); }
 window.__vetstatus = { parseLedger, lockOf, lockProblem, checkToken, savedTokens };
 })();

@@ -24,7 +24,7 @@ const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 
 await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
-const camp = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 };
+const camp = await streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 });  /* signed by Streetcat: an unsigned link takes no donation */
 await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(21)); await donor.click('#d-go');
 const tok = lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/));
 

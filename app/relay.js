@@ -35,9 +35,11 @@ function visit(url, onOpen, { timeout = 8000 } = {}){ return new Promise((resolv
 // a failure says whether the event had been sent (`sent`): a relay that was sent it and did not answer may have taken it all the same
 const publishTo = (url, ev, o) => { let sent = false; return visit(url, (ws, ok) => { ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'OK' && x[1] === ev.id) ok({ url, ok: !!x[2], msg: String(x[3] || '') }); }; ws.send(JSON.stringify(['EVENT', ev])); sent = true; }, o)
   .catch(e => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { sent }); }); };
+// a read: what the relay holds that matches `filter` (one, or several in one REQ). `complete` on the list: the relay said it sent all
+// it holds (EOSE); one that refuses (CLOSED: rate-limited, auth…) answered something, but not all
 const fetchFrom = (url, filter, o) => visit(url, (ws, ok) => { const id = 'sc' + Math.random().toString(36).slice(2, 10), got = [];
-  ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'EVENT' && x[1] === id && x[2]) got.push(x[2]); if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && x[1] === id) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} ok(got); } };
-  ws.send(JSON.stringify(['REQ', id, filter])); }, o);
+  ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'EVENT' && x[1] === id && x[2]) got.push(x[2]); if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && x[1] === id) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} got.complete = x[0] === 'EOSE'; ok(got); } };
+  ws.send(JSON.stringify(['REQ', id, ...(Array.isArray(filter) ? filter : [filter])])); }, o);
 
 // a payload, wrapped for one recipient: the rumor carries it packed (core.js), the seal is signed with the sender's messaging key
 async function wrap(payload, fromSk, toPk){ const from = await keysOf(fromSk), to = await pubOf(toPk), content = await C.pack(payload);
@@ -96,9 +98,20 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
 // THE INBOX: what waits for these spending keys (the messaging keys derived from them), from every relay, each message once.
 // `expect(payload)` names the spending key that must have sent it (the campaign's Streetcat key for a request, its clinic key for an
 // answer), or null to drop it. Returns the new messages and how each relay did.
-async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), expect, timeout } = {}){
-  const mine = await Promise.all(sks.map(keysOf)), byPub = new Map(mine.map(k => [k.pub, k])), filter = { kinds: [WRAP], '#p': [...byPub.keys()], since: Math.max(0, since - TWO_DAYS) };
-  const per = await Promise.all(relays.map(u => fetchFrom(u, filter, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+// HIGH-WATER MARKS (review of 9 Nov: every check read nine days from every relay, photos too, ~1.5–1.8 MB a minute on a phone).
+// `marks`: per relay and messaging key, when that relay last answered all it held (EOSE, under the limit); a read starts two days and
+// ten minutes before it (NIP-59 dates a wrap up to two days back), not nine days. `floor`: the oldest wrap still to be taken here (its
+// request not here yet, or no room to keep it): a read never starts after it, so it comes again. A relay that does not answer, refuses
+// (CLOSED) or sends the limit moves no mark: an unknown answer is not an empty one. Returns the new marks, and the wraps it deferred.
+const LIMIT = 500, SLACK = 600;
+async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), expect, timeout, marks = null, floor = 0, limit = LIMIT } = {}){
+  const mine = await Promise.all(sks.map(keysOf)), byPub = new Map(mine.map(k => [k.pub, k])), pubs = [...byPub.keys()], t0 = now(), base = Math.max(0, since - TWO_DAYS);
+  const sinceFor = (u, p) => { const m = Number(marks && marks[u] && marks[u][p]) || 0; let s = m - TWO_DAYS - SLACK > base ? m - TWO_DAYS - SLACK : base; if (floor > 0) s = Math.min(s, floor - SLACK); return Math.max(base, s); };
+  const per = await Promise.all(relays.map(u => fetchFrom(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout })
+    .then(evs => ({ url: u, ok: true, complete: !!evs.complete, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  const next = {}; for (const r of per) { if (!r.complete) continue; const n = new Map(); for (const ev of r.events) { const to = ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1]; n.set(to, (n.get(to) || 0) + 1); }
+    for (const p of pubs) if ((n.get(p) || 0) < limit) (next[r.url] = next[r.url] || {})[p] = t0; }
+  const deferred = [];
   const out = [], wraps = new Map(); for (const r of per) for (const ev of r.events) if (ev && ev.id && !wraps.has(ev.id)) wraps.set(ev.id, { ev, from: [r.url] }); else if (ev && wraps.has(ev.id)) wraps.get(ev.id).from.push(r.url);
   for (const [id, { ev, from }] of wraps) { if (seen.has(id)) continue; seen.add(id);
     const to = (ev.tags.find(t => t[0] === 'p') || [])[1], k = byPub.get(to); if (!k || !K.verifyEvent(ev)) continue;
@@ -106,11 +119,11 @@ async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen =
     const want = expect ? await expect(payload) : null;
     // not expected here yet (its request or its campaign is not in this browser yet): asked again next time, not dropped for good
     // (StreetCat, 7 Nov: the app on his home screen got the clinic's answer before Import all brought the request, and lost it)
-    if (!want) { seen.delete(id); continue; }
+    if (!want) { seen.delete(id); deferred.push({ id, created: ev.created_at }); continue; }
     if (rumor.pubkey !== await pubOf(want)) continue;  // not from who it says
     if (payload && payload.id && seen.has('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''))) continue; if (payload && payload.id) seen.add('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''));
-    out.push({ payload, wrap: id, relays: from, at: rumor.created_at }); }
-  return { messages: out, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
+    out.push({ payload, wrap: id, relays: from, at: rumor.created_at, created: ev.created_at }); }
+  return { messages: out, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })), marks: next, deferred }; }
 
 // THE LEDGER BY NOSTR: a campaign's ledger (version 2) as one replaceable event (kind 30078, its d tag the campaign's id), signed with the
 // ledger key derived from the campaign's Streetcat key, so anyone can check who signed it from the campaign alone. Readers take the
@@ -141,18 +154,22 @@ async function latestLedger(id, { relays = RELAYS, timeout } = {}){
 // of before said 'paid' for that: read as 'released'.
 const ANNOUNCE = 'streetcat-campaign', CAT_STATES = ['requested', 'done', 'released'], catState = s => s === 'paid' ? 'released' : CAT_STATES.includes(s) ? s : 'requested';
 const catTags = cats => (cats || []).slice(0, 40).map(x => ['cat', String(x.name || '').trim().slice(0, 40), String(x.procedure || '').trim().slice(0, 80), catState(x.state)]).filter(t => t[1]);
-async function announceEvent(c, streetcatSk, { kind, cats } = {}){ const id = await C.campaignId(c);
-  return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', 'announce:' + id], ['t', ANNOUNCE], ['expiration', String(Number(c.deadline))], ...(kind === 'request' ? [['k', 'request']] : []), ...catTags(cats)], content: JSON.stringify(c) }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
+// Since 9 Nov the announcement also says when the campaign was made (['created', unix seconds], covered by the same signature): the event's
+// own time moves each time it is announced again (once a day), so it cannot order the donors' list, newest first (StreetCat, 9 Nov, 03:45:
+// «que salgan cronológicamente… y salga el último, el primero de la lista»).
+async function announceEvent(c, streetcatSk, { kind, cats, created } = {}){ const id = await C.campaignId(c), made = Math.floor(Number(created) / 1000);
+  return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', 'announce:' + id], ['t', ANNOUNCE], ['expiration', String(Number(c.deadline))], ...(made > 0 ? [['created', String(made)]] : []), ...(kind === 'request' ? [['k', 'request']] : []), ...catTags(cats)], content: JSON.stringify(c) }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
 async function announcedOk(ev){ try { if (!ev || ev.kind !== LEDGER_KIND || !K.verifyEvent(ev)) return null; const c = JSON.parse(ev.content), id = await C.campaignId(c);
   if ((ev.tags.find(t => t[0] === 'd') || [])[1] !== 'announce:' + id || ev.pubkey !== (await C.derivedPub(C.TAG.ledger, C.campaignOf(c).streetcat)).slice(2)) return null;
   const kind = ev.tags.some(t => t[0] === 'k' && t[1] === 'request') ? 'request' : 'campaign', cats = catTags(ev.tags.filter(t => t[0] === 'cat').map(t => ({ name: t[1], procedure: t[2], state: t[3] }))).map(([, name, procedure, state]) => ({ name, procedure, state }));
-  return await C.campaignSig(c) === 'signed' ? { id, c, at: ev.created_at, kind, cats } : null; } catch (_) { return null; } }
+  const created = Math.floor(Number((ev.tags.find(t => t[0] === 'created') || [])[1])) || 0;  /* 0: an announcement of before 9 Nov, which does not say */
+  return await C.campaignSig(c) === 'signed' ? { id, c, at: ev.created_at, kind, cats, created } : null; } catch (_) { return null; } }
 async function openCampaigns(keys, { relays = RELAYS, timeout } = {}){ const authors = await Promise.all(keys.map(async k => (await C.derivedPub(C.TAG.ledger, k)).slice(2)));
   const per = await Promise.all(relays.map(u => fetchFrom(u, { kinds: [LEDGER_KIND], authors, '#t': [ANNOUNCE] }, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
   const best = new Map(), t = now(); let ignored = 0;
   for (const r of per) for (const ev of r.events) { const a = authors.includes(ev && ev.pubkey) ? await announcedOk(ev) : null; if (!a) { ignored++; continue; }
     if (Number(a.c.deadline) <= t) continue; const b = best.get(a.id); if (!b || a.at > b.at) best.set(a.id, a); }
-  return { campaigns: [...best.values()].sort((x, y) => Number(x.c.deadline) - Number(y.c.deadline)), ignored, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
+  return { campaigns: [...best.values()].sort((x, y) => (y.created || 0) - (x.created || 0) || Number(x.c.deadline) - Number(y.c.deadline)), ignored, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }  /* the newest first; of those that do not say when they were made, the one closing first */
 
 // PAYMENTS FROM A CASHU WALLET (NUT-18 over Nostr): the request names an nprofile (NIP-19: a key and the relays to use); the payer's
 // wallet sends its payload ({ id, mint, unit, proofs }) there as a NIP-17 direct message, a gift wrap like ours with plain JSON inside

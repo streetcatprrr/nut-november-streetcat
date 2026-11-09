@@ -14,7 +14,7 @@ const matches = (f, e) => (!f.ids || f.ids.some(x => e.id.startsWith(x))) && (!f
   && Object.entries(f).filter(([k]) => /^#[a-zA-Z]$/.test(k)).every(([k, vals]) => e.tags.some(t => t[0] === k.slice(1) && vals.includes(t[1])));
 
 export function startRelay({ port, refuse = false, delay = 0, maxBytes = 128 * 1024, okDelay = 0, storeDelay = 0, mute = false } = {}){
-  const kit = loadKit(), events = [], stats = { received: 0, accepted: 0, refused: 0, served: 0 }, socks = new Set();
+  const kit = loadKit(), events = [], stats = { received: 0, accepted: 0, refused: 0, served: 0, reqs: [] }, socks = new Set();
   const wss = new WebSocketServer({ host: '127.0.0.1', port });
   const later = fn => delay ? setTimeout(fn, delay) : fn();
   wss.on('connection', ws => { socks.add(ws); const subs = new Map(); ws.on('close', () => socks.delete(ws));
@@ -27,7 +27,7 @@ export function startRelay({ port, refuse = false, delay = 0, maxBytes = 128 * 1
           for (const [id, fs] of subs) if (fs.some(f => matches(f, e))) send(['EVENT', id, e]); stats.accepted++; }, ok = () => send(['OK', e.id, true, '']);
         if (storeDelay) return setTimeout(() => { keep(); ok(); }, storeDelay);  /* kept even when the sender has gone: a strfry relay does */
         keep(); return okDelay ? setTimeout(ok, okDelay) : ok(); }
-      if (m[0] === 'REQ') { const [, id, ...fs] = m; subs.set(id, fs); ws._subs = subs;
+      if (m[0] === 'REQ') { const [, id, ...fs] = m; subs.set(id, fs); ws._subs = subs; stats.reqs.push(fs);  /* what was asked, for the tests */
         const hits = events.filter(e => fs.some(f => matches(f, e))).sort((a, b) => b.created_at - a.created_at), lim = Math.min(...fs.map(f => f.limit || Infinity));
         for (const e of hits.slice(0, lim)) { stats.served++; send(['EVENT', id, e]); } return send(['EOSE', id]); }
       if (m[0] === 'CLOSE') { subs.delete(m[1]); return; }

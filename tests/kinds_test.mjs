@@ -133,7 +133,7 @@ await tab(sc, 'home'); const food = (await sc.$$eval('#h-kinds button.tile', bs 
 check('Home counts it: the food pots, the request, and what is left to spend', food === '2 pots · 1 request | 29 000 sat to spend', food);
 await sc.locator('#h-kinds button.tile', { hasText: 'Food' }).click(); L = await lines(sc, '#kd-reqs');
 check('the kind\'s screen lists the request: what, for which colony, how much from which pot, and how far it is', L.length === 1 && L[0].title === '20 kg dry feed' && L[0].subs[0] === 'colony Marina · 18 000 sat from COMIDA MARINA' && /^· (sent|received)/.test(L[0].subs[1]), JSON.stringify(L));
-const atShop = await (async () => { await tab(shop, 'work'); await shop.click('#w-check'); return waitText(shop, '#w-list', /20 kg dry feed/, 30000); })();
+const atShop = await (async () => { await tab(shop, 'work'); await shop.click('#w-check'); await showW(shop, 'w-pend'); return waitText(shop, '#w-list', /20 kg dry feed/, 30000); })();
 check('…and it reaches the shop\'s phone', /20 kg dry feed/.test(atShop), atShop.slice(0, 80));
 // a sterilisation request: the cat and its photos again; its one pot comes by itself
 await tab(sc, 'home'); await sc.locator('#h-kinds button.tile', { hasText: 'Sterilisation' }).click(); await sc.click('#kd-req'); await sc.waitForSelector('#snew.on');
@@ -148,7 +148,7 @@ const dm = D.find(d => d.title === 'COMIDA MARINA') || { subs: [] };
 check('…each pot with what it pays for, its colony and the days left, and what its requests pay for', /^food · colony Marina · 3[01] days left$/.test(dm.subs[0]) && dm.subs[1] === '· colony Marina · 20 kg dry feed · requested', dm.subs.join(' / '));
 await fits(donor, 'the donor\'s list'); await shot(donor, 'kd-7-donor');
 await donor.locator('#d-kinds button', { hasText: 'food' }).click(); await donor.waitForTimeout(300); await settled(donor, '#d-reqs'); D = await lines(donor, '#d-reqs');
-check('a kind tapped shows only its pots', D.map(d => d.title).sort().join() === 'COMIDA MARINA,COMIDA PLAYA' && (await txt(donor, '#d-reqs > .mut')) === '2 open requests from Streetcat · food · tap one' && await donor.$eval('#d-kinds button.on', b => b.textContent) === 'food', await txt(donor, '#d-reqs > .mut'));
+check('a kind tapped shows only its pots', D.map(d => d.title).sort().join() === 'COMIDA MARINA,COMIDA PLAYA' && (await txt(donor, '#d-reqs > .mut')) === 'Latest request from Streetcat · food · tap it' && await donor.$eval('#d-kinds button.on', b => b.textContent) === 'food', await txt(donor, '#d-reqs > .mut'));
 await donor.locator('#d-kinds button', { hasText: 'vet care' }).click(); await donor.waitForTimeout(300); await settled(donor, '#d-reqs'); const none = await txt(donor, '#d-reqs > .mut');
 check('…a kind with nothing open says so, and not in red', none === 'Nothing open for vet care right now.' && !(await red(donor, '#d-reqs > .mut')), none);
 await donor.locator('#d-kinds button', { hasText: 'vet care' }).click(); await donor.waitForTimeout(300); await settled(donor, '#d-reqs');
@@ -163,3 +163,6 @@ check('a campaign made before the kinds is listed under what its operation says,
 check('these screens fit at 320, 375, 390 and 430 px', !FIT.length, FIT.join(' · '));
 say(bad ? `kinds: ${bad} check(s) failed` : 'kinds: every check passed');
 await b.close(); for (const r of relays) await r.close(); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

@@ -57,7 +57,10 @@ for (const r of ['clinic', 'streetcat', 'donor']) { const F = await open(BASE + 
 // the clinic's home with three requests: six buttons of one size, two by three, all on the screen
 const K = await open(BASE + 'index.html', { 'vetlock.role': 'clinic', 'vetlock.clinic.sk': clSk });
 for (const q of reqs.slice(0, 2)) { await K.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(q)); await K.waitForSelector('#creq.on'); }
-await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForSelector('#work.on'); await K.waitForFunction(() => /offline/.test(document.getElementById('w-offline').title) && document.querySelectorAll('#w-list .item').length === 2, null, { timeout: 10000 }).catch(() => {}); await K.waitForTimeout(800);
+await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForSelector('#work.on'); await K.waitForTimeout(400);
+const g0 = await K.evaluate(() => ({ hidden: document.getElementById('w-list').hidden, items: [...document.querySelectorAll('#w-list .item')].filter(x => x.offsetParent).length, pend: document.getElementById('w-n').textContent, done: document.getElementById('w-done').textContent, labels: [...document.querySelectorAll('#work .wtabs span')].map(x => x.textContent) }));
+check('entering Partner: no requests shown, only the two numbers (pending, done) and the buttons', g0.hidden && g0.items === 0 && g0.pend === '2' && g0.done === '0' && J(g0.labels) === J(['pending', 'done']), J(g0));
+await showW(K, 'w-pend'); await K.waitForFunction(() => /offline/.test(document.getElementById('w-offline').title) && document.querySelectorAll('#w-list .item').length === 2, null, { timeout: 10000 }).catch(() => {}); await K.waitForTimeout(800);
 /* measured with the line of its check of the relays there, as a phone shows it: the relays here cannot be reached, and how long that takes to
    say varies (0.6 to 5 s each; five relays since 8 Nov), so the line is waited for rather than a fixed time */
 await K.waitForFunction(() => document.getElementById('w-net').textContent.trim().length > 0, null, { timeout: 30000 }).catch(() => {});
@@ -66,9 +69,18 @@ const g = await K.evaluate(() => { const bs = [...document.querySelectorAll('#wo
     off: document.getElementById('w-offline').textContent, offTitle: document.getElementById('w-offline').title, offRed: getComputedStyle(document.getElementById('w-offline')).color === getComputedStyle(document.documentElement).getPropertyValue('--bad').trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)}, ${parseInt(b, 16)}, ${parseInt(c, 16)})`) }; });
 check('the clinic\'s home is six buttons of one size, full width, one under another', J(g.ids) === J(['w-check', 'w-open', 'w-certify', 'w-offline', 'w-cats', 'w-settings']) && g.sizes.length === 1 && g.cols === 1 && /^350x56$/.test(g.sizes[0]) && g.links === 0, J(g));
 check('with two requests listed it all fits an iPhone 14-16 screen (390 x 844)', g.page <= g.view && g.bottom <= g.view, J(g));
-await K.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(reqs[2])); await K.waitForSelector('#creq.on'); await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForTimeout(600);
+await K.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(reqs[2])); await K.waitForSelector('#creq.on'); await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForTimeout(600); await showW(K, 'w-pend');
 const g3 = await K.evaluate(() => ({ items: document.querySelectorAll('#w-list .item').length, over: document.scrollingElement.scrollHeight - innerHeight }));
 check('with a third request the page scrolls only a little (the list comes first)', g3.items === 3 && g3.over > 0 && g3.over < 60, J(g3));
+// the two numbers: a tap shows that one's requests typed in, a tap again hides them; done shows the done ones; entering Partner hides them
+const wState = () => K.evaluate(() => ({ hidden: document.getElementById('w-list').hidden, pend: document.getElementById('w-pend').classList.contains('on'), done: document.getElementById('w-dn').classList.contains('on'), items: document.querySelectorAll('#w-list .item').length, typing: document.querySelectorAll('#w-list [style*="max-height"]').length }));
+if ((await wState()).pend) await K.click('#w-pend');  /* from none shown */
+await K.click('#w-pend'); const t1 = await wState(); await K.waitForTimeout(150); await K.click('#w-pend'); const t2 = await wState();
+await K.click('#w-pend'); const t3 = await wState(); await K.click('#w-dn'); const t4 = await wState();
+check('a tap on "pending" shows its requests, typed in (as the donor\'s list); a tap again hides them', !t1.hidden && t1.pend && t1.items === 3 && t1.typing > 0 && t2.hidden && !t2.pend && t2.items === 0, J({ t1, t2 }));
+check('…a tap on "done" shows the done ones instead (none here), "pending" no longer marked', !t3.hidden && t3.pend && !t4.hidden && t4.done && !t4.pend && t4.items === 0, J({ t3, t4 }));
+await K.click('#w-pend'); await K.click('#hd-roles button[data-r="clinic"]'); await K.waitForTimeout(400); const t5 = await wState();
+check('…and entering Partner again (its tab in the header) starts with none shown', t5.hidden && !t5.pend && !t5.done, J(t5));
 check('the offline button, right after Certify a token, says "Offline setup", in red while the phone is not ready', g.off === 'Offline setup' && g.offRed && /^not ready for offline: \d+ to fix$/.test(g.offTitle), J(g));
 for (const [id, t] of [['w-certify', 'certify'], ['w-cats', 'cats'], ['w-settings', 'csettings'], ['w-offline', 'coffline'], ['w-check', 'work']]) {
   await K.evaluate(() => window.__vetlock.openTab('work')); await K.click('#' + id); await K.waitForTimeout(300); check(`${id} opens ${t}`, (await head(K)).screen === t); }
@@ -87,3 +99,6 @@ await Promise.all([S.waitForNavigation(), S.click('.sc-roles a[data-r="clinic"]'
 check('Clinic on the status page opens the app as the clinic', h.role === 'clinic' && h.screen === 'work', J(h));
 
 await b.close(); say(bad ? `header: ${bad} check(s) failed` : 'header: every check passed'); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

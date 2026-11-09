@@ -37,7 +37,7 @@ await pages.streetcat.fill('#s-token', certified); await pages.streetcat.waitFor
 await pages.streetcat.click('#s-go'); console.log('release certified:', (await waitOut(pages.streetcat, 's-out', /RELEASED|refused/)).split('\n')[0]);
 
 // refund path: campaign with a 4-second deadline, nobody certifies
-const camp = JSON.parse(receipt).campaign; camp.deadline = Math.floor(Date.now() / 1000) + 4; delete camp.sig;  // a copy with a short deadline is no longer Streetcat's signed campaign: unsigned
+const camp = await pages.streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { ...JSON.parse(receipt).campaign, deadline: Math.floor(Date.now() / 1000) + 4 });  // a copy with a short deadline, signed again by Streetcat (an unsigned link takes no donation)
 await pages.donor.goto(PAGE); await tab(pages.donor, 'donate'); await pages.donor.fill('#d-camp', JSON.stringify(camp)); await pages.donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await pages.donor.fill('#d-token', tokens.t8); await pages.donor.click('#d-go');
 const dout2 = await waitOut(pages.donor, 'd-out', /LOCKED|Failed/); console.log('donate 2:', dout2.split('\n')[0]); const receipt2 = JSON.stringify(await pages.donor.evaluate(t => window.__vetlock.receiptOf(t), dout2.match(/cashuB[A-Za-z0-9_\-=]+/g).pop()));
 await tab(pages.donor, 'refund'); await pages.donor.fill('#r-receipt', receipt2); await pages.donor.click('#r-go');

@@ -37,6 +37,10 @@ const verify = (sig, msg, pk) => { try { return !!cashu.schnorrVerifyMessage(sig
 // k' = k + t and K' = K + t·G, with t = SHA-256(tag ‖ K) mod n and K the compressed public key in the campaign. Anyone who knows K
 // can compute K' (so a campaign needs no new keys announced); only the holder of k can compute k'. The spending key k itself then
 // signs nothing but NUT-11 spends: declarations, reports, acknowledgments and messages are signed with derived keys, one per tag.
+// They separate purposes, not compromise (review of 9 Nov, A07): t is public, so whoever learns a derived private key k' learns
+// k = k' − t, the spending key. A derived private key is as secret as the key it comes from: the app works it out when it signs and
+// keeps it nowhere; it is never exported, shown or logged, and must never be handed to another app (a Nostr client, say) as if it
+// were less sensitive.
 const TAG = { statement: 'streetcat/statement/v1', messaging: 'streetcat/messaging/v1', ledger: 'streetcat/ledger/v1' };
 async function tweak(tag, pk){ if (!PUB.test(pk)) throw new Error('not a public key'); const t = big(await sha256(concat(enc.encode(tag), unhex(lc(pk))))) % N; if (t === 0n) throw new Error('unusable key'); return t; }
 async function derivedPub(tag, pk){ return cashu.pointFromHex(lc(pk)).add(G().multiply(await tweak(tag, pk))).toHex(true); }
@@ -47,14 +51,36 @@ async function derivedSk(tag, sk){ if (!SK.test(sk)) throw new Error('not a priv
 const donRef = async ys => 'DON-' + (await sha256hex([...ys].map(lc).sort().join(''))).slice(0, 8).toUpperCase();
 
 // ---------- locks ----------
-function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { return null; } if (!Array.isArray(s) || s[0] !== 'P2PK' || !s[1] || typeof s[1].data !== 'string') return null;
-  const d = s[1], t = Object.fromEntries((d.tags || []).map(x => [x[0], x.slice(1)]));
-  return { main: [d.data, ...(t.pubkeys || [])].map(lc), n: Number((t.n_sigs || ['1'])[0]), refund: (t.refund || []).map(lc), nRefund: Number((t.n_sigs_refund || ['1'])[0]), locktime: Number((t.locktime || ['0'])[0]), sigflag: (t.sigflag || ['SIG_INPUTS'])[0] }; }
-// what a campaign promises: Streetcat and the clinic sign together; one refund key opens after the deadline
-function lockProblem(l, c){ if (!l) return 'not a P2PK lock'; const want = [c.streetcat, c.clinic].map(lc).sort().join();
-  if (l.main.slice().sort().join() !== want) return 'locked to other keys than Streetcat + the clinic'; if (l.n !== 2) return `needs ${l.n} signature(s), not 2`;
+// THE LOCK, read strictly (review of 9 Nov, A06): one reader for every way in (a request, a token pasted or sent by a wallet, a receipt,
+// the status page), where there were four that each kept the last of a tag given twice (Object.fromEntries) while NUT-11 refuses a tag
+// given twice and a mint may read the first. Refused, and said why (`bad`): a tag given twice, a count or a deadline not written as a
+// whole number, a key that is not a point, one key twice by its x coordinate (a Schnorr signature cannot tell 02… from 03…, so two of
+// them are one signer counted twice), tags that are not lists of texts. A secret that is not a P2PK lock at all is null.
+const P2PK_TAGS = ['sigflag', 'n_sigs', 'pubkeys', 'locktime', 'refund', 'n_sigs_refund'], WHOLE = /^(0|[1-9][0-9]{0,14})$/;
+const xOnly = k => lc(k).slice(2), sameKey = (a, b) => !!a && !!b && xOnly(a) === xOnly(b);
+function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { return null; }
+  if (!Array.isArray(s) || s[0] !== 'P2PK' || !s[1] || typeof s[1] !== 'object' || typeof s[1].data !== 'string') return null;
+  const d = s[1], t = {}, why = [], tags = d.tags == null ? [] : d.tags;
+  if (!Array.isArray(tags)) why.push('its tags are not a list');
+  else for (const x of tags) { if (!Array.isArray(x) || !x.length || !x.every(v => typeof v === 'string')) { why.push('a tag is not a list of texts'); continue; }
+    if (Object.prototype.hasOwnProperty.call(t, x[0])) why.push(`the tag ${x[0]} is given twice`); else t[x[0]] = x.slice(1); }
+  const whole = (k, dflt) => { const v = t[k]; if (v === undefined) return dflt; if (v.length !== 1 || !WHOLE.test(v[0])) { why.push(`its ${k} is not a whole number`); return NaN; } return Number(v[0]); };
+  const keys = (list, what) => { if (list.some(k => !pointOk(k))) why.push(`${what} is not a public key`); return list.map(lc); };
+  const main = keys([d.data, ...(t.pubkeys || [])], 'a signing key'), refund = keys(t.refund || [], 'a refund key');
+  if (new Set(main.map(xOnly)).size !== main.length) why.push('one signing key is given twice');
+  if (new Set(refund.map(xOnly)).size !== refund.length) why.push('one refund key is given twice');
+  const n = whole('n_sigs', 1), nRefund = whole('n_sigs_refund', 1), locktime = whole('locktime', 0);
+  const sigflag = t.sigflag === undefined ? 'SIG_INPUTS' : t.sigflag.length === 1 ? t.sigflag[0] : '';
+  return { main, n, refund, nRefund, locktime, sigflag, unknown: Object.keys(t).filter(k => !P2PK_TAGS.includes(k)), bad: why[0] || '' }; }
+// what a campaign promises: Streetcat and the clinic sign together; one refund key, the donor's, opens after the deadline
+function lockProblem(l, c){ if (!l) return 'not a P2PK lock'; if (l.bad) return l.bad;
+  const want = [c.streetcat, c.clinic].map(xOnly).sort();
+  if (l.main.map(xOnly).sort().join() !== want.join()) return 'locked to other keys than Streetcat + the clinic'; if (l.n !== 2) return `needs ${l.n} signature(s), not 2`;
   if (l.locktime !== Number(c.deadline)) return 'its deadline is not the campaign deadline'; if (!l.refund.length) return 'no refund key: anyone could take it after the deadline';
-  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule'; return ''; }
+  if (l.refund.length !== 1) return 'more than one refund key: only the donor may take it back';
+  if (want.includes(xOnly(l.refund[0]))) return 'its refund key is Streetcat\'s or the partner\'s: only the donor may take it back';
+  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule';
+  if (l.unknown.length) return `a tag this app does not know (${l.unknown[0]})`; return ''; }
 const CAMP = ['name', 'op', 'mint', 'streetcat', 'clinic', 'deadline'];
 // What a campaign (a pot) pays for, the colony it is for, and its partner: who confirms the spending, by name and by what it is (StreetCat,
 // 7 Nov: «las peticiones pueden ser de muchos tipos… comida… una operación veterinaria… esterilización»; «la comida tendría que confirmar…
@@ -66,6 +92,7 @@ const word = (v, n = 60) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim
 function campaignOf(c){ if (!c || typeof c !== 'object') throw new Error('no campaign'); const o = {}; for (const k of CAMP) if (c[k] != null && c[k] !== '') o[k] = c[k];
   o.name = String(o.name || '').trim(); if (o.op != null) o.op = String(o.op); o.mint = String(o.mint || '').trim().replace(/\/+$/, ''); o.deadline = Number(o.deadline); o.streetcat = lc(o.streetcat); o.clinic = lc(o.clinic);
   if (!o.name || !o.mint || !pointOk(o.streetcat) || !pointOk(o.clinic) || !Number.isInteger(o.deadline)) throw new Error('the campaign is incomplete');
+  if (sameKey(o.streetcat, o.clinic)) throw new Error('the partner key is Streetcat\'s own key: the partner signs with its own');  /* one signer twice (A06) */
   if (TYPES.includes(c.type)) o.type = c.type; if (PKINDS.includes(c.pkind)) o.pkind = c.pkind; if (word(c.colony)) o.colony = word(c.colony); if (word(c.partner)) o.partner = word(c.partner);
   return o; }
 const campShort = c => ({ name: c.name, mint: c.mint, streetcat: c.streetcat, clinic: c.clinic, deadline: c.deadline });
@@ -89,10 +116,30 @@ async function campaignSig(c){ if (!c || c.sig == null || c.sig === '') return '
   try { const o = campSigned(c); return /^[0-9a-f]{128}$/i.test(String(c.sig)) && verify(String(c.sig), CAMP_SIG + canon(o), await derivedPub(TAG.statement, o.streetcat)) ? 'signed' : 'broken'; } catch (_) { return 'broken'; } }
 
 // ---------- the request: Streetcat → clinic ----------
-// One procedure, and what of each donation pays for it: all of it, or a part (a split donation). Only the proofs that pay are sent,
-// and of each only what signing needs (its secret, amount and keyset): the clinic signs them, and Streetcat keeps the full tokens.
+// One procedure, and what of each donation pays for it: all of it, or a part (a split donation). Only the proofs that pay are sent; of
+// each, what signing needs (its secret, amount and keyset) and what shows its amount is real: the mint's signature C and its DLEQ proof
+// (NUT-12, with r). The clinic's signature covers only the secret (NUT-11 SIG_INPUTS) and the mint pays out what the proof is really
+// worth, so an amount the request merely says could be a lie (review of 9 Nov, A04: a 1 024-sat proof said to be 64): the clinic's app
+// checks every amount against the mint's keys (amountProblems) before it can sign, and a request without that proof is refused.
+// Streetcat keeps the full tokens.
 const newId = () => 'R-' + hex(root.crypto.getRandomValues(new Uint8Array(5))).toUpperCase();
-const slim = p => ({ id: String(p.id), amount: amt(p.amount), secret: String(p.secret) });
+const slim = p => ({ id: String(p.id), amount: amt(p.amount), secret: String(p.secret), C: String(p.C || ''), ...(p.dleq ? { dleq: { e: String(p.dleq.e || ''), s: String(p.dleq.s || ''), r: String(p.dleq.r || '') } } : {}) });
+const SCALAR = /^[0-9a-f]{1,64}$/i, CPOINT = /^0[23][0-9a-f]{64}$/i;
+const amountCheckable = p => !!p && CPOINT.test(String(p.C || '')) && !!p.dleq && typeof p.dleq === 'object' && ['e', 's', 'r'].every(k => SCALAR.test(String(p.dleq[k] || '')));
+// the clinic's check that every proof is worth what the request says: the mint's DLEQ proof for the key of that amount. `keysets`: the
+// campaign mint's keys by keyset id (fetched by the app, or kept for offline). A proof the mint did not sign for that amount is named
+// apart from one whose keys are not on this phone (to be checked again); either way the request cannot be confirmed.
+function amountProblems(q, keysets){ const p = []; let W = 0, N = 0, X = 0;
+  for (const k of (q && q.contributions) || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; let wrong = 0, nokeys = 0, nocheck = 0;
+    for (const x of ps) { if (!amountCheckable(x)) { nocheck++; continue; } const ks = keysets && keysets[x.id]; if (!ks || !ks.keys) { nokeys++; continue; }
+      let ok = false; try { ok = cashu.hasValidDleq({ id: String(x.id), amount: amt(x.amount), secret: String(x.secret), C: x.C, dleq: x.dleq }, ks); } catch (_) {}  /* an amount with no key in the keyset throws: not worth it */
+      if (!ok) wrong++; }
+    if (nocheck) p.push(NOCHECK(k));
+    if (wrong) p.push(`${k.ref || 'a donation'}: ${wrong === 1 ? 'an amount is' : wrong + ' amounts are'} false. Report a problem.`);  /* short, in red (StreetCat, 9 Nov, 15:10): the mint's signature does not match the amount */
+    if (nokeys) p.push(`${k.ref || 'a donation'}: amounts not checked yet (no connection?)`);  /* the mint's keys are not on this phone: checked again */
+    W += wrong; N += nokeys; X += nocheck; }
+  return Object.assign(p, { wrong: W, unchecked: N, uncheckable: X }); }  /* the counts: a lie (wrong), keys missing for now (unchecked), no way to check (uncheckable) */
+const NOCHECK = k => `${k.ref || 'a donation'}: amounts can't be checked. Report a problem.`;  /* a proof carries no DLEQ proof (an older app's request, or changed): reported, Streetcat asks again */
 // The cat as Streetcat caught it (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»): up to three photos, face
 // and sides, made small on its phone, named here by SHA-256; the photos themselves travel apart (by relay in parts, or in a file), so the
 // clinic can check it is this cat. Optional: a request without photos is as before, and an older app ignores them.
@@ -105,7 +152,8 @@ async function makeRequest({ campaign, patient, procedure, date, note = '', cont
   if (!Array.isArray(contributions) || !contributions.length) throw new Error('a request needs at least one donation');
   const out = [], seen = new Set();
   for (const k of contributions) { const proofs = (k.proofs || []).map(slim); if (!proofs.length) throw new Error('a donation without proofs');
-    for (const p of proofs) { const bad = lockProblem(lockOf(p.secret), c); if (bad) throw new Error(`a donation is not this campaign's: ${bad}`); const y = yOf(p.secret); if (seen.has(y)) throw new Error('the same proof twice'); seen.add(y); }
+    for (const p of proofs) { const bad = lockProblem(lockOf(p.secret), c); if (bad) throw new Error(`a donation is not this campaign's: ${bad}`); const y = yOf(p.secret); if (seen.has(y)) throw new Error('the same proof twice'); seen.add(y);
+      if (!amountCheckable(p)) throw new Error('a donation\'s proof carries no DLEQ proof from the mint, so the partner could not check its amount: it cannot be asked for'); }
     const total = proofs.reduce((s, p) => s + p.amount, 0), release = k.release == null ? total : Number(k.release);
     if (!Number.isInteger(release) || release < 1 || release > total) throw new Error(`proofs of ${total} sat cannot pay ${k.release} sat`);
     out.push({ ref: k.ref || await donRef(proofs.map(p => yOf(p.secret))), release, proofs }); }
@@ -121,6 +169,7 @@ function requestProblems(q){ if (!q || q.t !== 'streetcat.request') return ['thi
   for (const k of q.contributions || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; if (!ps.length) { p.push(`${k.ref || 'a donation'} has no proofs`); continue; }
     const bad = [...new Set(ps.map(x => lockProblem(lockOf(x.secret), c)).filter(Boolean))]; if (bad.length) p.push(`${k.ref || 'a donation'}: ${bad.join('; ')}`);
     for (const x of ps) { let y = ''; try { y = yOf(x.secret); } catch (_) {} if (!y || seen.has(y)) p.push(`${k.ref || 'a donation'}: a proof listed twice`); seen.add(y); }
+    if (ps.some(x => !amountCheckable(x))) p.push(NOCHECK(k));
     const total = ps.reduce((s, x) => s + amt(x.amount), 0); if (!Number.isInteger(k.release) || k.release < 1 || k.release > total) p.push(`${k.ref || 'a donation'}: it cannot pay ${k.release} sat out of ${total}`); }
   return [...new Set(p)]; }
 const requestAmount = q => q.contributions.reduce((s, k) => s + Number(k.release), 0);
@@ -398,8 +447,48 @@ async function lnAddressInvoice(address, sat, { fetch: f = root.fetch.bind(root)
   const cb = new URL(p.callback); cb.searchParams.set('amount', String(msat)); const inv = await get(cb.href); if (typeof inv.pr !== 'string' || !/^ln/i.test(inv.pr)) throw new Error(`${address} gave no invoice`);
   return { invoice: inv.pr, min: Math.ceil(min / 1000), max: Math.floor(max / 1000), domain: new URL(url).host }; }
 
-root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf, TYPES, PKINDS,
-  makeRequest, requestProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
+// DEADLINES (plan step 1, approved by StreetCat on 8 Nov, 22:11). A request asks the partner to do the work on a day; its donations can be
+// taken back by their donors from their lock's refund date (its locktime, read from each proof: never a name or a date on the page).
+// The sats are needed until the work is done, confirmed by the partner and released by Streetcat: the end of the work's day, plus the
+// partner's days to confirm, plus a margin. Days are Madrid days, whatever the phone's zone: a day with no hour ends at the end of that
+// day there (the latest case), and days are added on the calendar there, never as 24 hours (the hour changes in March and October).
+const TZ = 'Europe/Madrid', DAY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const CONFIRM_DAYS = { clinic: 1, shop: 1, other: 2 }, MARGIN_DAYS = 2;  /* the partner's kind decides its default; both can be changed */
+let TZF = null; const tzParts = t => (TZF = TZF || new Intl.DateTimeFormat('en-US', { timeZone: TZ, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+  .formatToParts(new Date(t * 1000)).reduce((o, x) => (o[x.type] = x.value, o), {});
+const madridOffset = t => { const p = tzParts(t); return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) / 1000 - t; };  // seconds east of UTC
+const dayOk = day => { const m = DAY_RE.exec(String(day || '')); if (!m) return false; const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])); return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]; };
+const addDays = (day, n) => { const m = DAY_RE.exec(day); return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n)).toISOString().slice(0, 10); };
+function madridStart(day){ if (!dayOk(day)) return NaN; const m = DAY_RE.exec(day), local = Date.UTC(+m[1], +m[2] - 1, +m[3]) / 1000;  /* its first second */
+  return local - madridOffset(local - madridOffset(local)); }  /* midnight is never inside an hour change (they are at 2 and 3 am) */
+const madridEnd = day => dayOk(day) ? madridStart(addDays(day, 1)) - 1 : NaN;  /* its last second: 23, 24 or 25 hours after its first */
+const madridDay = t => { const p = tzParts(t); return `${p.year}-${p.month}-${p.day}`; };
+const days = (v, d) => { const n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 60 ? n : d; };
+// the level of a request's donations against its dates: 'ok' (refunds open after the required date), 'soon' (after the work, before the
+// required date: the partner must confirm quickly), 'before' (before the work is done), 'past' (open already). `proofs`: the proofs it
+// takes ({ secret, amount, ref? }); a proof with no refund date in its lock (not a donation's) is counted apart.
+function timing({ day, confirmDays, marginDays, proofs = [], now = Math.floor(Date.now() / 1000) } = {}){
+  if (!dayOk(day)) throw new Error('no date for the work'); const cd = days(confirmDays, 1), md = days(marginDays, MARGIN_DAYS), work = madridEnd(day), required = madridEnd(addDays(day, cd + md));
+  const amounts = { past: 0, before: 0, soon: 0, ok: 0 }, refs = { past: [], before: [], soon: [], ok: [] }; let earliest = null, nolock = 0;
+  for (const x of proofs) { const l = lockOf(x && x.secret), lt = l && l.locktime; if (!lt) { nolock++; continue; } if (earliest == null || lt < earliest) earliest = lt;
+    const lv = lt <= now ? 'past' : lt <= work ? 'before' : lt <= required ? 'soon' : 'ok'; amounts[lv] += amt(x.amount); if (x.ref && !refs[lv].includes(x.ref)) refs[lv].push(x.ref); }
+  const level = ['past', 'before', 'soon', 'ok'].find(k => amounts[k] > 0) || 'ok';
+  return { level, day, work, required, earliest, confirmDays: cd, marginDays: md, amounts, refs, nolock }; }
+// a Lightning invoice's own expiry (BOLT 11): its timestamp plus its x field (an hour when it has none), read on the phone. The checksum
+// is checked, so a damaged invoice gives null, never a wrong time.
+const B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+function bech32Ok(hrp, words){ const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]; let chk = 1;
+  const step = v => { const b = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((b >>> i) & 1) chk ^= G[i]; };
+  for (const c of hrp) step(c.charCodeAt(0) >>> 5); step(0); for (const c of hrp) step(c.charCodeAt(0) & 31); for (const w of words) step(w); return chk === 1; }
+function invoiceExpiry(invoice){ const s = String(invoice || '').trim().toLowerCase().replace(/^lightning:/, ''), i = s.lastIndexOf('1'); if (!/^ln/.test(s) || i < 3) return null;
+  const words = []; for (const ch of s.slice(i + 1)) { const v = B32.indexOf(ch); if (v < 0) return null; words.push(v); }
+  if (words.length < 7 + 104 + 6 || !bech32Ok(s.slice(0, i), words)) return null; const data = words.slice(0, -6), num = ws => ws.reduce((n, w) => n * 32 + w, 0);
+  const at = num(data.slice(0, 7)); let x = 3600; for (let j = 7; j + 3 <= data.length - 104;) { const type = data[j], len = data[j + 1] * 32 + data[j + 2]; if (type === 6) x = num(data.slice(j + 3, j + 3 + len)); j += 3 + len; }
+  return { at, expiry: x, expires: at + x }; }
+
+root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf, TYPES, PKINDS,
+  TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry,
+  makeRequest, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
   ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,

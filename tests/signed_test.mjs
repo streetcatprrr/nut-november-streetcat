@@ -1,13 +1,16 @@
 // Campaigns signed by Streetcat (app/index.html in Chromium, local Nutshell mint with fake money). A new campaign's link carries a
 // BIP-340 signature made with Streetcat's key; the donor's page says it is signed and takes the donation. A link changed afterwards (the
-// clinic key, the deadline) says its signature does not match and moves no money: no swap, no invoice. An unsigned link (as every link
-// made before) still works, with a notice, and a warning when its mint is not Streetcat's. Streetcat's published key is pinned in
+// clinic key, the deadline) says its signature does not match and moves no money: no swap, no invoice. An unsigned link moves none
+// either, since anyone can take the signature off a link they changed (review of 9 Nov, A03): with its signature taken off, empty or
+// null, alone or with the Partner, the mint, the deadline or the purpose changed, it says so in red, greys out the three ways to pay and
+// calls no mint by any route; and a receipt of a donation made through a link from before links were signed still takes its sats
+// back. Streetcat's published key is pinned in
 // app/index.js (STREETCAT_KEYS); this test pins its own Streetcat key next to it (pin.mjs, by hand). A link naming any other key, signed
 // with that key or not signed, says in red that it is not from Streetcat's published key and moves no money; Streetcat's own page will
 // not make one. Streetcat's Home signs a campaign made before, when the browser holds its key; a browser without the key cannot make a
 // campaign for it. SHOT_DIR=dir saves what the donor sees for a signed, an unsigned, a broken and an unpublished-key link (390 px @2x).
 import { chromium } from 'playwright';
-import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
+import { Wallet, getEncodedToken, LockBuilder } from '@cashu/cashu-ts';
 import fs from 'fs';
 import crypto from 'crypto';
 import { pinBrowser, pin, PUBLISHED } from './pin.mjs';
@@ -60,11 +63,22 @@ for (const [what, c] of [['the clinic key', { ...camp, clinic: thiefPk }], ['the
   check(`…and moves no money by any route (ecash, Lightning, a Cashu wallet): no call to the mint`, /^Failed: the signature on this link does not match/.test(r) && /does not match/.test(ln) && /does not match/.test(wst) && calls === 0 && donor._calls.length === 0, `${calls} + ${donor._calls.length} mint calls · wallet: ${wst.slice(0, 60)}`); }
 s = await open(linkWith(link, { ...camp, extra: 'x' })); r = await donate(5); const rx = (await donor.evaluate(t => window.__vetlock.receiptOf(t), r.match(/cashuB[A-Za-z0-9_\-=]+/g).pop())).campaign;
 check('a field the signature does not cover is dropped, not used', /signed by Streetcat/.test(s) && /LOCKED 5 sat/.test(r) && !('extra' in rx));
-const { sig, ...unsigned } = camp; s = await open(linkWith(link, unsigned));
-check('an unsigned link (as every link made before) opens with a plain notice', /This link is not signed\. Donate only if it came from Streetcat itself\./.test(s) && !/does not match/.test(s));
-check('…and a warning, as its mint is not the one Streetcat uses', /⚠ It uses the mint 127\.0\.0\.1:\d+, not the one Streetcat uses \(mint\.minibits\.cash\/Bitcoin\)/.test(s)); await fits(donor, 'unsigned'); await shot(donor, 'sg2-donor-unsigned');
-r = await donate(3); check('…and it still takes a donation', /LOCKED 3 sat/.test(r));
-s = await open(linkWith(link, { ...unsigned, mint: 'https://mint.minibits.cash/Bitcoin' })); check('an unsigned link to Streetcat\'s mint gets no mint warning', /not signed/.test(s) && !/⚠ It uses the mint/.test(s));
+const { sig, ...unsigned } = camp; let evil = 0; await donor.route('https://mint.evil.example/**', r => { evil++; return r.abort(); });  /* a mint a changed link could name */
+const NS = /✗ This link is not signed by Streetcat, so it could have been changed: it takes no donations\. Ask Streetcat for the link again\./;
+for (const [what, c] of [['no signature', unsigned], ['an empty signature', { ...unsigned, sig: '' }], ['a null signature', { ...unsigned, sig: null }], ['its signature taken off and the Partner changed', { ...unsigned, clinic: thiefPk }],
+  ['its signature taken off and the mint changed', { ...unsigned, mint: 'https://mint.evil.example' }], ['its signature taken off and the deadline changed', { ...unsigned, deadline: camp.deadline + 30 * 86400 }], ['its signature taken off and the purpose changed', { ...unsigned, op: 'castration' }]]) {
+  s = await open(linkWith(link, c)); donor._calls.length = 0; evil = 0; const grey = await donor.evaluate(() => document.getElementById('donate').classList.contains('sigbad')), said = NS.test(s) && !/✓ signed by Streetcat|does not match/.test(s) && grey && await greyed();
+  if (what === 'no signature') { await fits(donor, 'unsigned'); await shot(donor, 'sg2-donor-unsigned'); }
+  r = await donate(2); await donor.fill('#d-amt', '21'); await donor.evaluate(() => document.getElementById('d-ln').click()); await donor.waitForTimeout(1200); const ln = await txt(donor, '#d-out');
+  const calls = donor._calls.length, wst = await viaWallet(4);
+  check(`a link with ${what}: said in red, all three ways to pay greyed out, and no money moves by any route (ecash, Lightning, a Cashu wallet): no call to any mint`, said && /^Failed: this link is not signed by Streetcat/.test(r) && /not signed by Streetcat/.test(ln) && /not signed by Streetcat/.test(wst) && calls === 0 && donor._calls.length === 0 && evil === 0,
+    `${(s.split('\n').find(x => /✗|✓/.test(x)) || '').slice(0, 60)} · ${calls} + ${donor._calls.length} mint calls, ${evil} to the other mint · ecash: ${r.slice(0, 40)} · wallet: ${wst.slice(0, 40)}`); }
+{ const legacy = { ...unsigned, name: 'OLD', deadline: Math.floor(Date.now() / 1000) + 6 }, dsk = crypto.randomBytes(32).toString('hex'), dpk = await sc.evaluate(k => window.__vetlock.pubOf(k), dsk);
+  const lk = new LockBuilder().addMainPubkey([legacy.streetcat, legacy.clinic]).requireMainSignatures(2).addRefundPubkey(dpk).lockUntil(legacy.deadline), lockedP = await w.ops.receive(await plain(8)).asLocked(lk).run();
+  const old = JSON.stringify({ campaign: legacy, lockedToken: getEncodedToken({ mint: MINT, proofs: lockedP, memo: 'OLD sterilisation — vet-certified donation' }), refundKey: dsk, created: new Date().toISOString() });  /* a receipt as they were then */
+  await donor.waitForTimeout(Math.max(0, legacy.deadline - Math.floor(Date.now() / 1000) + 2) * 1000); await tab(donor, 'refund'); await donor.fill('#r-receipt', old); await waitText(donor, '#r-info', /Checked with the mint[\s\S]*(Refund|Released|refunded|Nothing|unavailable)/);
+  await donor.evaluate(() => { document.getElementById('r-out').textContent = ''; }); await donor.click('#r-go'); const back = await waitText(donor, '#r-out', /REFUNDED|Failed|Not possible|Mint refused|Not yet/, 40000);
+  check('a receipt of a donation made through an unsigned link (from before links were signed) still takes its sats back', /^REFUNDED \d+ sat/.test(back), back.split('\n')[0].slice(0, 80)); await tab(donor, 'donate'); }
 
 // a key that is not Streetcat's published one: a valid signature by it says nothing, and an unsigned link naming it is no better
 const otherSk = crypto.randomBytes(32).toString('hex'), otherPk = await sc.evaluate(k => window.__vetlock.pubOf(k), otherSk);

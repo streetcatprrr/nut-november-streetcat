@@ -52,7 +52,7 @@ const qid = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await
 await tab(partner, 'work'); await partner.waitForTimeout(2000); await front(partner);
 const came = await partner.waitForFunction(id => window.__vetlock.creqs().some(r => r.id === id), qid, { timeout: 15000 }).then(() => true).catch(() => false);
 check('the partner\'s app, back in front, has the request at once (no "Check for requests")', came);
-await partner.waitForTimeout(600); const item = await partner.$$eval('#w-list .item', its => its.map(it => ({ nm: (it.querySelector('.nm') || {}).textContent, sub: (it.querySelector('.sub2') || {}).textContent, img: !!it.querySelector('img') })));
+await partner.waitForTimeout(600); await showW(partner, 'w-pend'); const item = await partner.$$eval('#w-list .item', its => its.map(it => ({ nm: (it.querySelector('.nm') || {}).textContent, sub: (it.querySelector('.sub2') || {}).textContent, img: !!it.querySelector('img') })));
 check('…listed by its code first, the one Rescue shows; no photo in the list (StreetCat, 8 Nov: they are in the request when it is opened)', item.length === 1 && item[0].nm === 'Crypto · Spay' && item[0].sub === `${qid} · 21 sat · TNR SOL` && !item[0].img, JSON.stringify(item));
 await partner.click('#w-list .item'); await partner.waitForSelector('#creq.on'); await partner.check('#cr-ok'); await partner.click('#cr-go'); const conf = await waitText(partner, '#cr-out', /CONFIRMED|✗/, 30000);
 check('…confirmed there', /CONFIRMED/.test(conf), conf.split('\n')[0]);
@@ -66,13 +66,17 @@ check('…a tap opens it, ready: "Release 21 sat"', go === 'Release 21 sat' && !
 await rescue.click('#sq-go'); const rel = await waitText(rescue, '#sq-steps', /✓ released/, 60000); await tab(rescue, 'home'); await rescue.waitForTimeout(400);
 check('…released; and Home has nothing left to release', /✓ released/.test(rel) && !(await rescue.$('#h-kinds button.req.torel')) && !(await rescue.$$eval('#h-kinds > .mut', ms => ms.some(m => /^To release/.test(m.textContent)))), rel.replace(/\s+/g, ' ').slice(-50));
 // the partner's list keeps apart a request whose pot's refund date has passed (an older one, from another Rescue)
-const other = await page(); await other.evaluate(async ({ clinicPk, MINT }) => { const C = window.scCore, R = window.scRelay, hex = u => Array.from(u, x => x.toString(16).padStart(2, '0')).join(''); let sk; do { sk = hex(crypto.getRandomValues(new Uint8Array(32))); } while (!/^[0-7]/.test(sk));
+const other = await page(); await other.evaluate(async ({ clinicPk, MINT }) => { const C = window.scCore, R = window.scRelay, hex = u => Array.from(u, x => x.toString(16).padStart(2, '0')).join(''); let sk, dk; do { sk = hex(crypto.getRandomValues(new Uint8Array(32))); dk = hex(crypto.getRandomValues(new Uint8Array(32))); } while (!/^[0-7]/.test(sk) || !/^[0-7]/.test(dk));  /* Streetcat's key, and a donor's for the refund (A06: never Streetcat's or the partner's) */
   const camp = { name: 'TNR VIEJO', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sk), clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) - 3600 };
-  const proofs = [{ id: '00ad268c4d1f5826', amount: 16, secret: JSON.stringify(['P2PK', { nonce: hex(crypto.getRandomValues(new Uint8Array(32))), data: camp.streetcat, tags: [['pubkeys', camp.clinic], ['n_sigs', '2'], ['locktime', String(camp.deadline)], ['refund', C.pubOf(sk)]] }]) }];
+  const proofs = [{ id: '00ad268c4d1f5826', amount: 16, secret: JSON.stringify(['P2PK', { nonce: hex(crypto.getRandomValues(new Uint8Array(32))), data: camp.streetcat, tags: [['pubkeys', camp.clinic], ['n_sigs', '2'], ['locktime', String(camp.deadline)], ['refund', C.pubOf(dk)]] }]), C: C.pubOf(sk), dleq: { e: hex(crypto.getRandomValues(new Uint8Array(32))), s: hex(crypto.getRandomValues(new Uint8Array(32))), r: hex(crypto.getRandomValues(new Uint8Array(32))) } }];  /* shaped as a mint's signature and its DLEQ proof (A04): only where the request goes in the list is checked here */
   const q = await C.makeRequest({ campaign: camp, patient: 'Viejo', procedure: 'sterilisation', date: '2026-11-06', contributions: [{ release: 16, proofs }] });
   const m = new Map(), box = R.outbox({ get: k => m.get(k) ?? null, set: (k, v) => m.set(k, v) }); await box.add(q, sk, clinicPk, { relays: localStorage.getItem('vetlock.relays').split(',') }); await box.flush(); }, { clinicPk, MINT });
 await tab(partner, 'work'); await front(partner); await partner.waitForFunction(() => window.__vetlock.creqs().length === 2, null, { timeout: 15000 }).catch(() => {}); await partner.waitForTimeout(600);
-const groups = await partner.$$eval('#w-list > *', xs => xs.map(x => x.classList.contains('grp') ? '# ' + x.textContent : (x.querySelector('.nm') || {}).textContent));
+const grps = () => partner.$$eval('#w-list > *', xs => xs.map(x => x.classList.contains('grp') ? '# ' + x.textContent : (x.querySelector('.nm') || {}).textContent));
+await showW(partner, 'w-pend'); const gPend = await grps(); await showW(partner, 'w-dn'); const groups = [...gPend, ...await grps()];  /* pending, then done: each behind its number */
 check('the partner\'s list keeps apart a request whose refund date has passed', groups.join(' / ') === '# To review · refund date passed / Viejo · sterilisation / # Done / Crypto · Spay', groups.join(' / '));
 say(bad ? `threeapps: ${bad} check(s) failed` : 'threeapps: every check passed');
 await b.close(); relays.forEach(r => r.close && r.close()); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

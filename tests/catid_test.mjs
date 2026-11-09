@@ -41,13 +41,13 @@ const seed = (p, list) => p.evaluate(async list => { const V = window.__vetlock,
   return V.ccats().length; }, list);
 const jpeg = async (p, kind, view, q) => Buffer.from(await p.evaluate(async ([k, v, q]) => { const b = await window.__draw(k, v, q); let s = ''; for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode(...b.subarray(i, i + 8192)); return btoa(s); }, [kind, view, q]), 'base64');
 const shoot = async (p, slot, buf) => { const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click(`#cn-shots .shot[data-slot="${slot}"]`)]); await fc.setFiles({ name: `IMG_${slot}.JPG`, mimeType: 'image/jpeg', buffer: buf }); await p.waitForSelector(`#cn-shots .shot[data-slot="${slot}"].has`, { timeout: 30000 }); };
-const st = async p => ((await p.textContent('#cn-like-st')) || '').trim();
+const st = async p => { const [t, d] = await p.evaluate(() => { const e = document.getElementById('cn-like-st'); return [(e.textContent || '').trim(), e.dataset.state || '']; }); return t || (d === 'done' ? '[done]' : ''); };  /* done: the tiles, nothing written under them (9 Nov) */
 const tiles = p => p.$$eval('#cn-like-list button', bs => bs.map(b => ({ name: b.querySelector('.nm').textContent, alt: (b.querySelector('img') || {}).alt || '', src: !!(b.querySelector('img') || {}).src })));
 const until = async (p, re, ms = 300000) => { const seen = new Set(), t0 = Date.now(); let s = ''; while (Date.now() - t0 < ms) { s = await st(p); seen.add(s); if (re.test(s)) break; await p.waitForTimeout(40); } return { s, seen: [...seen] }; };
 const tab = p => p.evaluate(() => { const on = document.querySelector('nav button.on'); return on ? on.dataset.t : ''; });
 const kept = p => p.evaluate(() => new Promise(res => { const r = indexedDB.open('streetcat-catid'); r.onsuccess = () => { const q = r.result.transaction('vec').objectStore('vec').count(); q.onsuccess = () => res(q.result); q.onerror = () => res(-1); }; r.onerror = () => res(-1); }));
 const over = p => p.evaluate(() => document.scrollingElement.scrollWidth - innerWidth);
-const engine = u => /\/ai\/[12]\/|catid-worker/.test(u), DONE = /Only an order/;
+const engine = u => /\/ai\/[12]\/|catid-worker/.test(u), DONE = /^\[done\]$/;
 
 // 1) no records yet: nothing is offered and nothing is fetched
 const A = await clinic(), p = A.p;
@@ -68,7 +68,7 @@ await p.waitForFunction(() => document.querySelectorAll('#cn-like-list img[src]'
 const T = await tiles(p);
 check('…on a tap it shows the 121 MB coming, then the records compared photo by photo', run.seen.some(s => /^getting the cat recognition(…|: \d+ of 121 MB)$/.test(s)) && run.seen.some(s => /^comparing with your 5 records: \d+ of 12 photos$/.test(s)), run.seen.filter(s => !DONE.test(s)).slice(0, 3).join(' | ') + ' …');
 check("the three records most like it, the drawn cat's own first, with its photo", T.length === 3 && T[0].name === 'MOCHI' && /^MOCHI, /.test(T[0].alt) && T.every(t => t.src), T.map(t => t.name).join(' · ') + ` · in ${secs} s`);
-check('…said to be only an order, worked out on this phone', run.s === 'The 3 of your 5 records that look most like it, worked out on this phone. Only an order, not a match: open one to compare the chip.', run.s);
+check('…and nothing written under the tiles (StreetCat, 9 Nov, 14:11: «quita ese texto también»)', run.s === '[done]', run.s);
 check('every photo was worked out once and kept: the 12 of the records and the new one', (await kept(p)) === 13, `${await kept(p)} kept`);
 check('…and it fits the phone at 390 px', (await over(p)) <= 0, `${await over(p)} px over`);
 await shot(p, 'like-2-match');
@@ -102,8 +102,8 @@ await q.click('#cn-like-go'); const fail = await until(q, /^✗/, 120000);
 const red = await q.evaluate(() => { const s = document.getElementById('cn-like-st'), t = document.createElement('span'); t.className = 'bad'; document.body.appendChild(t); const ok = getComputedStyle(s).color === getComputedStyle(t).color; t.remove(); return ok; });
 check('if the cat recognition cannot come, it says so in red, with the button to try again', /^✗ the cat recognition did not come: /.test(fail.s) && red && await q.isVisible('#cn-like-go'), fail.s.slice(0, 120));
 await B.c.unroute('**/ai/1/dinov2-small-q8.onnx'); await q.click('#cn-like-go'); const r1 = await until(q, DONE);
-check('…and a tap, with it there, compares: with one record, that record, said so', (await tiles(q)).length === 1 && r1.s === 'Your only record, worked out on this phone. Only an order, not a match: open one to compare the chip.' && !(await q.evaluate(() => document.getElementById('cn-like-st').classList.contains('bad'))), r1.s);
+check('…and a tap, with it there, compares: with one record, that record, said so', (await tiles(q)).length === 1 && r1.s === '[done]' && !(await q.evaluate(() => document.getElementById('cn-like-st').classList.contains('bad'))), r1.s);
 await seed(q, [[1, 'SOCKS', 'the marina', 2]]); await shoot(q, 'left', await jpeg(q, 3, 1, .75)); const r2 = await until(q, DONE, 120000), T4 = await tiles(q);
-check('with two records: both, the most alike first', T4.length === 2 && T4[0].name === 'PEPPER' && r2.s === 'Your 2 records, the most alike first, worked out on this phone. Only an order, not a match: open one to compare the chip.', T4.map(t => t.name).join(' · ') + ' · ' + r2.s);
+check('with two records: both, the most alike first', T4.length === 2 && T4[0].name === 'PEPPER' && r2.s === '[done]', T4.map(t => t.name).join(' · ') + ' · ' + r2.s);
 
 await b.close(); say(bad ? `catid: ${bad} check(s) failed` : 'catid: every check passed'); process.exit(bad ? 1 : 0);

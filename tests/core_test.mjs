@@ -144,4 +144,28 @@ check('…photos that are not of a delivery (another slot) are refused', notDeli
 const parts = C.ansPhotoParts(q.id, 'note', phN.sha256, 'QUJD'.repeat(10000), clPk, scPk);
 check('…they travel in parts, each one checked: for this request, this slot, from the partner to Streetcat', parts.length === 2 && parts.every(C.ansPartOk) && !C.ansPartOk({ ...parts[0], slot: 'face' }) && !C.ansPartOk({ ...parts[0], to: 'x' }) && !C.ansPartOk({ ...parts[0], kind: 'note.1' }) && C.ANS_SLOTS.join() === 'note,goods');
 check('…and a clinic\'s confirmation without photos is as before', !('photos' in a.statement) && (await C.checkAnswer(q, a)).ok);
+// DEADLINES (plan step 1): a day with no hour, in Madrid; the hour changes; the four levels against the proofs' own locks; amounts;
+// a leftover of a partial release; two pots one second apart
+const iso = t => new Date(t * 1000).toISOString(), refused = f => { try { f(); return false; } catch (_) { return true; } };
+check('a day with no hour ends at the end of that day in Madrid: 23:59:59 CET in winter', iso(C.madridEnd('2026-11-13')) === '2026-11-13T22:59:59.000Z', iso(C.madridEnd('2026-11-13')));
+check('…and CEST in summer', iso(C.madridEnd('2027-07-13')) === '2027-07-13T21:59:59.000Z');
+check('…the March change: a day of 23 hours, and days are added on the calendar there, not as 24 hours', C.madridEnd('2027-03-28') + 1 - C.madridStart('2027-03-28') === 23 * 3600 && iso(C.timing({ day: '2027-03-27', confirmDays: 1, marginDays: 2 }).required) === '2027-03-30T21:59:59.000Z');
+check('…the October change: a day of 25 hours', C.madridEnd('2026-10-25') + 1 - C.madridStart('2026-10-25') === 25 * 3600 && iso(C.timing({ day: '2026-10-24', confirmDays: 1, marginDays: 0 }).required) === '2026-10-25T22:59:59.000Z');
+check('…a date that is not one is refused', !C.dayOk('2026-02-29') && !C.dayOk('13/11/2026') && refused(() => C.timing({ day: '2026-02-30' })));
+const T = Number(camp.deadline), Ap = A.proofs.map(p => ({ ...p, ref: 'DON-A' })), at = (d, o = {}) => C.timing({ day: C.madridDay(T + d * 86400), confirmDays: 1, marginDays: 2, proofs: Ap, ...o });
+check('levels, from each proof\'s own lock: refunds open after the required date', at(-5).level === 'ok' && at(-5).earliest === T, JSON.stringify(at(-5).amounts));
+check('…after the work, before the required date (the partner must confirm quickly)', at(-1).level === 'soon');
+check('…before the work is done (also on the work\'s own day)', at(1).level === 'before' && at(0).level === 'before');
+check('…and open already', at(-5, { now: T + 1 }).level === 'past');
+check('…with the amount and the donations at that level', at(-1).amounts.soon === total(A.proofs) && at(-1).refs.soon.join() === 'DON-A' && !at(-1).amounts.ok);
+check('the days to confirm and the margin move the required date', at(-5, { marginDays: 6 }).level === 'soon' && at(-2, { confirmDays: 0, marginDays: 0 }).level === 'ok');
+check('a proof with no refund date in its lock is counted apart', C.timing({ day: C.madridDay(T), proofs: [{ secret: 'plain', amount: 8 }] }).nolock === 1);
+const lt = C.lockOf(restProofs[0].secret);
+check('a leftover of a partial release keeps the lock, so the same deadline and the same level', lt && lt.locktime === T && C.timing({ day: C.madridDay(T - 86400), proofs: restProofs }).level === 'soon');
+const later = Ap.map(p => ({ ...p, secret: p.secret.replace(`"locktime","${T}"`, `"locktime","${T + 1}"`) }));
+check('two pots of one partner, deadlines one second apart: the same level on every day', later[0].secret !== Ap[0].secret && [-5, -1, 0, 1].every(d => at(d).level === C.timing({ day: C.madridDay(T + d * 86400), proofs: later }).level));
+// a Lightning invoice's own expiry, from the invoice (BOLT 11), and a damaged one gives none
+const iq = await w.createMintQuoteBolt11(21), ie = C.invoiceExpiry(iq.request);
+check('an invoice\'s own expiry is read from it: its timestamp plus its x field', !!ie && ie.expires === Number(iq.expiry), `${ie && ie.expires} · the mint's quote ${iq.expiry}`);
+check('…and a damaged invoice gives none', C.invoiceExpiry(iq.request.slice(0, -1) + (iq.request.endsWith('q') ? 'p' : 'q')) === null && C.invoiceExpiry('cashuB…') === null);
 say(bad ? `core: ${bad} check(s) failed` : 'core: every check passed');

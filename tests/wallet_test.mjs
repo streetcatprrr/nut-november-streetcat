@@ -33,13 +33,18 @@ await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0], camp = JSON.parse(Buffer.from(link.split('#c=')[1], 'base64url').toString());
 const donor = await page(); await donor.goto(link); await donor.reload(); await donor.waitForTimeout(1500);
 const openRequest = async amount => { await donor.evaluate(() => { const v = window.__vetlock; if (!document.getElementById('donate').classList.contains('on')) v.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); if (amount != null) await donor.fill('#d-amt', String(amount)); await donor.evaluate(() => { document.getElementById('dw-state').textContent = ''; window.__vetlock.openTab('decash'); });  /* "Pay with ecash": the request is made as the screen opens */
-  await waitText(donor, '#dw-state', /waiting for the payment|Failed|✗/); await donor.click('#dw-copy'); await donor.waitForTimeout(200); const creq = await donor.evaluate(() => navigator.clipboard.readText()); return cashu.PaymentRequest.fromEncodedRequest(creq); };
+  await waitText(donor, '#dw-state', /waiting for the payment|Failed|✗/); await donor.click('#dw-copy'); await donor.waitForTimeout(200); const creq = await donor.evaluate(() => navigator.clipboard.readText()); donor._creq = creq; return cashu.PaymentRequest.fromEncodedRequest(creq); };
 
 // the request: plain, the campaign's mint, a Nostr transport to a key of this donation
 let pr = await openRequest(21); const t0 = (pr.transport || [])[0] || {}, prof = t0.target ? readProfile(t0.target) : {};
 check('the page shows a plain payment request: sat, the campaign\'s mint only, no lock in it', pr.unit === 'sat' && JSON.stringify(pr.mints) === JSON.stringify([MINT]) && !pr.nut10 && String(pr.amount) === '21' && pr.singleUse === true && /MOCHI/.test(pr.description || ''), `${pr.description}`);
+{ const href = await donor.getAttribute('#dw-open', 'href');  /* StreetCat, 9 Nov, 02:15: «Haz el botón. Opening wallet en pay with the cash» */
+  check('"open in wallet" hands that same request to the phone\'s Cashu wallet (a cashu: link, which only Cashu wallets open)', href === 'cashu:' + donor._creq, String(href).slice(0, 24) + '…'); }
 check('…to be paid by NIP-17 to a key made for this donation, on the app\'s relays', t0.type === 'nostr' && JSON.stringify(t0.tags) === JSON.stringify([['n', '17']]) && /^[0-9a-f]{64}$/.test(prof.pubkey || '') && JSON.stringify(prof.relays) === JSON.stringify(URLS));
 check('…as one QR a wallet can scan', (await donor.$$('#dw-term .qr svg')).length === 1);
+const frameOf = sel => donor.evaluate(sel => { const x = document.querySelector(sel + ' .qr .frame'); return x ? { on: !x.classList.contains('off'), bg: getComputedStyle(x.firstElementChild).backgroundColor, live: x.getAnimations().length > 0 } : null; }, sel);
+{ await donor.waitForTimeout(1400); const f = await frameOf('#dw-term');  /* openRequest tapped "copy request" */
+  check('"copy request" draws the frame around the QR, as "copy invoice" does, in the same orange (StreetCat, 9 Nov, 14:03)', !!f && f.on && f.bg === 'rgb(247, 147, 26)' && f.live, JSON.stringify(f)); }
 { const vs = donor.viewportSize(), over = []; for (const wd of [320, 375, 390, 430]) { await donor.setViewportSize({ width: wd, height: 740 }); await donor.waitForTimeout(80); const o = await donor.evaluate(() => document.scrollingElement.scrollWidth - innerWidth); if (o > 0) over.push(`${wd}px +${o}`); } await donor.setViewportSize(vs); check('…and the screen fits at 320, 375, 390 and 430 px', !over.length, over.join(', ')); } if (SHOT) { await donor.waitForTimeout(1200); await donor.screenshot({ path: `${SHOT}/w1-donor-wallet-request.png`, fullPage: true }); }
 const reqs = () => donor.evaluate(() => window.__vetlock.wreqs()), refundPkOf = async id => (await reqs()).find(x => x.id === id).pk;
 
@@ -73,5 +78,22 @@ out = await waitText(donor, '#d-out', /LOCKED 3 sat|Failed/, 40000); check('a to
 const other = await (async () => { const w2 = new cashu.Wallet('http://127.0.0.1:3339'); try { await w2.loadMint(); const q = await w2.createMintQuoteBolt11(2); await new Promise(r => setTimeout(r, 500)); return cashu.getEncodedToken({ mint: 'http://127.0.0.1:3339', proofs: await w2.mintProofsBolt11(2, q) }); } catch (_) { return null; } })();
 if (other) { await openRequest(2); await donor.fill('#d-token', other); await donor.click('#d-go'); const so = await waitText(donor, '#de-out', /✗|Failed/, 20000); check('ecash from another mint is not taken', /is from http:\/\/127\.0\.0\.1:3339, but the campaign uses/.test(so)); }
 
+// the amount chosen is said on both ways to pay, and the request carries it as chosen, even when "Pay with ecash" is tapped while the
+// amount still flips (StreetCat, 9 Nov, 03:11: «ya debería de venir la factura con la cantidad»; 03:14: «Sí, haz las dos»)
+{ await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); await donor.fill('#d-amt', ''); await donor.dispatchEvent('#d-amt', 'input');
+  const none = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);
+  await donor.click('button[data-amt="210"]'); const set = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);
+  check('the amount chosen is said on both ways to pay; none chosen, neither says one', set.join(' | ') === 'Pay 210 sat with Lightning | Pay 210 sat with ecash' && none.join(' | ') === 'Pay with Lightning | Pay with ecash', `${none.join(' | ')} → ${set.join(' | ')}`);
+  let flipping = '';  /* tapped 120 ms after the amount, while its digits flip (each lands between 200 and 620 ms); again if they happened to show it */
+  for (let i = 0; i < 5 && (!flipping || flipping === '2100'); i++) flipping = await donor.evaluate(() => new Promise(res => { document.getElementById('dw-state').textContent = ''; const amt = document.getElementById('d-amt'); amt.value = ''; document.querySelector('button[data-amt="2100"]').click();
+    setTimeout(() => { const mid = amt.value; if (mid !== '2100') document.getElementById('d-toecash').click(); res(mid); }, 120); }));
+  await waitText(donor, '#dw-state', /waiting for the payment|Failed|✗/); await donor.click('#dw-copy'); await donor.waitForTimeout(200); const fr = cashu.PaymentRequest.fromEncodedRequest(await donor.evaluate(() => navigator.clipboard.readText()));
+  check('"Pay with ecash" tapped while the amount still flips: the request carries the amount chosen (2 100 sat), not a flipping digit', String(fr.amount) === '2100', `on screen as it was tapped: ${flipping} · in the request: ${fr.amount}`); }
+
+// "copy invoice" still draws its frame: one function draws both since 9 Nov (the invoice is kept unpaid on screen here)
+{ await donor.route('**/v1/mint/quote/bolt11/*', async r => { if (r.request().method() !== 'GET') return r.continue(); const res = await r.fetch(); const j = await res.json(); j.state = 'UNPAID'; return r.fulfill({ response: res, json: j }); });
+  await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); await donor.fill('#d-amt', '21'); await donor.click('#d-ln');
+  await donor.waitForSelector('#d-out .qr svg', { timeout: 20000 }); await donor.click('#d-out button:has-text("copy invoice")'); await donor.waitForTimeout(1400); const f = await frameOf('#d-out');
+  check('…and "copy invoice" draws it around the Lightning invoice, as before', !!f && f.on && f.bg === 'rgb(247, 147, 26)' && f.live, JSON.stringify(f)); }
 await b.close(); await Promise.all(relays.map(r => r.close()));
 say(bad ? `wallet: ${bad} check(s) failed` : 'wallet: every check passed'); process.exit(bad ? 1 : 0);

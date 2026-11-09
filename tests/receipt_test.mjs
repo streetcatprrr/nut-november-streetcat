@@ -23,8 +23,8 @@ const waitText = async (p, sel, re, ms = 30000) => { const t0 = Date.now(); let 
 const shot = async (p, name) => { if (SHOT) { await p.waitForTimeout(1500); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };
 const chunks = png => { const out = []; for (let i = 8; i < png.length;) { const n = png.readUInt32BE(i), t = png.toString('latin1', i + 4, i + 8); out.push({ t, data: png.subarray(i + 8, i + 8 + n) }); i += 12 + n; } return out; };
 
-// a campaign (keys made here, unsigned), and a donation locked in the donor's page
-const sc = newSk(), cl = newSk(), camp = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sc), clinic: C.pubOf(cl), deadline: Math.floor(Date.now() / 1000) + 30 * 86400 }; await pin(camp.streetcat);  /* the test's own Streetcat key, pinned next to the published one (pin.mjs) */
+// a campaign (keys made here, signed by its Streetcat key: an unsigned link takes no donation), and a donation locked in the donor's page
+const sc = newSk(), cl = newSk(), camp = await C.signCampaign({ name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sc), clinic: C.pubOf(cl), deadline: Math.floor(Date.now() / 1000) + 30 * 86400 }, sc); await pin(camp.streetcat);  /* the test's own Streetcat key, pinned next to the published one (pin.mjs) */
 const donor = await page(), lock = async n => { await tab(donor, 'donate'); await donor.evaluate(() => { const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-camp', JSON.stringify(camp));
   await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); const s = await waitText(donor, '#d-out', /LOCKED|Failed/); return s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop(); };
 const tokA = await lock(21), skA = await donor.evaluate(t => JSON.parse(localStorage.getItem('vetlock.donor.keys')).find(k => k.lockedToken === t).sk, tokA);

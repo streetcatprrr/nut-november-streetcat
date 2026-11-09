@@ -42,14 +42,14 @@ const jpeg = async (p, kind, view) => Buffer.from(await p.evaluate(async ([k, v]
 const shoot = async (p, sel, kind, views) => { for (const [slot, view] of Object.entries(views)) { const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click(`${sel} .shot[data-slot="${slot}"]`)]);
   await fc.setFiles({ name: `IMG_${slot}.JPG`, mimeType: 'image/jpeg', buffer: await jpeg(p, kind, view) }); await p.waitForSelector(`${sel} .shot[data-slot="${slot}"].has`, { timeout: 30000 }); } };
 const engine = u => /\/ai\/[12]\/|catid-worker/.test(u);
-const line = p => txt(p, '#sq-match-st'), red = (p, s) => p.$eval(s, e => e.classList.contains('bad'));
+const line = p => txt(p, '#sq-match-st'), red = (p, s) => p.$eval(s, e => e.classList.contains('bad')), green = (p, s) => p.$eval(s, e => { const t = document.createElement('span'); t.style.color = 'var(--ok)'; document.body.appendChild(t); const ok = getComputedStyle(e).color === getComputedStyle(t).color; t.remove(); return ok; });
 const recTl = p => p.$eval('#sq-rec-tl', e => ({ t: e.textContent, bad: e.classList.contains('bad') })).catch(() => ({ t: '', bad: false }));
 const imgs = (p, box) => p.$$eval(box + ' button', bs => bs.map(b => b.querySelector('img') && b.querySelector('img').src ? 'img' : (b.querySelector('.wait') || {}).textContent || '?').join());
 const FIT = [], FITBAD = []; const fits = async (p, label) => { const vs = p.viewportSize(), over = []; for (const wd of [320, 375, 390, 430]) { await p.setViewportSize({ width: wd, height: 740 }); await p.waitForTimeout(80); const o = await p.evaluate(() => document.scrollingElement.scrollWidth - innerWidth); if (o > 0) over.push(`${wd}px +${o}`); }
   await p.setViewportSize(vs); FIT.push(label); if (over.length) FITBAD.push(`${label}: ${over.join(', ')}`); };
 const openReq = async name => { await tab(sc, 'scamp'); await sc.locator('#sc-reqs .item', { hasText: new RegExp('^' + name + ' ') }).click(); await sc.waitForSelector('#sreq.on'); await sc.waitForTimeout(400); };
 const until = async (p, re, ms = 300000) => { const seen = new Set(), t0 = Date.now(); let s = ''; while (Date.now() - t0 < ms) { s = await line(p); seen.add(s); if (re.test(s)) break; await p.waitForTimeout(40); } return { s, seen: [...seen] }; };
-const SAME = /^Compared on this phone: nothing points to another cat\. Only a hint: two cats of one coat can look alike to it\.$/, OTHER = /^✗ These may not be the same cat\. Look at them, and at the chip, before releasing\.$/;
+const SAME = /^Nothing points to another cat\.$/, OTHER = /^✗ It may be another cat\.$/;  /* short, in green or in red (StreetCat, 9 Nov, 14:27) */
 
 // keys, a campaign, four donations sent to Streetcat
 await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1200); const clinicPk = await txt(clinic, '#cs-pk');
@@ -60,6 +60,12 @@ const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0];
 for (let i = 0; i < 4; i++) { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(100)); await donor.click('#d-go');
   await waitText(donor, '#d-out', /LOCKED|Failed/); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); }
 await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
+/* all four in the campaign before the requests: one check can come before the last donation is on the relays (it goes by itself as it locks, 8 Nov) */
+const inLedger = () => sc.evaluate(() => Object.values(JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}')).reduce((n, L) => n + Object.keys((L && L.entries) || {}).length, 0));
+/* up to 90 s (30 s was too short once in a loaded battery, 9 Nov 03:40: the run crashed later, picking a donation that had not come yet);
+   if they never all come, it is said here, as a failed check, not as a timeout further on */
+for (let i = 0; i < 90 && await inLedger() < 4; i++) { await sc.evaluate(() => window.__vetlock.scCheck()).catch(() => {}); await sc.waitForTimeout(1000); }
+{ const n = await inLedger(); if (n < 4) { check('the four donations reach Rescue\'s campaign by relay, as they lock', false, `${n} of 4 after 90 s`); await b.close(); for (const r of relays) r.close && r.close(); process.exit(1); } }
 
 // four requests, each with its cat's photos as caught; and each cat's record from the clinic, with the cat's photos at the clinic
 const CAT = { face: 0, left: 1, right: 2 }, VET = { face: 3, left: 4, right: 5 };
@@ -74,16 +80,16 @@ await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic
 // photos at once, and the same hint as on Streetcat's side, before signing
 const reqPicsAt = async id => { for (let i = 0; i < 30; i++) { if (await clinic.evaluate(async id => { const V = window.__vetlock, r = V.creqs().find(x => x.id === id); if (!r || !(r.q.photos || []).length) return false; for (const p of r.q.photos) if (!(await V.photoHere(p.sha256))) return false; return true; }, id)) return true;
   await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); } return false; };
-const SAMEQ = "Compared with Streetcat's photos: nothing points to another cat. Only a hint: two cats of one coat can look alike to it.", OTHERQ = "✗ These may not be the cat of Streetcat's request. Look at them, and at the chip, before signing.";
+const SAMEQ = 'Nothing points to another cat.', OTHERQ = '✗ It may be another cat.';  /* short, in green or in red (StreetCat, 9 Nov, 14:11) */
 for (const c of CATS) { const looks = c.name === 'MOCHI' || c.name === 'TEO'; if (looks) await reqPicsAt(c.id);
-  await tab(clinic, 'work'); await clinic.locator('#w-list .item', { hasText: new RegExp('^' + c.name + ' ') }).click(); await clinic.waitForSelector('#creq.on'); await clinic.click('#cr-cat-a'); await clinic.waitForSelector('#catnew.on');
+  await tab(clinic, 'work'); await showW(clinic, 'w-pend'); await clinic.locator('#w-list .item', { hasText: new RegExp('^' + c.name + ' ') }).click(); await clinic.waitForSelector('#creq.on'); await clinic.click('#cr-cat-a'); await clinic.waitForSelector('#catnew.on');
   await shoot(clinic, '#cn-shots', c.rec, c.views);
   if (c.name === 'MOCHI') { await clinic.waitForFunction(() => document.querySelectorAll('#cn-req-pics img[src]').length === 3, null, { timeout: 15000 }).catch(() => {}); const offer = await txt(clinic, '#cn-like-st');
     check("the clinic's Check the cat: Streetcat's photos at once, under the clinic's own, and the recognition offered, not fetched", (await clinic.$$eval('#cn-req-pics img[src]', x => x.length)) === 3 && offer === "Its photos can be compared with Streetcat's, here on this phone. The cat recognition comes once: 121 MB." && !clinic._asked.some(engine), offer);
     await shot(clinic, 'm-clinic-check-offered'); await clinic.click('#cn-like-go'); }
-  if (looks) { const said = await waitText(clinic, '#cn-req-st', /nothing points|✗/, 300000), redq = await clinic.$$eval('#cn-req-st .bad', e => e.length > 0);
-    if (c.name === 'MOCHI') check("…a tap: the same cat as in Streetcat's photos, nothing points to another cat (not in red)", said === SAMEQ && !redq, said);
-    else check("…another cat than in Streetcat's photos: the warning, in red, before signing", said === OTHERQ && redq, said);
+  if (looks) { const said = await waitText(clinic, '#cn-req-st', /[Nn]othing points|✗/, 300000), redq = await clinic.$$eval('#cn-req-st .bad', e => e.length > 0), greenq = await clinic.evaluate(() => { const t = document.createElement('span'); t.style.color = 'var(--ok)'; document.body.appendChild(t); const ok = getComputedStyle(document.getElementById('cn-req-st')).color === getComputedStyle(t).color; t.remove(); return ok; });
+    if (c.name === 'MOCHI') check("…a tap: the same cat as in Streetcat's photos: «Nothing points to another cat.», in green", said === SAMEQ && !redq && greenq, said);
+    else check("…another cat than in Streetcat's photos: a brief warning, in red, before signing", said === OTHERQ && redq && !greenq, said);
     await fits(clinic, `the clinic's Check the cat (${c.name})`); await shot(clinic, 'm-clinic-check-' + c.name.toLowerCase()); }
   await clinic.click('#cn-go'); await waitText(clinic, '#cn-out', /SIGNED|✗/, 30000);
   c.rec_id = await clinic.evaluate(id => window.__vetlock.ccats().find(x => x.rec.statement.request === id).id, c.id); }
@@ -106,19 +112,19 @@ check('…and the request\'s line says its record has come', /^✓ its record fr
 await fits(sc, 'a request with its record'); await shot(sc, 'm1-request-record');
 
 // 2) a tap: the recognition comes, then the same drawn cat
-await sc.click('#sq-match-go'); const r2 = await until(sc, /^Compared|^✗/);
+await sc.click('#sq-match-go'); const r2 = await until(sc, /^Nothing points|^✗/);
 check('a tap: the recognition comes, showing it come, and the same cat: nothing points to another cat', SAME.test(r2.s) && r2.seen.some(s => /^getting the cat recognition/.test(s)) && sc._asked.some(engine), `${r2.s} | ${r2.seen.filter(s => /getting|comparing/.test(s)).slice(0, 3).join(' / ')}`);
-check('…a hint, not a proof: no ✓, not in red', !(await red(sc, '#sq-match-st')) && !/✓/.test(r2.s));
+check('…in green, not in red, and no ✓', !(await red(sc, '#sq-match-st')) && await green(sc, '#sq-match-st') && !/✓/.test(r2.s));
 await fits(sc, 'the same cat'); await shot(sc, 'm2-same-cat');
 
 // 3) TEO: the record shows another cat: by itself now, in red, and in the request's line
-await openReq('TEO'); const r3 = await until(sc, /^Compared|^✗/, 120000), tl3 = await recTl(sc);
+await openReq('TEO'); const r3 = await until(sc, /^Nothing points|^✗/, 120000), tl3 = await recTl(sc);
 check('another cat in the record: compared by itself, a warning in red', OTHER.test(r3.s) && await red(sc, '#sq-match-st'), r3.s);
 check('…and the request\'s line says it, in red', tl3.t === '✗ its record from the clinic: may not be the same cat' && tl3.bad, tl3.t);
 await fits(sc, 'another cat'); await shot(sc, 'm3-another-cat');
 
 // 4) LUNA: rings of other colours, a look-alike: no warning, which is the limit the app states
-await openReq('LUNA'); const r4 = await until(sc, /^Compared|^✗/, 120000);
+await openReq('LUNA'); const r4 = await until(sc, /^Nothing points|^✗/, 120000);
 check('a look-alike (the same pattern in other colours) is not caught: the limit it states', SAME.test(r4.s), r4.s);
 
 // 5) PIP: one photo of the face in the record: too few
@@ -143,3 +149,6 @@ check('a record signed with another clinic key, naming the request, is not taken
 
 check('every screen fits the phone at 320, 375, 390 and 430 px', FITBAD.length === 0, FITBAD.join(' | ') || `${FIT.length} screens`);
 await b.close(); for (const r of relays) r.close && r.close(); say(bad ? `match: ${bad} check(s) failed` : 'match: every check passed'); process.exit(bad ? 1 : 0);
+
+// the partner's home shows its requests only once one of its two numbers is tapped (9 Nov): show that one (if not shown) and wait for it typed in
+async function showW(p, id){ await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); }

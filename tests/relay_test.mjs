@@ -11,7 +11,7 @@ const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), n
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
 const store = () => { const m = new Map(); return { get: k => m.get(k) ?? null, set: (k, v) => m.set(k, v) }; };
 // proofs that carry the campaign's lock, as the app's donations do (nothing at a mint backs them: this test never spends)
-export const fakeProofs = (c, refundPk, amounts) => amounts.map(a => ({ id: '00ad268c4d1f5826', amount: a, secret: JSON.stringify(['P2PK', { nonce: hex(crypto.getRandomValues(new Uint8Array(32))), data: c.streetcat, tags: [['pubkeys', c.clinic], ['n_sigs', '2'], ['locktime', String(c.deadline)], ['refund', refundPk]] }]) }));
+export const fakeProofs = (c, refundPk, amounts) => amounts.map(a => ({ id: '00ad268c4d1f5826', amount: a, secret: JSON.stringify(['P2PK', { nonce: hex(crypto.getRandomValues(new Uint8Array(32))), data: c.streetcat, tags: [['pubkeys', c.clinic], ['n_sigs', '2'], ['locktime', String(c.deadline)], ['refund', refundPk]] }]), C: C.pubOf(newSk()), dleq: { e: hex(crypto.getRandomValues(new Uint8Array(32))), s: hex(crypto.getRandomValues(new Uint8Array(32))), r: hex(crypto.getRandomValues(new Uint8Array(32))) } }));  /* the shape of a mint's signature and its DLEQ proof, as every request now carries (A04); never checked against a mint here */
 
 const sc = newSk(), cl = newSk(), camp = { name: 'MOCHI', op: 'sterilisation', mint: 'https://mint.example', streetcat: C.pubOf(sc), clinic: C.pubOf(cl), deadline: Math.floor(Date.now() / 1000) + 30 * 86400 };
 const P = [7101, 7102, 7103]; let relays = [startRelay({ port: P[0] }), startRelay({ port: P[1] }), startRelay({ port: P[2], refuse: true })]; await Promise.all(relays.map(r => r.ready));
@@ -100,6 +100,27 @@ check('asked again later (an announcement, a ledger): the relay that kept it lat
 const k10 = startRelay({ port: 7109, storeDelay: 1200 }); await k10.ready; const st10 = store(), box10 = R.outbox(st10); await box10.add(q, sc, camp.clinic, { relays: [k10.url, mute8.url] }); const m10 = mute8.stats.received;
 const [f10] = await box10.flush({ timeout: 800 }); await new Promise(r => setTimeout(r, 1500)); const [g10] = await box10.flush({ force: true, timeout: 800 });
 check('the outbox: sent once and not confirmed, at the next try the relay is asked first, and not sent it again when it has it; the mute one is sent it again', f10.acked.length === 0 && g10.acked.includes(k10.url) && !g10.acked.includes(mute8.url) && k10.stats.received === 1 && mute8.stats.received - m10 === 2, `first ${f10.acked.length} acked · then ${g10.acked.length} · the late relay got it ${k10.stats.received} time(s), the mute one ${mute8.stats.received - m10}`);
+// 11) HIGH-WATER MARKS (review of 9 Nov: every check read nine days from every relay, photos too, ~1.5–1.8 MB a minute on a phone):
+// a relay that answered all it holds (EOSE) gets a mark per messaging key; the next read starts two days and ten minutes before it;
+// one that does not answer in time, or sends the limit, gets none; a wrap not expected yet comes back as deferred, and a floor makes
+// the next read start before it
+const mk1 = startRelay({ port: 7121 }), mk2 = startRelay({ port: 7122, delay: 2500 }); await Promise.all([mk1.ready, mk2.ready]); const mku = [mk1.url, mk2.url];
+const mkBox = R.outbox(store()), qm = await C.makeRequest({ campaign: camp, patient: 'MARKS', procedure: 'sterilisation', date: '2026-11-09', contributions: [{ release: 16, proofs: fakeProofs(camp, C.pubOf(newSk()), [16]) }] });
+await mkBox.add(qm, sc, camp.clinic, { relays: mku }); await mkBox.flush({ timeout: 6000 });
+const clPub = await R.pubOf(camp.clinic), t0m = Math.floor(Date.now() / 1000);
+const m1 = await R.receive([cl], { relays: mku, seen: new Set(), expect: clinicExpects, timeout: 1500, marks: {} }), mark = ((m1.marks || {})[mk1.url] || {})[clPub];
+check('a first read takes the request and marks the relay that answered in full; the one that did not answer in time gets no mark', m1.messages.some(m => m.payload.id === qm.id) && Math.abs(mark - t0m) <= 2 && !(m1.marks || {})[mk2.url], JSON.stringify(Object.keys(m1.marks || {}).map(u => u.slice(-4))));
+const firstSince = mk1.stats.reqs.at(-1)[0].since; check('…it read nine days back (seven, and the two a wrap may be dated back)', Math.abs(firstSince - (t0m - 9 * 86400)) <= 2, `${((t0m - firstSince) / 86400).toFixed(2)} days`);
+await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: clinicExpects, marks: m1.marks }); const nextSince = mk1.stats.reqs.at(-1)[0].since;
+check('the next read starts two days and ten minutes before the mark, not nine days back', nextSince === mark - 2 * 86400 - 600, `${((t0m - nextSince) / 86400).toFixed(3)} days back`);
+const fl = t0m - 4 * 86400; await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: clinicExpects, marks: m1.marks, floor: fl });
+check('a floor (a wrap still to be taken) makes it start before that wrap', mk1.stats.reqs.at(-1)[0].since === fl - 600);
+const d1 = await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: () => null, marks: m1.marks });
+check('a wrap not expected yet (its campaign or request not here) comes back as deferred, with its date', d1.deferred.length === 1 && Math.abs(d1.deferred[0].created - t0m) <= 2 * 86400 + 5 && !d1.messages.length, JSON.stringify(d1.deferred.map(x => x.created - t0m)));
+const lim = await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: clinicExpects, marks: {}, limit: 1 });
+check('a relay that sends as many as the limit moves no mark (there may be more)', !(lim.marks || {})[mk1.url], JSON.stringify(lim.marks));
+await Promise.all([mk1, mk2].map(r => r.close()));
+
 await Promise.all([late8, keep8, mute8, no8, k10].map(r => r.close()));
 await Promise.all(relays.map(r => r.close()));
 say(bad ? `relay: ${bad} check(s) failed` : 'relay: every check passed');

@@ -1,7 +1,8 @@
 // "Check for requests" (StreetCat, 7 Nov: «un botón … comprobar si hay request de la asociación», the fourth big button; the campaigns «en el
 // formato del texto ese de arriba … en colorines … seleccionables con el dedo»), against the local mint and two local test relays (made-up
 // keys, fake money). Each campaign Streetcat makes is announced on the relays as it is made, and says so. A donor's phone with no link asks
-// the relays and lists the open campaigns where the campaign shows, one per line in its own colour, the one closing first on top; a tap
+// the relays and lists the open campaigns where the campaign shows, each in its own colour, the newest on top and the earlier ones in a
+// box under it, newest first (9 Nov: each announcement says when its campaign was made); a tap
 // opens it as its link would, signed. What is not Streetcat's to announce is never listed: an announcement whose campaign was changed after
 // it was signed, a closed campaign, a campaign of a key that is not Streetcat's published one. No relay reached: said in red; nothing open:
 // said so, not in red. A campaign made with no relay to take it says so in red, and Home announces it again by itself, with no tap, as it
@@ -62,7 +63,8 @@ await donor.reload(); const four = await donor.$$eval('#donate .pay button.go.bi
 check('the donor\'s screen has a fourth big button, "Check for requests", under the other three', four.join(' | ') === 'Pay with Lightning | Pay with ecash | Take my sats back | Check for requests', four.join(' | '));
 await shot(donor, 'an-2-donor-four');
 await checkReqs(2); const L = await lines(), head = await txt(donor, '#d-reqs > .mut');
-check('a tap lists the open campaigns where the campaign shows, the one closing first on top', L.map(x => x.name).join(' · ') === 'THE OLD PORT · TNR MARINA' && head === '2 open requests from Streetcat · tap one', `${head} | ${L.map(x => `${x.name} (${x.sub})`).join(' · ')}`);
+const inBox = await donor.$$eval('#d-reqs .rold button.req .title', ts => ts.map(t => t.textContent));
+check('a tap lists the open campaigns where the campaign shows: the latest on top (THE OLD PORT, made after TNR MARINA), the earlier one in the box under it', L.map(x => x.name).join(' · ') === 'THE OLD PORT · TNR MARINA' && inBox.join() === 'TNR MARINA' && head === 'Latest request from Streetcat · tap it', `${head} | ${L.map(x => `${x.name} (${x.sub})`).join(' · ')} | in the box: ${inBox.join(' · ')}`);
 check('…each in its own colour, the campaign\'s', L.length === 2 && L.every(x => Number(x.h) === Number(hues[x.name])) && L[0].color !== L[1].color, L.map(x => `${x.name} ${x.h} ${x.color}`).join(' · '));
 check('…with what it is for and the days left', L.length === 2 && /^sterilisation and vaccines · (9|10) days left$/.test(L[0].sub) && /^sterilisation · (30|31) days left$/.test(L[1].sub), L.map(x => x.sub).join(' · '));
 check('nothing that is not Streetcat\'s to announce is listed: changed, closed, another key', !L.some(x => /OLD PORT 2|LAST YEAR|NOT STREETCAT/.test(x.name)));
@@ -91,7 +93,7 @@ await checkReqs(1); const L2 = await lines(); check('…and donors see it (the t
 // one from before the announcements, never announced: Home announces it too, by itself
 await sc.evaluate(() => { const a = JSON.parse(localStorage.getItem('vetlock.campaigns')); for (const k of a) if (k.c.name === 'TNR MARINA') delete k.ann; localStorage.setItem('vetlock.campaigns', JSON.stringify(a)); });
 await tab(sc, 'campaign'); await tab(sc, 'home'); const old = await annOf('TNR MARINA');
-await checkReqs(2); const L3 = await lines(); check('a campaign from before the announcements is announced by itself too when Home opens, and donors see it', old && L3.map(x => x.name).join(' · ') === 'TNR MARINA · BAKERY COLONY', L3.map(x => x.name).join(' · '));
+await checkReqs(2); const L3 = await lines(); check('a campaign from before the announcements is announced by itself too when Home opens, and donors see it, newest first (BAKERY COLONY on top: made later, though it closes later too)', old && L3.map(x => x.name).join(' · ') === 'BAKERY COLONY · TNR MARINA', L3.map(x => x.name).join(' · '));
 
 // relays slow to confirm (StreetCat, 8 Nov, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»): the campaign was on nostr.mom,
 // which confirmed half a minute late, and nos.lol never answered; the app said "Not announced". Here one relay keeps the announcement

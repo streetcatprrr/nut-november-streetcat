@@ -20,7 +20,7 @@ const names = {}; const anon = s => s.replace(/[0-9a-f]{10}…/g, m => names[m] 
 await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const k1 = await out(clinic, 'c-pk');
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const sc = await out(streetcat, 's-pk');
 Object.assign(names, { [k1.slice(0, 10) + '…']: '<clinic key 1>', [sc.slice(0, 10) + '…']: '<Streetcat key>' });
-const camp = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: sc, clinic: k1, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 };
+const camp = await streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: sc, clinic: k1, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 });  /* signed by Streetcat: an unsigned link takes no donation */
 const lnDonate = async n => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.fill('#d-amt', String(n)); await donor.click('#d-ln'); return lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/)); };
 const tokA = await lnDonate(21), tokB = await lnDonate(8);
 
