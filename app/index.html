@@ -11,14 +11,14 @@ html,body{background:var(--bg);color:var(--fg);font:400 14px/22px var(--mono);-w
 body{display:flex;flex-direction:column;min-height:100svh}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:.25;background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .sc-header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--fg);flex:none;position:sticky;top:0;background:var(--bg);z-index:2}
-.back{background:none;border:1px solid var(--line2);border-radius:0;color:var(--fg);font:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0;width:36px;height:36px;margin:-6px 0;flex:none;display:flex;align-items:center;justify-content:center}  /* framed and bigger, easy to see and to tap (StreetCat, 6 Nov: «haz la A»); it takes from the header's padding, so the header keeps its height */
-/* the header is the three roles, the one on screen in its colour (its keys' colour), and the status page apart: it is a page, not a role
-   (StreetCat, 6 Nov: «Donate, Streetcat, Clinic… así es donde se puede alternar»; «en el header, la B»; then «pon rescue»: Donor · Rescue · Clinic). An address of one role shows only that role. */
+.back{background:none;border:1px solid var(--line2);border-radius:0;color:var(--fg);font:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0;width:36px;height:36px;margin:-6px 0;flex:none;display:flex;align-items:center;justify-content:center}  /* framed and bigger, easy to see and to tap; it takes from the header's padding, so the header keeps its height */
+/* the header is the three roles, the one on screen in its colour (its keys' colour), and the status page apart: it is a page, not a role.
+   An address of one role shows only that role. */
 .sc-roles{flex:1;display:flex;justify-content:space-between;gap:8px;min-width:0}
 .sc-roles button,.sc-st{background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:2px 0 3px;font:400 14px/22px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute);text-decoration:none;white-space:nowrap;cursor:pointer}
 .sc-roles button[data-r="donor"]{--c:oklch(.8 .16 55deg)}.sc-roles button[data-r="streetcat"]{--c:oklch(.8 .16 150deg)}.sc-roles button[data-r="clinic"]{--c:oklch(.8 .16 250deg)}
 .sc-roles button.on{color:var(--c);border-bottom-color:var(--c)}
-.sc-st{font-size:12px;letter-spacing:.04em;text-transform:none;border-bottom:0;border-left:1px solid var(--line);padding:0 0 0 12px;display:flex;align-items:center;color:var(--fg)}.sc-st svg{display:block;fill:currentColor}  /* the status page as a magnifier with a tick: check it yourself (StreetCat, 6 Nov: «el icono, pues la lupa») */
+.sc-st{font-size:12px;letter-spacing:.04em;text-transform:none;border-bottom:0;border-left:1px solid var(--line);padding:0 0 0 12px;display:flex;align-items:center;color:var(--fg)}.sc-st svg{display:block;fill:currentColor}  /* the status page as a magnifier with a tick: check it yourself */
 body.fixed .sc-roles button:not(.on){display:none}
 @media (max-width:360px){.sc-header{gap:8px}.sc-roles button{letter-spacing:.03em}.sc-st{padding-left:8px}}
 main{width:100%;max-width:460px;margin:0 auto;padding:calc(var(--u)*3) 20px calc(var(--u)*3);flex:1;display:flex;flex-direction:column}
@@ -41,7 +41,7 @@ textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{ma
 #d-reqs .rold button.req .sub2,#d-reqs .rold button.req .cat{overflow-wrap:break-word;line-break:auto}
 #d-reqs .rold button.req .sub2{font-size:11px;line-height:16px;color:oklch(.88 .15 95deg)}
 #d-reqs .rold button.req .cat{font-size:11px;line-height:16px;color:oklch(.7 .14 68deg)}
-/* what Streetcat pays for (StreetCat, 7 Nov): the four kinds two by two, each in its colour; the lists (pots, requests, colonies, partners)
+/* what Streetcat pays for: the four kinds two by two, each in its colour; the lists (pots, requests, colonies, partners)
    as the donor's list; "Choose …" as one wide button that takes the colour of what was chosen. In grey, what cannot be chosen, and why. */
 #h-kinds{margin-top:calc(var(--u)*1)}.plist{margin-bottom:calc(var(--u)*2)}.plist>.mut{margin-bottom:4px}.plist>.empty{padding:calc(var(--u)*1.5) 0}
 .plist button.req{display:block;width:100%;margin:0;padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
@@ -60,7 +60,7 @@ input:focus,textarea:focus{border-color:var(--fg)}textarea{min-height:72px;resiz
 input[type=date]{color-scheme:dark}
 button.go{display:block;width:100%;margin-top:calc(var(--u)*2);background:var(--fg);color:var(--bg);border:1px solid var(--fg);border-radius:0;height:56px;padding:0 16px;font:400 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;cursor:pointer;transition:opacity .15s}
 button.go.big{margin-top:auto}
-/* hold to confirm (StreetCat, 7 Nov: «que la barra hubiese que pulsarla… hasta que se cargase entera… y luego… algún parpadeo»): a button that moves
+/* hold to confirm: a button that moves
    money or signs fills from the left, in the colour of whose screen it is, while it is held; full, it blinks twice and acts (index.js) */
 body{--hold:oklch(.8 .16 55deg)}body[data-role="streetcat"]{--hold:oklch(.8 .16 150deg)}body[data-role="clinic"]{--hold:oklch(.8 .16 250deg)}
 button.go.hold{position:relative;isolation:isolate;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
@@ -71,7 +71,7 @@ button.go.hold.held::before{transform:scaleX(1);transition:none;animation:held .
 button.go.hold.fin::before{display:none}
 button.go:disabled{opacity:.5;cursor:default}
 button.go.fin,button.go.fin:disabled{--fin:var(--ok);background:transparent;color:var(--fin);border-color:var(--fin);opacity:1;cursor:default}  /* done: the button says what happened and cannot be pressed again */
-body[data-role="streetcat"] button.go.fin{--fin:oklch(var(--kl) .16 150deg)}body[data-role="clinic"] button.go.fin{--fin:oklch(var(--kl) .16 250deg)}  /* in the colour of whose screen it is: Streetcat green, the clinic blue (StreetCat, 5 Nov), as their keys */
+body[data-role="streetcat"] button.go.fin{--fin:oklch(var(--kl) .16 150deg)}body[data-role="clinic"] button.go.fin{--fin:oklch(var(--kl) .16 250deg)}  /* in the colour of whose screen it is: Streetcat green, the clinic blue, as their keys */
 button.sm,.out a.sm,a.sm{display:inline-flex;align-items:center;justify-content:center;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;height:44px;padding:0 14px;font:400 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;text-decoration:none;margin:var(--u) var(--u) 0 0}
 button.sm.done,.acts button.sm.done{background:var(--fg);color:var(--bg);border-color:var(--fg)}  /* copied: it stays that way */
 .lock{display:grid;grid-template-columns:14px 1fr 14px 1fr 14px;align-items:center;margin:calc(var(--u)*2) 0 0}
@@ -116,10 +116,10 @@ details.more{margin-top:var(--u);text-align:center}details.more summary{font-siz
 .list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:16px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
 .empty{color:var(--mute);padding:calc(var(--u)*3) 0}
 .actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
-#d-links{margin-top:var(--u)}  /* Donate: the other two ways under Pay with Lightning, as big as it (StreetCat, 6 Nov: «como los de pay with lightning»; «tres en columna») */
+#d-links{margin-top:var(--u)}  /* Donate: the other two ways under Pay with Lightning, as big as it */
 /* "Check for requests": the campaigns Streetcat announced, one per line in its own colour where the campaign shows, each a tap away */
 #d-reqs{margin-bottom:calc(var(--u)*2)}#d-reqs>.mut{margin-bottom:4px}#d-reqs button.req{display:block;width:100%;margin:0;padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}#d-reqs button.req .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#d-reqs button.req .sub2{font-size:12px;line-height:18px;color:var(--mute)}
-/* the clinic's home: six buttons of one size, full width, one under another (StreetCat, 6 Nov: «botones grandes… del mismo tamaño»; «pon los botones a pantalla completa largos») */
+/* the clinic's home: six buttons of one size, full width, one under another */
 .actions button.go.alt.bad{color:var(--bad);border-color:var(--bad)}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0 0 var(--u);font-size:12px;line-height:18px}dt{color:var(--mute)}dd{word-break:break-all}
 details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
@@ -268,6 +268,10 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <dl hidden><dt>Clinic</dt><dd><code id="x-c">—</code><span id="x-c-old"></span></dd><dt>Streetcat</dt><dd><code id="x-s">—</code><span id="x-s-old"></span></dd><dt>Donor refund</dt><dd><code id="x-d">—</code></dd></dl>
 <div class="term" id="x-term"><textarea id="x-box" placeholder="export shows your keys here · paste an export here to import"></textarea></div>
 <div class="row2"><button class="sm" id="x-exp">Export all</button><button class="sm" id="x-imp">Import all</button></div><div class="out" id="x-out"></div>
+<details class="more" id="x-seal"><summary>sealed backup, with a password</summary>
+<input id="x-pw" type="password" autocomplete="new-password" placeholder="a password, 10 characters or more">
+<input id="x-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
+<div class="row2"><button class="sm" id="x-seal-save">save sealed backup</button><button class="sm" id="x-seal-open">restore a sealed backup</button></div><input type="file" id="x-seal-file" hidden><div class="out" id="x-seal-out"></div></details>
 <div class="actions" id="x-ln-row" hidden><button class="go alt" id="x-ln-b" aria-expanded="false">Lightning address</button></div>
 <div id="x-ln-box" hidden><input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div></div>
 <p class="mut code center" id="x-ver"></p>
@@ -303,6 +307,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <section id="csettings">
 <div class="keyrow"><span class="mut">Your clinic key</span><code id="cs-pk">—</code><span id="cs-pk-old" class="mut"></span><span class="keyops"><button class="sm" id="cs-copy">copy</button><button class="sm" id="cs-new">new</button><button class="sm" id="cs-show">private</button></span></div>
 <p class="mut">Streetcat puts the public key in each campaign. The private key never leaves this phone: keep a backup of it, locked with a password.</p>
+<label>Paid to</label><input id="cs-ln" aria-label="the Lightning address this partner is paid to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="cs-ln-st"></div><div class="mut code" id="cs-kept"></div>
 <label>Backup password</label><input id="cs-pw" type="password" autocomplete="new-password" placeholder="10 characters or more">
 <input id="cs-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
 <div class="row2"><button class="sm" id="cs-save">save backup</button><button class="sm" id="cs-restore">restore a backup</button></div><input type="file" id="cs-file" accept=".json,application/json" hidden>
@@ -343,6 +348,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <p class="mut code" id="sn-last"></p>
 <label>For</label><div class="pchoose"><button class="sm" type="button" id="sn-col">Choose colony</button></div>
 <label>Paid from</label><div class="pchoose"><button class="sm" type="button" id="sn-pot">Choose pot</button></div>
+<label id="sn-pars-l" hidden>Partner</label><div class="ptypes" id="sn-pars" hidden></div>
 <div class="code" id="sn-keys"></div>
 <p class="mut code" id="sn-cover"></p>
 <div class="code" id="sn-time"></div><div class="row1" id="sn-alt" hidden></div>
@@ -377,7 +383,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div class="out" id="pp-out"></div>
 <button class="go" id="pp-save">Save</button>
 </div>
-<div class="actions" id="pp-acts"><button class="go alt" id="pp-add">+ New</button></div>
+<div class="actions" id="pp-acts"><button class="go alt" id="pp-add">+ New</button><button class="go" id="pp-done" hidden>Done</button></div>
 </section>
 
 <section id="sreq">

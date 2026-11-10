@@ -1,12 +1,11 @@
-// "Check for requests" (StreetCat, 7 Nov: «un botón … comprobar si hay request de la asociación», the fourth big button; the campaigns «en el
-// formato del texto ese de arriba … en colorines … seleccionables con el dedo»), against the local mint and two local test relays (made-up
+// "Check for requests", against the local mint and two local test relays (made-up
 // keys, fake money). Each campaign Streetcat makes is announced on the relays as it is made, and says so. A donor's phone with no link asks
 // the relays and lists the open campaigns where the campaign shows, each in its own colour, the newest on top and the earlier ones in a
 // box under it, newest first (9 Nov: each announcement says when its campaign was made); a tap
 // opens it as its link would, signed. What is not Streetcat's to announce is never listed: an announcement whose campaign was changed after
 // it was signed, a closed campaign, a campaign of a key that is not Streetcat's published one. No relay reached: said in red; nothing open:
 // said so, not in red. A campaign made with no relay to take it says so in red, and Home announces it again by itself, with no tap, as it
-// does one from before the announcements (StreetCat, 7 Nov: «Esa y todas las campañas»). Fits 320 to 430 px.
+// does one from before the announcements. Fits 320 to 430 px.
 import { chromium } from 'playwright';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
@@ -95,7 +94,7 @@ await sc.evaluate(() => { const a = JSON.parse(localStorage.getItem('vetlock.cam
 await tab(sc, 'campaign'); await tab(sc, 'home'); const old = await annOf('TNR MARINA');
 await checkReqs(2); const L3 = await lines(); check('a campaign from before the announcements is announced by itself too when Home opens, and donors see it, newest first (BAKERY COLONY on top: made later, though it closes later too)', old && L3.map(x => x.name).join(' · ') === 'BAKERY COLONY · TNR MARINA', L3.map(x => x.name).join(' · '));
 
-// relays slow to confirm (StreetCat, 8 Nov, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»): the campaign was on nostr.mom,
+// relays slow to confirm: the campaign was on nostr.mom,
 // which confirmed half a minute late, and nos.lol never answered; the app said "Not announced". Here one relay keeps the announcement
 // 10 s after it is sent and the other never answers: the line says it is still asking (not in red), then that one relay has it, and
 // names in red the one that never answered

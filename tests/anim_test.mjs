@@ -1,6 +1,4 @@
-// Coloured texts move (StreetCat, 7 Nov 04:55: «los textos de colores de claves y todos los textos de colores que hay, menos los de
-// fallos, tienen que animarse cada vez que se interactúa con ellos… barajarse. Y si no están y aparecen… typewriter y cursor y con
-// barajeo»; 04:58: «si tengo que pegar algo… se anima con tipeo writer y con cursor y con color correspondiente y barajeo»). No mint
+// Coloured texts move. No mint
 // and no relay needed: made-up keys. The keys of the campaign form type themselves in, cursor ahead, and land; drawn again on the
 // same screen they do not type again; a tap shuffles them and they land; a red line never moves; what is pasted into a field types
 // itself over the field, in its colours, and goes, the field keeping it. With vetlock.anim off (the other suites) nothing moves.

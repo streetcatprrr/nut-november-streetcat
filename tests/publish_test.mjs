@@ -37,4 +37,4 @@ await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById
 const rows = await viewer.evaluate(() => [...document.querySelectorAll('.row')].map(x => `${x.dataset.ref} ${x.dataset.amount} ${x.dataset.status}`));
 check('status.html reads it back from the mint', rows.length === 2 && rows.some(r => / 21 RELEASED$/.test(r)) && rows.some(r => / 8 LOCKED$/.test(r)), rows.join(' | '));
 await b.close();
-say(bad ? `publish: ${bad} check(s) failed` : 'publish: every check passed');
+say(bad ? `publish: ${bad} check(s) failed` : 'publish: every check passed'); process.exit(bad ? 1 : 0);  /* audit of 10 Nov: as core_test, it exited 0 whatever it found */

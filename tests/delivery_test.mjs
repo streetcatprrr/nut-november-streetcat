@@ -1,5 +1,4 @@
-// A shop confirms a delivery (StreetCat, 7 Nov: a partner that is not a clinic, «un proveedor de alimentos… fotos del albarán del cuando se
-// recibe el pedido o fotos del pedido»; «Perfecto, me parece bien lo que propones»): against the local mint and two local relays, with
+// A shop confirms a delivery: against the local mint and two local relays, with
 // made-up keys. Rescue adds the shop as a partner and makes a food pot; a donor gives to it; Rescue sends a food request to the shop.
 // The shop's phone shows it in its words (for which colony, what, "Confirm delivery"), asks for a photo of the delivery note or of the
 // goods (no invoice's fingerprint), and refuses to confirm without one; with both, it confirms: the photos are named in its signed

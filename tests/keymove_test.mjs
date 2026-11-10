@@ -1,9 +1,8 @@
-// Moving the keys from one browser to another on the same phone (StreetCat, 7 Nov: from Safari to the app on the home screen, which keeps
-// its own storage: «No funciona así… me pone JSON, no sé qué»). An iPhone lets a page copy only while the tap counts, so the export is
+// Moving the keys from one browser to another on the same phone. An iPhone lets a page copy only while the tap counts, so the export is
 // copied at once, before the keys type themselves out; if the phone still refuses, the export stays in the box, selected, with a red line
 // that says so. Import takes the box, or what was copied when the box is empty; it accepts the curly quotes a phone may put in, and says
 // in red, on the page, what is wrong (public keys only, not an export, nothing pasted). A browser with no keys exports nothing, and an
-// export with no keys in it imports nothing (StreetCat, 7 Nov, 22:51: «No se importan»: an empty export had said «Imported»). Every ✗ in red (colors.mjs).
+// export with no keys in it imports nothing. Every ✗ in red (colors.mjs).
 import { chromium } from 'playwright';
 import { pinBrowser } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', say = (...a) => console.log(...a);
@@ -49,7 +48,7 @@ await empty.fill('#x-box', 'JSON, no sé qué'); await empty.click('#x-imp'); co
 check('…anything else: it is not an export, nothing imported, in red', /^✗ This is not an export of keys: nothing imported/.test(junk) && await red(empty, '#x-out'), junk.slice(0, 60));
 await empty.fill('#x-box', ''); await empty.click('#x-imp'); const none = await waitText(empty, '#x-out', /✗/, 5000);
 check('…nothing pasted, and nothing it may read: paste an export first, in red', /^✗ Paste an export first/.test(none) && await red(empty, '#x-out'), none);
-// StreetCat, 7 Nov, 22:52: the app on his home screen had no keys; Export keys there had put its own empty export in the box, and Import
+// An app on the home screen had no keys; Export keys there had put its own empty export in the box, and Import
 // keys took it and said «Imported». Now a browser with no keys exports nothing (the box stays empty, a red line says why); with an
 // export with no keys in the box, Import keys takes what was copied; and an export with no keys in it imports nothing, and says so.
 const fresh = await page(); await as(fresh, 'streetcat'); await fresh.evaluate(t => navigator.clipboard.writeText(t), copied);

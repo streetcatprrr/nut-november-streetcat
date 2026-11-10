@@ -1,5 +1,4 @@
-// What Streetcat releases goes straight to its Lightning address (StreetCat, 6 Nov: "lo suyo es que fuese directamente una dirección
-// Lightning"), against the local mint and a local Lightning address server (LUD-16) whose invoices are the local mint's, so the mint
+// What Streetcat releases goes straight to its Lightning address, against the local mint and a local Lightning address server (LUD-16) whose invoices are the local mint's, so the mint
 // can pay them. Home checks the address when it is saved; a release is then paid out at once, the most the mint can pay after its
 // fees, and only the unused fee stays in this browser; if the mint's answer about the payment is lost, the page asks the mint and does
 // not pay twice; and an address that does not answer keeps the released ecash here, said in red, with its copy button, as before.
@@ -45,7 +44,7 @@ let st = await setAddr(NOBODY); check('an address that does not answer is said i
 st = await setAddr('not an address'); check('…and something that is not a Lightning address is not saved', /is not a Lightning address \(name@domain\): nothing was saved/.test(st) && await sc.evaluate(() => localStorage.getItem('vetlock.sc.payto')) === NOBODY);
 st = await setAddr(ADDR); const saved9 = await sc.evaluate(() => localStorage.getItem('vetlock.sc.payto'));
 check('an address that takes payments is saved, and leaves no line under it (only what is wrong is said, in red)', st === '' && saved9 === 'streetcat@127.0.0.1:7252', JSON.stringify({ st, saved9 }));
-// where the address lives (StreetCat, 9 Nov, 00:24): not on Rescue's Home, but in Keys behind a long button; the Partner's Keys has none
+// where the address lives: not on Rescue's Home, but in Keys behind a long button; the Partner's Keys has none
 await tab(sc, 'home'); await sc.waitForTimeout(400);
 const home9 = await sc.evaluate(() => ({ field: !!document.querySelector('#home #h-ln'), text: document.getElementById('home').textContent }));
 check('Rescue\'s Home has no Lightning address field, no "Every release is paid at once…" and no "What Streetcat pays for" line', !home9.field && !/Every release is paid|What Streetcat pays for/.test(home9.text), JSON.stringify({ field: home9.field }));

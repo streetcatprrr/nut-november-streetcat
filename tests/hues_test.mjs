@@ -1,5 +1,5 @@
 // The colours of TnR and Tnr2 (no mint needed). Both were made before links carried their colour, so each browser used to give them the
-// first free one: StreetCat's Safari showed Tnr2 in cyan, but he chose yellow for it. Now a fixed table gives TnR 345 (pink) and Tnr2 100
+// first free one: a browser showed Tnr2 in cyan, but yellow was chosen for it. Now a fixed table gives TnR 345 (pink) and Tnr2 100
 // (yellow), keyed by name and deadline (5 Nov 2026 23:59:59 UTC, 1793923199, as in campaigns/tnr2.json), on both pages: in a fresh
 // browser, and in one whose colour registry already holds other colours for them. No other campaign is ever given 345 or 100, unless
 // its own signed link carries it.
@@ -21,7 +21,7 @@ const statusHue = async (registry, c) => { const p = await page('status.html', r
 
 const fresh = await page('index.html'); let [a, t2] = await hues(fresh);
 check('a fresh browser: TnR is pink (345) and Tnr2 yellow (100)', a === 345 && t2 === 100, `${a} · ${t2}`);
-const wrong = { 'tnr2|1793923199': { h: 200, own: false }, 'tnr|1793923199': { h: 295, own: true }, 'mochi|1800000000': { h: 100, own: false } };  /* Tnr2 cyan, as in StreetCat's Safari */
+const wrong = { 'tnr2|1793923199': { h: 200, own: false }, 'tnr|1793923199': { h: 295, own: true }, 'mochi|1800000000': { h: 100, own: false } };  /* Tnr2 cyan */
 const old = await page('index.html', wrong); [a, t2] = await hues(old);
 const mochi = await old.evaluate(() => window.__vetlock.campHue({ name: 'MOCHI', deadline: 1800000000 }));
 check('a browser whose registry held other colours for them: TnR pink, Tnr2 yellow again, and a campaign that had yellow gives way', a === 345 && t2 === 100 && mochi !== 100 && mochi !== 345, `${a} · ${t2} · MOCHI ${mochi}`);

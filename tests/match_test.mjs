@@ -1,4 +1,4 @@
-// Is it the cat of the request? (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»; the mock-up: «Si»),
+// Is it the cat of the request?,
 // against the local mint and two local test relays (made-up keys, fake money). The photos are drawn here: no real photo is kept with
 // the tests. Streetcat's requests carry the cat's photos as caught; the clinic sends each cat's record, with its own photos, by relay.
 // On Streetcat's request the record's photos go under the request's, view by view; while one is still on its way it says so. The first
@@ -49,7 +49,7 @@ const FIT = [], FITBAD = []; const fits = async (p, label) => { const vs = p.vie
   await p.setViewportSize(vs); FIT.push(label); if (over.length) FITBAD.push(`${label}: ${over.join(', ')}`); };
 const openReq = async name => { await tab(sc, 'scamp'); await sc.locator('#sc-reqs .item', { hasText: new RegExp('^' + name + ' ') }).click(); await sc.waitForSelector('#sreq.on'); await sc.waitForTimeout(400); };
 const until = async (p, re, ms = 300000) => { const seen = new Set(), t0 = Date.now(); let s = ''; while (Date.now() - t0 < ms) { s = await line(p); seen.add(s); if (re.test(s)) break; await p.waitForTimeout(40); } return { s, seen: [...seen] }; };
-const SAME = /^Nothing points to another cat\.$/, OTHER = /^✗ It may be another cat\.$/;  /* short, in green or in red (StreetCat, 9 Nov, 14:27) */
+const SAME = /^Nothing points to another cat\.$/, OTHER = /^✗ It may be another cat\.$/;  /* short, in green or in red */
 
 // keys, a campaign, four donations sent to Streetcat
 await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1200); const clinicPk = await txt(clinic, '#cs-pk');
@@ -76,11 +76,11 @@ for (const c of CATS) { await tab(sc, 'scamp'); await sc.click('#sc-new'); await
   await sc.waitForFunction(n => window.__vetlock.sreqs().some(r => r.q.patient === n), c.name, { timeout: 30000 }); c.id = await sc.evaluate(n => window.__vetlock.sreqs().find(r => r.q.patient === n).id, c.name);
   await sc.waitForFunction(id => (document.querySelector('#sq-head .mut') || {}).textContent === 'request ' + id && /photos sent/.test(document.getElementById('sq-steps').textContent), c.id, { timeout: 60000 }); }
 await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic, '#w-n', /^4$/, 60000);
-// the clinic's "Check the cat" (StreetCat, 7 Nov: «un botón unificado para comprobar ambos»): on the record made from a request, Streetcat's
+// the clinic's "Check the cat": on the record made from a request, Streetcat's
 // photos at once, and the same hint as on Streetcat's side, before signing
 const reqPicsAt = async id => { for (let i = 0; i < 30; i++) { if (await clinic.evaluate(async id => { const V = window.__vetlock, r = V.creqs().find(x => x.id === id); if (!r || !(r.q.photos || []).length) return false; for (const p of r.q.photos) if (!(await V.photoHere(p.sha256))) return false; return true; }, id)) return true;
   await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); } return false; };
-const SAMEQ = 'Nothing points to another cat.', OTHERQ = '✗ It may be another cat.';  /* short, in green or in red (StreetCat, 9 Nov, 14:11) */
+const SAMEQ = 'Nothing points to another cat.', OTHERQ = '✗ It may be another cat.';  /* short, in green or in red */
 for (const c of CATS) { const looks = c.name === 'MOCHI' || c.name === 'TEO'; if (looks) await reqPicsAt(c.id);
   await tab(clinic, 'work'); await showW(clinic, 'w-pend'); await clinic.locator('#w-list .item', { hasText: new RegExp('^' + c.name + ' ') }).click(); await clinic.waitForSelector('#creq.on'); await clinic.click('#cr-cat-a'); await clinic.waitForSelector('#catnew.on');
   await shoot(clinic, '#cn-shots', c.rec, c.views);

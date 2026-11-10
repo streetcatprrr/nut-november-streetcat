@@ -1,0 +1,400 @@
+diff -ruN a/cashu/core/nuts/nut10.py b/cashu/core/nuts/nut10.py
+--- a/cashu/core/nuts/nut10.py
++++ b/cashu/core/nuts/nut10.py
+@@ -11,7 +11,8 @@
+ SpendingCondition = Union[P2PKSecret, HTLCSecret]
+ 
+ _KNOWN_KIND_PREFIX = re.compile(r"^\s*\[\s*[\"']?(?:P2PK|HTLC)[\"']?\s*(?:,|\])")
+-_SINGLE_VALUE_TAGS = {"sigflag", "n_sigs", "locktime", "n_sigs_refund"}
++# "dest" (mint/dest.py): once, with exactly one value, like the other single-value tags
++_SINGLE_VALUE_TAGS = {"sigflag", "n_sigs", "locktime", "n_sigs_refund", "dest"}
+ _MULTI_VALUE_TAGS = {"pubkeys", "refund"}
+ _SUPPORTED_TAGS = _SINGLE_VALUE_TAGS | _MULTI_VALUE_TAGS
+ 
+diff -ruN a/cashu/mint/conditions.py b/cashu/mint/conditions.py
+--- a/cashu/mint/conditions.py
++++ b/cashu/mint/conditions.py
+@@ -18,6 +18,7 @@
+     verify_schnorr_signature,
+ )
+ from ..core.secret import SecretKind
++from .dest import LedgerDestConditions
+ 
+ 
+ @dataclass
+@@ -63,7 +64,7 @@
+             return cls(preimage=None, signatures=[])
+ 
+ 
+-class LedgerSpendingConditions:
++class LedgerSpendingConditions(LedgerDestConditions):
+     def _verify_input_output_spending_conditions(
+         self,
+         proofs: List[Proof],
+@@ -76,6 +77,10 @@
+         This either returns True, if the token has no spending conditions or
+         it satisifies them, or it raises an error.
+         """
++        if self._has_dest(proofs):
++            # A `dest` lock also rules where the value may go (mint/dest.py):
++            # it is verified whole there, main path and refund path.
++            return self._verify_dest_spending_conditions(proofs, outputs, quote)
+         if self._at_least_one_proof_has_sig_all(proofs):
+             # At least one proof has SIG_ALL in it, therefore we delegate all
+             # enforcement to SIG_ALL-aware enforcement:
+diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
+--- a/cashu/mint/dest.py
++++ b/cashu/mint/dest.py
+@@ -0,0 +1,319 @@
++"""
++Destination-bound P2PK: the `dest` tag.
++
++Experimental draft by Streetcat for Nut November 2026 (docs/dest-lock.md in
++github.com/streetcatprrr/nut-november). Not part of Nutshell and not reviewed
++by its authors.
++
++A P2PK secret tagged ["dest", "pubkeys"] can only be spent, on its main path,
++in a swap whose every output is opened in the witness and is locked either to
++one of the lock's `pubkeys` that signed the transaction, or with the very same
++lock. The key in `data` has to sign and can never be paid. Such a spend is kept
++readable: its witness is stored with every one of its inputs. The refund path
++is NUT-11's, for the lock's `refund` keys only.
++
++Everything here fails closed: whatever is malformed, missing or unknown
++refuses the spend.
++"""
++
++import json
++import re
++from typing import List, Optional, Set, Tuple
++
++from ..core.base import BlindedMessage, Proof
++from ..core.crypto.b_dhke import hash_to_curve, step1_alice
++from ..core.crypto.secp import PrivateKey, PublicKey
++from ..core.errors import TransactionError
++from ..core.nuts import nut10, nut11
++from ..core.p2pk import SigFlags, verify_schnorr_signature
++from ..core.secret import Secret, SecretKind
++from ..core.settings import settings
++
++DEST_TAG = "dest"
++# what a mint announces in its NUT-06 info, under NUT-11
++DEST_POLICIES = ["pubkeys"]
++
++Opening = Tuple[str, str]  # an output's secret and its blinding factor (hex)
++# a blinding factor is written one way: 32 bytes, lower-case hex
++_SCALAR_HEX = re.compile(r"[0-9a-f]{64}")
++
++
++def _is_p2pk(condition: object) -> bool:
++    # HTLCSecret inherits from P2PKSecret, so the kind is what tells them apart
++    return isinstance(condition, Secret) and condition.kind == SecretKind.P2PK.value
++
++
++class LedgerDestConditions:
++    """Mixed into LedgerSpendingConditions, whose helpers it uses."""
++
++    def _has_dest(self, proofs: List[Proof]) -> bool:
++        """Whether any input carries a `dest` tag."""
++        for proof in proofs:
++            condition = nut10.parse_spending_condition(proof.secret)
++            if condition is not None and condition.tags.get_tag(DEST_TAG) is not None:
++                return True
++        return False
++
++    def _verify_dest_spending_conditions(
++        self,
++        proofs: List[Proof],
++        outputs: List[BlindedMessage],
++        quote: Optional[str] = None,
++    ) -> bool:
++        """
++        Verify a transaction in which at least one input carries `dest`.
++
++        Returns True if the main path (with its rules about outputs) or the
++        NUT-11 refund path is satisfied, and raises otherwise.
++        """
++        # One lock per transaction, as for SIG_ALL: this raises on an ordinary
++        # secret among the inputs and on two different locks.
++        lock = self._verify_all_secrets_equal_and_return(proofs)  # type: ignore[attr-defined]
++        requirements = self._get_spending_requirements(lock)  # type: ignore[attr-defined]
++
++        try:
++            self._verify_dest_main_path(lock, requirements, proofs, outputs, quote)
++        except TransactionError as exc:
++            main_path_error: Exception = exc
++        except Exception:
++            main_path_error = TransactionError("dest: malformed transaction.")
++        else:
++            # Under SIG_ALL only the first input carries the witness. It is
++            # stored with every input, so that whoever knows any one of them
++            # can read from NUT-07 where the value went: otherwise the signers
++            # could put a proof of their own first and leave no trace on the
++            # others.
++            for proof in proofs[1:]:
++                proof.witness = proofs[0].witness
++            return True
++
++        # The refund path is for the lock's refund keys. NUT-11 lets anyone
++        # spend an expired lock that names none; here what stays under a lock
++        # can be rebuilt by anyone from the mint, so such a lock never opens.
++        if (
++            requirements.refund_path is not None
++            and requirements.refund_path.pubkeys
++            and self._dest_refund_path_ok(
++                lock, requirements.refund_path, proofs, outputs, quote
++            )
++        ):
++            return True
++
++        raise main_path_error
++
++    def _verify_dest_main_path(
++        self,
++        lock,
++        requirements,
++        proofs: List[Proof],
++        outputs: List[BlindedMessage],
++        quote: Optional[str],
++    ) -> None:
++        if not _is_p2pk(lock):
++            raise TransactionError("dest: only a P2PK secret can carry it.")
++        if lock.tags.get_tag(DEST_TAG) not in DEST_POLICIES:
++            raise TransactionError("dest: unknown policy.")
++        if lock.sigflag != SigFlags.SIG_ALL:
++            raise TransactionError("dest: the lock must be SIG_ALL.")
++        if requirements.primary_path.required_sigs < 2:
++            # a payment always takes two signatures (the key in data and the
++            # payee); with n_sigs 1 the key in data alone could move the value
++            # from the lock to the same lock, to no end but the mint's fees
++            raise TransactionError(
++                "dest: the lock must need at least two signatures."
++            )
++        if quote is not None:
++            raise TransactionError("dest: this ecash cannot be melted, only swapped.")
++        if not outputs:
++            raise TransactionError("dest: no outputs.")
++
++        signatures, openings = self._dest_witness(proofs[0].witness)
++        if len(signatures) > len(requirements.primary_path.pubkeys):
++            raise TransactionError("dest: more signatures than keys.")
++
++        # who signed this very transaction: its inputs and its outputs
++        message = nut11.sigall_message_to_sign(proofs, outputs)
++        signers = self._dest_signers(
++            message, requirements.primary_path.pubkeys, signatures
++        )
++        required = requirements.primary_path.required_sigs
++        if len(signers) < required:
++            raise TransactionError(
++                f"signature threshold not met. {len(signers)} < {required}."
++            )
++        if lock.data.lower() not in signers:
++            raise TransactionError("dest: the key in data has not signed.")
++
++        payees = {key.lower() for key in lock.tags.get_tag_all("pubkeys")}
++        if len(openings) != len(outputs):
++            raise TransactionError("dest: every output must be opened in the witness.")
++
++        input_nonces = {Secret.deserialize(proof.secret).nonce for proof in proofs}
++        seen: Set[str] = set()
++        for output, (secret, r) in zip(outputs, openings):
++            self._dest_check_opening(output, secret, r)
++            if secret in seen:
++                raise TransactionError("dest: two outputs have the same secret.")
++            seen.add(secret)
++
++            condition = nut10.parse_spending_condition(secret)
++            if condition is None or not _is_p2pk(condition):
++                raise TransactionError("dest: an output is not locked.")
++
++            if condition == lock:
++                # the same lock (kind, data and tags): what is not paid stays put
++                if condition.nonce in input_nonces:
++                    raise TransactionError(
++                        "dest: an output repeats the nonce of an input."
++                    )
++                continue
++
++            # otherwise a plain payment to a payee that signed for it
++            payee = condition.data.lower()
++            if condition.tags.root or payee not in payees:
++                raise TransactionError(
++                    "dest: an output goes where the lock does not allow."
++                )
++            if payee not in signers:
++                raise TransactionError("dest: a payee is paid without its signature.")
++
++    def _dest_refund_path_ok(
++        self,
++        lock,
++        refund_path,
++        proofs: List[Proof],
++        outputs: List[BlindedMessage],
++        quote: Optional[str],
++    ) -> bool:
++        """NUT-11's refund path, with no rule about outputs."""
++        try:
++            if lock.sigflag == SigFlags.SIG_ALL:
++                message = nut11.sigall_message_to_sign(proofs, outputs)
++                if quote is not None:
++                    message += quote
++                signatures = self._dest_signatures(proofs[0].witness)
++                return self._verify_p2pk_signatures(  # type: ignore[attr-defined]
++                    message,
++                    refund_path.pubkeys,
++                    list(signatures),
++                    refund_path.required_sigs,
++                )
++            for proof in proofs:
++                signatures = self._dest_signatures(proof.witness)
++                self._verify_p2pk_signatures(  # type: ignore[attr-defined]
++                    proof.secret,
++                    refund_path.pubkeys,
++                    list(signatures),
++                    refund_path.required_sigs,
++                )
++            return True
++        except Exception:
++            return False
++
++    def _dest_signatures(self, witness: Optional[str]) -> List[str]:
++        """The signatures of a witness, whatever else it holds (refund path)."""
++        try:
++            decoded = json.loads(witness or "")
++            signatures = decoded.get("signatures") or []
++            if isinstance(signatures, list) and all(
++                isinstance(s, str) for s in signatures
++            ):
++                return signatures
++        except Exception:
++            pass
++        return []
++
++    def _dest_witness(self, witness: Optional[str]) -> Tuple[List[str], List[Opening]]:
++        """The signatures and the opened outputs of a witness."""
++        if not witness:
++            return [], []
++        try:
++            decoded = json.loads(witness)
++        except (json.JSONDecodeError, TypeError):
++            return [], []
++        if not isinstance(decoded, dict):
++            return [], []
++
++        signatures = decoded.get("signatures") or []
++        opened = decoded.get("outputs") or []
++        if not isinstance(signatures, list) or not all(
++            isinstance(s, str) for s in signatures
++        ):
++            raise TransactionError("dest: malformed witness.")
++        if not isinstance(opened, list):
++            raise TransactionError("dest: malformed witness.")
++
++        openings: List[Opening] = []
++        for entry in opened:
++            if (
++                not isinstance(entry, dict)
++                or not isinstance(entry.get("secret"), str)
++                or not isinstance(entry.get("r"), str)
++            ):
++                raise TransactionError("dest: malformed witness.")
++            openings.append((entry["secret"], entry["r"]))
++        return signatures, openings
++
++    def _dest_signers(
++        self, message: str, pubkeys: List[str], signatures: List[str]
++    ) -> Set[str]:
++        """The keys among `pubkeys` with a valid signature on `message`."""
++        signers: Set[str] = set()
++        for pubkey in {key.lower() for key in pubkeys}:
++            for signature in signatures:
++                try:
++                    valid = verify_schnorr_signature(
++                        message=message.encode("utf-8"),
++                        pubkey=PublicKey(bytes.fromhex(pubkey)),
++                        signature=bytes.fromhex(signature),
++                    )
++                except Exception:
++                    valid = False
++                if valid:
++                    signers.add(pubkey)
++                    break
++        return signers
++
++    def _dest_check_opening(self, output: BlindedMessage, secret: str, r: str) -> None:
++        """B_ must be hash_to_curve(secret) + r·G."""
++        if not secret or len(secret) > settings.mint_max_secret_length:
++            raise TransactionError("dest: an opened secret is empty or too long.")
++        try:
++            # bytes.fromhex() skips spaces and a short scalar is padded: an r
++            # that only looks like one would be stored for readers as given
++            if not _SCALAR_HEX.fullmatch(r):
++                raise ValueError("r is not 32 bytes of lower-case hex")
++            B_, _ = step1_alice(secret, PrivateKey(bytes.fromhex(r)))
++            matches = B_.format().hex() == output.B_.lower()
++        except Exception:
++            raise TransactionError("dest: malformed opening.")
++        if not matches:
++            raise TransactionError("dest: an opening does not match its output.")
++
++    async def _verify_dest_outputs_unspent(
++        self, proofs: List[Proof], outputs: List[BlindedMessage], conn=None
++    ) -> None:
++        """
++        An opened output must not carry a secret that was already spent: it
++        could never be spent again, and what stays under the lock would be lost.
++        A guard against a client's mistake, not against the signers: they can
++        still give an output a secret that exists unspent (docs, Limits).
++        """
++        if not self._has_dest(proofs):
++            return
++        try:
++            _, openings = self._dest_witness(proofs[0].witness)
++        except TransactionError:
++            return  # not a main-path spend: the refund path has passed
++        if not openings or len(openings) != len(outputs):
++            return
++        Ys = [
++            hash_to_curve(secret.encode("utf-8")).format().hex()
++            for secret, _ in openings
++        ]
++        async with self.db.get_connection(conn) as conn:  # type: ignore[attr-defined]
++            spent = await self.db_read._get_proofs_spent(Ys, conn)  # type: ignore[attr-defined]
++        if spent:
++            raise TransactionError(
++                "dest: an output repeats a secret that was already spent."
++            )
+diff -ruN a/cashu/mint/features.py b/cashu/mint/features.py
+--- a/cashu/mint/features.py
++++ b/cashu/mint/features.py
+@@ -29,6 +29,7 @@
+     WEBSOCKETS_NUT,
+ )
+ from ..core.settings import settings
++from ..mint.dest import DEST_POLICIES
+ from ..mint.protocols import SupportsBackends, SupportsPubkey
+ 
+ _VERSION_PREFIX = "Nutshell"
+@@ -122,7 +123,8 @@
+         mint_features[FEE_RETURN_NUT] = supported_dict
+         mint_features[RESTORE_NUT] = supported_dict
+         mint_features[SCRIPT_NUT] = supported_dict
+-        mint_features[P2PK_NUT] = supported_dict
++        # the `dest` tag (mint/dest.py) is announced with the policies it enforces
++        mint_features[P2PK_NUT] = dict(supported=True, dest=DEST_POLICIES)
+         mint_features[DLEQ_NUT] = supported_dict
+         mint_features[HTLC_NUT] = supported_dict
+         mint_features[MINT_QUOTE_SIGNATURE_NUT] = supported_dict
+diff -ruN a/cashu/mint/verification.py b/cashu/mint/verification.py
+--- a/cashu/mint/verification.py
++++ b/cashu/mint/verification.py
+@@ -109,6 +109,8 @@
+         # 2. Verify NUT-10 spending conditions (P2PK, HTLC, and grouped
+         # SIG_ALL rules) at the transaction level.
+         self._verify_input_output_spending_conditions(proofs, outputs or [], quote)
++        # `dest` locks open their outputs: none may repeat a spent secret.
++        await self._verify_dest_outputs_unspent(proofs, outputs or [], conn)
+ 
+         # Melts can omit NUT-08 change outputs or provide an empty array.
+         if outputs is None or (not outputs and not verify_input_output_balance):

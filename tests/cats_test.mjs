@@ -1,5 +1,4 @@
-// The cat's record (StreetCat, 6 Nov: "que la interfaz de la clínica pudiese crear una ficha del gato … y esa fuese reenviada
-// automáticamente a Streetcat"). First core.js: the record signed with the clinic's statement key and checked, and its photos in parts
+// The cat's record. First core.js: the record signed with the clinic's statement key and checked, and its photos in parts
 // small enough for a relay. Then the app, on the local mint and a local relay: the clinic opens Streetcat's request for MOCHI and makes
 // MOCHI's record from it, with four photos made small on the phone (without what the camera wrote in the file), signs it and it goes by
 // itself; Streetcat, which knows the clinic from its campaign, gets the record and every photo, checks them, lists the cat, finds it and
@@ -63,7 +62,7 @@ say(`(the photos: ${Object.entries(photos).map(([k, v]) => `${k} ${Math.round(v.
 await cl.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(q)); await cl.waitForSelector('#creq.on');
 check('the request names its cat\'s record, still to be made', /^MOCHI's record: photos, chip$/.test(await text(cl, '#cr-cat-a')) && await cl.isVisible('#cr-cat-a'));
 await cl.click('#cr-cat-a'); await cl.waitForSelector('#catnew.on');
-check('…which opens with the cat, the procedure and the date of the request, in one line (StreetCat: "es muy larga")', await cl.inputValue('#cn-name') === 'MOCHI' && await cl.inputValue('#cn-proc') === 'sterilisation (spay)' && await cl.inputValue('#cn-date') === today && /^MOCHI\s*TNR MARINA · request R-/.test(await text(cl, '#cn-head'))
+check('…which opens with the cat, the procedure and the date of the request, in one line', await cl.inputValue('#cn-name') === 'MOCHI' && await cl.inputValue('#cn-proc') === 'sterilisation (spay)' && await cl.inputValue('#cn-date') === today && /^MOCHI\s*TNR MARINA · request R-/.test(await text(cl, '#cn-head'))
   && (await text(cl, '#cn-sum')) === `sterilisation (spay) · ${today} · edit` && !(await cl.isVisible('#cn-name')) && !(await cl.isVisible('#cn-proc')) && !(await cl.isVisible('#cn-coat')), await text(cl, '#cn-sum'));
 check('a photo is taken with the camera straight away, not chosen from the gallery', await cl.getAttribute('#cn-file', 'capture') === 'environment' && await cl.getAttribute('#cn-file', 'accept') === 'image/*');
 for (const s of ['face', 'left', 'right', 'nose']) { const [fc] = await Promise.all([cl.waitForEvent('filechooser'), cl.click(`#cn-shots .shot[data-slot="${s}"]`)]); await fc.setFiles({ name: `IMG_${s}.JPG`, mimeType: 'image/jpeg', buffer: photos[s] }); await cl.waitForSelector(`#cn-shots .shot[data-slot="${s}"].has`, { timeout: 30000 }); }

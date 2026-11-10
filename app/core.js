@@ -56,13 +56,15 @@ const donRef = async ys => 'DON-' + (await sha256hex([...ys].map(lc).sort().join
 // given twice and a mint may read the first. Refused, and said why (`bad`): a tag given twice, a count or a deadline not written as a
 // whole number, a key that is not a point, one key twice by its x coordinate (a Schnorr signature cannot tell 02… from 03…, so two of
 // them are one signer counted twice), tags that are not lists of texts. A secret that is not a P2PK lock at all is null.
-const P2PK_TAGS = ['sigflag', 'n_sigs', 'pubkeys', 'locktime', 'refund', 'n_sigs_refund'], WHOLE = /^(0|[1-9][0-9]{0,14})$/;
+const P2PK_TAGS = ['sigflag', 'n_sigs', 'pubkeys', 'locktime', 'refund', 'n_sigs_refund', 'dest'], WHOLE = /^(0|[1-9][0-9]{0,14})$/;  // dest: see "a lock that says where the money may go", below
 const xOnly = k => lc(k).slice(2), sameKey = (a, b) => !!a && !!b && xOnly(a) === xOnly(b);
 function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { return null; }
   if (!Array.isArray(s) || s[0] !== 'P2PK' || !s[1] || typeof s[1] !== 'object' || typeof s[1].data !== 'string') return null;
-  const d = s[1], t = {}, why = [], tags = d.tags == null ? [] : d.tags;
+  const d = s[1], t = Object.create(null), why = [], tags = d.tags == null ? [] : d.tags;  /* no prototype: a tag named __proto__ is a tag like any other, and is listed as unknown */
+  /* audit of 10 Nov: the mint refuses every spend, the donor's refund too, of a secret with a third element, another field, or a nonce that is missing or no text; read as a lock here, one such proof made every release that took it fail at the mint */
+  if (s.length !== 2 || Array.isArray(d) || typeof d.nonce !== 'string' || !d.nonce || !d.data || Object.keys(d).some(k => k !== 'nonce' && k !== 'data' && k !== 'tags')) why.push('it is not written as a lock is: the mint would refuse it');
   if (!Array.isArray(tags)) why.push('its tags are not a list');
-  else for (const x of tags) { if (!Array.isArray(x) || !x.length || !x.every(v => typeof v === 'string')) { why.push('a tag is not a list of texts'); continue; }
+  else for (const x of tags) { if (!Array.isArray(x) || !x.length || !x.every(v => typeof v === 'string' && v)) { why.push('a tag is not a list of texts'); continue; }
     if (Object.prototype.hasOwnProperty.call(t, x[0])) why.push(`the tag ${x[0]} is given twice`); else t[x[0]] = x.slice(1); }
   const whole = (k, dflt) => { const v = t[k]; if (v === undefined) return dflt; if (v.length !== 1 || !WHOLE.test(v[0])) { why.push(`its ${k} is not a whole number`); return NaN; } return Number(v[0]); };
   const keys = (list, what) => { if (list.some(k => !pointOk(k))) why.push(`${what} is not a public key`); return list.map(lc); };
@@ -71,20 +73,20 @@ function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { retu
   if (new Set(refund.map(xOnly)).size !== refund.length) why.push('one refund key is given twice');
   const n = whole('n_sigs', 1), nRefund = whole('n_sigs_refund', 1), locktime = whole('locktime', 0);
   const sigflag = t.sigflag === undefined ? 'SIG_INPUTS' : t.sigflag.length === 1 ? t.sigflag[0] : '';
-  return { main, n, refund, nRefund, locktime, sigflag, unknown: Object.keys(t).filter(k => !P2PK_TAGS.includes(k)), bad: why[0] || '' }; }
+  const dest = t.dest === undefined ? '' : t.dest.length === 1 ? t.dest[0] : '?';  /* '' none · 'pubkeys' · anything else: not known here */
+  return { main, n, refund, nRefund, locktime, sigflag, dest, unknown: Object.keys(t).filter(k => !P2PK_TAGS.includes(k)), bad: why[0] || '' }; }
 // what a campaign promises: Streetcat and the clinic sign together; one refund key, the donor's, opens after the deadline
-function lockProblem(l, c){ if (!l) return 'not a P2PK lock'; if (l.bad) return l.bad;
+function lockProblem(l, c){ if (c && c.lock === 'dest') return destLockProblem(l, { streetcat: c.streetcat, payees: payeesOf(c), deadline: c.deadline });  /* a campaign that says where its money may go: its own reader, below */
+  if (!l) return 'not a P2PK lock'; if (l.bad) return l.bad;
   const want = [c.streetcat, c.clinic].map(xOnly).sort();
   if (l.main.map(xOnly).sort().join() !== want.join()) return 'locked to other keys than Streetcat + the clinic'; if (l.n !== 2) return `needs ${l.n} signature(s), not 2`;
   if (l.locktime !== Number(c.deadline)) return 'its deadline is not the campaign deadline'; if (!l.refund.length) return 'no refund key: anyone could take it after the deadline';
   if (l.refund.length !== 1) return 'more than one refund key: only the donor may take it back';
   if (want.includes(xOnly(l.refund[0]))) return 'its refund key is Streetcat\'s or the partner\'s: only the donor may take it back';
-  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule';
+  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.dest) return 'a rule about where it goes that this campaign does not have'; if (l.sigflag !== 'SIG_INPUTS') return 'unusual signature rule';
   if (l.unknown.length) return `a tag this app does not know (${l.unknown[0]})`; return ''; }
-const CAMP = ['name', 'op', 'mint', 'streetcat', 'clinic', 'deadline'];
-// What a campaign (a pot) pays for, the colony it is for, and its partner: who confirms the spending, by name and by what it is (StreetCat,
-// 7 Nov: «las peticiones pueden ser de muchos tipos… comida… una operación veterinaria… esterilización»; «la comida tendría que confirmar…
-// la tienda que vende el pienso»). The partner's key is the campaign's "clinic" key, as before: a clinic, a shop, or another. All four are
+const CAMP =['name', 'op', 'mint', 'streetcat', 'clinic', 'deadline'];
+// What a campaign (a pot) pays for, the colony it is for, and its partner: who confirms the spending, by name and by what it is. The partner's key is the campaign's "clinic" key, as before: a clinic, a shop, or another. All four are
 // optional and kept only when valid; the campaign's signature covers them, so a campaign made before is the same campaign, and checks
 // as it did. Neither the campaign's id nor the partner's certificate name them.
 const TYPES = ['sterilisation', 'vet', 'food', 'other'], PKINDS = ['clinic', 'shop', 'other'];
@@ -92,14 +94,23 @@ const word = (v, n = 60) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim
 function campaignOf(c){ if (!c || typeof c !== 'object') throw new Error('no campaign'); const o = {}; for (const k of CAMP) if (c[k] != null && c[k] !== '') o[k] = c[k];
   o.name = String(o.name || '').trim(); if (o.op != null) o.op = String(o.op); o.mint = String(o.mint || '').trim().replace(/\/+$/, ''); o.deadline = Number(o.deadline); o.streetcat = lc(o.streetcat); o.clinic = lc(o.clinic);
   if (!o.name || !o.mint || !pointOk(o.streetcat) || !pointOk(o.clinic) || !Number.isInteger(o.deadline)) throw new Error('the campaign is incomplete');
+  if (o.name.length > 200 || (o.op != null && o.op.length > 200) || o.mint.length > 300) throw new Error('the campaign\'s name, operation or mint is too long to be one');  /* audit of 10 Nov: a name of a million letters deflates to 7 kB in a message, and three such filled Rescue's storage */
   if (sameKey(o.streetcat, o.clinic)) throw new Error('the partner key is Streetcat\'s own key: the partner signs with its own');  /* one signer twice (A06) */
   if (TYPES.includes(c.type)) o.type = c.type; if (PKINDS.includes(c.pkind)) o.pkind = c.pkind; if (word(c.colony)) o.colony = word(c.colony); if (word(c.partner)) o.partner = word(c.partner);
+  // A campaign whose donations say where they may go (lock: 'dest', see "a lock that says where the money may go", below) can have a
+  // list of partners. The first is still `clinic`, as everywhere; `partners` are the others. Both are signed with the
+  // rest and are part of the campaign's id. Eight partners at most: more would not fit in a proof's secret (1 024 characters at the mint).
+  const more = c.partners == null ? [] : c.partners;
+  if (c.lock === 'dest') { o.lock = 'dest'; if (!Array.isArray(more) || more.length > 7 || more.some(k => !pointOk(k)) || new Set([o.streetcat, o.clinic, ...more].map(xOnly)).size !== more.length + 2) throw new Error('the campaign\'s partners are not public keys, each once, eight at most');
+    if (more.length) o.partners = more.map(lc); }
+  else if (!Array.isArray(more) || more.length) throw new Error('a list of partners needs the lock that says where the money may go');
   return o; }
-const campShort = c => ({ name: c.name, mint: c.mint, streetcat: c.streetcat, clinic: c.clinic, deadline: c.deadline });
-// Streetcat's published key: a donation link and a ledger must name it (both pages check). Confirmed by StreetCat on 5 Nov (it is also in
+const payeesOf = c => [lc(c.clinic), ...(c.lock === 'dest' && Array.isArray(c.partners) ? c.partners.map(lc) : [])];  /* who a campaign's money can be paid to */
+const campShort = c => ({ name: c.name, mint: c.mint, streetcat: c.streetcat, clinic: c.clinic, deadline: c.deadline, ...(c.lock === 'dest' ? { lock: 'dest', ...(c.partners && c.partners.length ? { partners: c.partners } : {}) } : {}) });
+// Streetcat's published key: a donation link and a ledger must name it (both pages check). Confirmed on 5 Nov (it is also in
 // campaigns/tnr2.json). Another key, if there is ever one, is added in this one line.
 const STREETCAT_KEYS = ['0294637dacb6799343eacb4654700ad781694838b8b6db80551d17af001b194121'];
-const published = k => !STREETCAT_KEYS.length || STREETCAT_KEYS.includes(lc(k));
+const published = k => STREETCAT_KEYS.includes(lc(k));  /* an empty list is nobody's key, not everybody's (audit of 10 Nov: it used to pin nothing) */
 // a campaign's id: a hash of what makes it (its name, mint, both keys and deadline). The ledger is published under it (relay.js).
 const campaignId = async c => 'streetcat:' + (await sha256hex(canon(campShort(campaignOf(c))))).slice(0, 20);
 // ---------- campaigns signed by Streetcat ----------
@@ -123,55 +134,89 @@ async function campaignSig(c){ if (!c || c.sig == null || c.sig === '') return '
 // checks every amount against the mint's keys (amountProblems) before it can sign, and a request without that proof is refused.
 // Streetcat keeps the full tokens.
 const newId = () => 'R-' + hex(root.crypto.getRandomValues(new Uint8Array(5))).toUpperCase();
+// A request of this kind has the partner sign each proof's secret. A campaign locked with `dest` ("a lock that says where the money may
+// go", below) has the partner sign the whole transaction instead, one per donation (each donation has its own lock). Its request names
+// the partner it asks (`payee`: the campaign's partner, or one of its list) and says, with each donation's proofs, what that
+// transaction is (`tx`: the keyset of its outputs and their amounts, `pay` to the partner and `rest` back under the lock). Nothing
+// else goes into it (destBuild), so the partner's app builds the very transaction it signs from what it was shown, and Streetcat's
+// builds the same one to send it: there is no output the partner did not make itself.
+const askedOf = q => { const c = q && q.campaign; return lc(c && c.lock === 'dest' && q.payee ? q.payee : c && c.clinic); };  /* the partner a request asks */
+const destOf = c => ({ streetcat: c.streetcat, payees: payeesOf(c), deadline: c.deadline });
+const reqTx = (q, k) => destBuild({ inputs: k && k.proofs, payee: askedOf(q), id: k && k.tx && k.tx.id, pay: k && k.tx && k.tx.pay, rest: (k && k.tx && k.tx.rest) || [], seed: k && k.tx && k.tx.seed });
+const wholes = a => Array.isArray(a) && a.length <= 64 && a.every(n => Number.isInteger(n) && n > 0), sumOf = a => a.reduce((s, n) => s + n, 0);
 const slim = p => ({ id: String(p.id), amount: amt(p.amount), secret: String(p.secret), C: String(p.C || ''), ...(p.dleq ? { dleq: { e: String(p.dleq.e || ''), s: String(p.dleq.s || ''), r: String(p.dleq.r || '') } } : {}) });
 const SCALAR = /^[0-9a-f]{1,64}$/i, CPOINT = /^0[23][0-9a-f]{64}$/i;
 const amountCheckable = p => !!p && CPOINT.test(String(p.C || '')) && !!p.dleq && typeof p.dleq === 'object' && ['e', 's', 'r'].every(k => SCALAR.test(String(p.dleq[k] || '')));
 // the clinic's check that every proof is worth what the request says: the mint's DLEQ proof for the key of that amount. `keysets`: the
 // campaign mint's keys by keyset id (fetched by the app, or kept for offline). A proof the mint did not sign for that amount is named
 // apart from one whose keys are not on this phone (to be checked again); either way the request cannot be confirmed.
-function amountProblems(q, keysets){ const p = []; let W = 0, N = 0, X = 0;
+// `feeOf` (a campaign that pays from the lock): what the mint charges to spend these proofs, or null when it is not known here. What a
+// request's amounts leave over between what it spends and what it gives out has to be exactly that: the mint refuses a spend that
+// leaves anything else, so no sat could be lost that way, but a request that said "1 sat mint fee" at a mint that charges none
+// would be one the partner signs for nothing.
+function amountProblems(q, keysets, feeOf){ const p = []; let W = 0, N = 0, X = 0; const D = !!(q && q.campaign && q.campaign.lock === 'dest') && typeof feeOf === 'function';
   for (const k of (q && q.contributions) || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; let wrong = 0, nokeys = 0, nocheck = 0;
     for (const x of ps) { if (!amountCheckable(x)) { nocheck++; continue; } const ks = keysets && keysets[x.id]; if (!ks || !ks.keys) { nokeys++; continue; }
       let ok = false; try { ok = cashu.hasValidDleq({ id: String(x.id), amount: amt(x.amount), secret: String(x.secret), C: x.C, dleq: x.dleq }, ks); } catch (_) {}  /* an amount with no key in the keyset throws: not worth it */
       if (!ok) wrong++; }
     if (nocheck) p.push(NOCHECK(k));
-    if (wrong) p.push(`${k.ref || 'a donation'}: ${wrong === 1 ? 'an amount is' : wrong + ' amounts are'} false. Report a problem.`);  /* short, in red (StreetCat, 9 Nov, 15:10): the mint's signature does not match the amount */
+    if (wrong) p.push(`${k.ref || 'a donation'}: ${wrong === 1 ? 'an amount is' : wrong + ' amounts are'} false. Report a problem.`);  /* short, in red: the mint's signature does not match the amount */
     if (nokeys) p.push(`${k.ref || 'a donation'}: amounts not checked yet (no connection?)`);  /* the mint's keys are not on this phone: checked again */
+    if (D && !wrong && !nocheck) { const t = k.tx || {}, left = ps.reduce((s, x) => s + amt(x.amount), 0) - (wholes(t.pay) ? sumOf(t.pay) : 0) - (wholes(t.rest) ? sumOf(t.rest) : 0); let want = null; try { want = feeOf(ps); } catch (_) {}
+      if (want == null || !Number.isInteger(Number(want))) { if (!nokeys) { p.push(`${k.ref || 'a donation'}: amounts not checked yet (no connection?)`); nokeys = 1; } }
+      else if (Number(want) !== left) { p.push(`${k.ref || 'a donation'}: the mint fee is false. Report a problem.`); wrong = 1; } }
     W += wrong; N += nokeys; X += nocheck; }
   return Object.assign(p, { wrong: W, unchecked: N, uncheckable: X }); }  /* the counts: a lie (wrong), keys missing for now (unchecked), no way to check (uncheckable) */
 const NOCHECK = k => `${k.ref || 'a donation'}: amounts can't be checked. Report a problem.`;  /* a proof carries no DLEQ proof (an older app's request, or changed): reported, Streetcat asks again */
-// The cat as Streetcat caught it (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»): up to three photos, face
+// The cat as Streetcat caught it: up to three photos, face
 // and sides, made small on its phone, named here by SHA-256; the photos themselves travel apart (by relay in parts, or in a file), so the
 // clinic can check it is this cat. Optional: a request without photos is as before, and an older app ignores them.
 const REQ_SLOTS = ['face', 'left', 'right'];
 const reqPhotosOk = ps => Array.isArray(ps) && ps.length >= 1 && ps.length <= REQ_SLOTS.length && new Set(ps.map(x => x && x.slot)).size === ps.length
   && ps.every(x => x && REQ_SLOTS.includes(x.slot) && SHA.test(String(x.sha256)) && Number.isInteger(x.bytes) && x.bytes >= 1 && x.bytes <= CAT_PHOTO_MAX && Number.isInteger(x.w) && Number.isInteger(x.h));
-async function makeRequest({ campaign, patient, procedure, date, note = '', contributions, photos = [], id = newId(), created = new Date().toISOString() }){
-  const c = campaignOf(campaign); if (!String(patient || '').trim() || !String(procedure || '').trim() || !DAY.test(String(date || ''))) throw new Error('a request needs the cat, the procedure and the date');
+// `payee` and `dest` are for a campaign that pays straight from the lock: the partner asked (the campaign's first when not said) and what
+// the mint gives to build on, { keysetId, denoms, fee: proofs => the mint's input fee for them }
+async function makeRequest({ campaign, patient, procedure, date, note = '', contributions, photos = [], payee, dest, id = newId(), created = new Date().toISOString() }){
+  const c = campaignOf(campaign), D = c.lock === 'dest', to = D ? lc(payee || c.clinic) : '';
+  if (D && !payeesOf(c).includes(to)) throw new Error('the partner asked is not one of this campaign\'s partners');
+  if (D && !(dest && dest.keysetId)) throw new Error('a request of this campaign says where every sat goes: it needs the mint\'s keyset');
+  if (!String(patient || '').trim() || !String(procedure || '').trim() || !DAY.test(String(date || ''))) throw new Error('a request needs the cat, the procedure and the date');
   const ph = (photos || []).map(x => ({ slot: x.slot, sha256: lc(x.sha256), bytes: x.bytes, w: x.w, h: x.h })); if (ph.length && !reqPhotosOk(ph)) throw new Error('the photos of the cat are not valid');
   if (!Array.isArray(contributions) || !contributions.length) throw new Error('a request needs at least one donation');
   const out = [], seen = new Set();
-  for (const k of contributions) { const proofs = (k.proofs || []).map(slim); if (!proofs.length) throw new Error('a donation without proofs');
+  for (const k of contributions) { let proofs = (k.proofs || []).map(slim), tx = null; if (!proofs.length) throw new Error('a donation without proofs');
     for (const p of proofs) { const bad = lockProblem(lockOf(p.secret), c); if (bad) throw new Error(`a donation is not this campaign's: ${bad}`); const y = yOf(p.secret); if (seen.has(y)) throw new Error('the same proof twice'); seen.add(y);
       if (!amountCheckable(p)) throw new Error('a donation\'s proof carries no DLEQ proof from the mint, so the partner could not check its amount: it cannot be asked for'); }
     const total = proofs.reduce((s, p) => s + p.amount, 0), release = k.release == null ? total : Number(k.release);
     if (!Number.isInteger(release) || release < 1 || release > total) throw new Error(`proofs of ${total} sat cannot pay ${k.release} sat`);
-    out.push({ ref: k.ref || await donRef(proofs.map(p => yOf(p.secret))), release, proofs }); }
-  return { t: 'streetcat.request', v: 1, id, campaign: c, patient: String(patient).trim(), procedure: String(procedure).trim(), date: String(date), ...(note ? { note: String(note) } : {}), ...(ph.length ? { photos: ph } : {}), contributions: out, created }; }
+    if (D) { const t = await destTx({ proofs, pay: release, payee: to, keysetId: dest.keysetId, denoms: dest.denoms, fee: dest.fee ? Number(dest.fee(proofs)) || 0 : 0 }); proofs = t.inputs; tx = t.spec;  /* the proofs in the transaction's order */
+      const no = destProblems(t, destOf(c), { payee: to, pay: release - t.fee }); if (no.length) throw new Error(`a donation cannot be asked for: ${no[0]}`); }  /* what the partner's app will check before it signs, checked here first (audit of 10 Nov: a donation with two refund keys made a request that failed only at the partner's button) */
+    out.push({ ref: k.ref || await donRef(proofs.map(p => yOf(p.secret))), release, proofs, ...(tx ? { tx } : {}) }); }
+  return { t: 'streetcat.request', v: 1, id, campaign: c, ...(D ? { payee: to } : {}), patient: String(patient).trim(), procedure: String(procedure).trim(), date: String(date), ...(note ? { note: String(note) } : {}), ...(ph.length ? { photos: ph } : {}), contributions: out, created }; }
 // what a clinic's app checks before it shows a request (it is just text anyone could write)
 function requestProblems(q){ if (!q || q.t !== 'streetcat.request') return ['this is not a Streetcat request']; if (q.v !== 1) return [`it was made by another version of the app (format ${q.v})`];
-  let c; try { c = campaignOf(q.campaign); } catch (e) { return [e.message]; } const p = [];
+  let c; try { c = campaignOf(q.campaign); } catch (e) { return [e.message]; } const p = [], D = c.lock === 'dest';
+  if (D && !payeesOf(c).includes(lc(q.payee))) p.push('it does not ask one of this campaign\'s partners');
   if (!/^R-[0-9A-F]{10}$/.test(String(q.id))) p.push('it has no valid request number');
   if (!String(q.patient || '').trim() || !String(q.procedure || '').trim() || !DAY.test(String(q.date || ''))) p.push('the cat, the procedure or the date is missing');
   if (!Array.isArray(q.contributions) || !q.contributions.length) p.push('it names no donation');
   if (q.photos !== undefined && !reqPhotosOk(q.photos)) p.push('its photos of the cat are not valid');
-  const seen = new Set();
+  const seen = new Set(), seeds = new Set();
   for (const k of q.contributions || []) { const ps = Array.isArray(k.proofs) ? k.proofs : []; if (!ps.length) { p.push(`${k.ref || 'a donation'} has no proofs`); continue; }
     const bad = [...new Set(ps.map(x => lockProblem(lockOf(x.secret), c)).filter(Boolean))]; if (bad.length) p.push(`${k.ref || 'a donation'}: ${bad.join('; ')}`);
     for (const x of ps) { let y = ''; try { y = yOf(x.secret); } catch (_) {} if (!y || seen.has(y)) p.push(`${k.ref || 'a donation'}: a proof listed twice`); seen.add(y); }
     if (ps.some(x => !amountCheckable(x))) p.push(NOCHECK(k));
-    const total = ps.reduce((s, x) => s + amt(x.amount), 0); if (!Number.isInteger(k.release) || k.release < 1 || k.release > total) p.push(`${k.ref || 'a donation'}: it cannot pay ${k.release} sat out of ${total}`); }
+    const total = ps.reduce((s, x) => s + amt(x.amount), 0); if (!Number.isInteger(k.release) || k.release < 1 || k.release > total) p.push(`${k.ref || 'a donation'}: it cannot pay ${k.release} sat out of ${total}`);
+    if (D) { const t = k.tx || {}, rest = t.rest == null ? [] : t.rest;  /* what its transaction is: read here, built and checked whole before it is signed (certify) */
+      if (typeof t.id !== 'string' || !t.id || !wholes(t.pay) || !t.pay.length || !wholes(rest) || !/^[0-9a-f]{64}$/.test(String(t.seed || ''))) p.push(`${k.ref || 'a donation'}: it does not say where its sats go`);
+      else if (seeds.has(t.seed)) p.push(`${k.ref || 'a donation'}: its payment would be the same as another's`);  /* one seed, one set of outputs: the mint would sign only the first */
+      else if (sumOf(t.pay) + sumOf(rest) > total) p.push(`${k.ref || 'a donation'}: it gives out more than it spends`);
+      /* what the donation gives up is what does not go back under its lock: the payment and the mint's fee (what its amounts leave over; whether that is the mint's own fee is checked with the mint's keys, amountProblems) */
+      else if (total - sumOf(rest) !== k.release) p.push(`${k.ref || 'a donation'}: it would take ${total - sumOf(rest)} sat of the donation, not ${k.release}`);
+      if (typeof t.seed === 'string') seeds.add(t.seed); } }
   return [...new Set(p)]; }
+// what a request of a campaign that pays from the lock does with each donation, for the partner to see: paid to it, back under the lock, the mint's fee
+const requestSplit = q => (q.contributions || []).map(k => { const total = (k.proofs || []).reduce((s, x) => s + amt(x.amount), 0), t = k.tx || {}, pay = wholes(t.pay) ? sumOf(t.pay) : 0, rest = wholes(t.rest) ? sumOf(t.rest) : 0; return { ref: k.ref, total, pay, rest, fee: total - pay - rest }; });
 const requestAmount = q => q.contributions.reduce((s, k) => s + Number(k.release), 0);
 
 // ---------- the answer: clinic → Streetcat ----------
@@ -184,31 +229,36 @@ const STMT = 'streetcat/clinic-certificate/v1\n', REPORT = 'streetcat/clinic-rep
 const EVIDENCE = ['invoice', 'photo'];
 const evidenceOk = e => !!e && typeof e === 'object' && Object.keys(e).sort().join() === 'kind,sha256' && /^[0-9a-f]{64}$/.test(e.sha256) && EVIDENCE.includes(e.kind);
 const statementOf = (q, signed, evidence, photos) => ({ type: 'streetcat/clinic-certificate', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, patient: q.patient, procedure: q.procedure, date: q.date,
-  contributions: q.contributions.map(k => ({ ref: k.ref, release: Number(k.release), proofs: k.proofs.map(p => yOf(p.secret)) })), amount: requestAmount(q), clinic: lc(q.campaign.clinic), signed, ...(evidence ? { evidence: { sha256: evidence.sha256, kind: evidence.kind } } : {}), ...(photos && photos.length ? { photos: ansPhotos(photos) } : {}) });
+  contributions: q.contributions.map(k => ({ ref: k.ref, release: Number(k.release), proofs: k.proofs.map(p => yOf(p.secret)) })), amount: requestAmount(q), clinic: askedOf(q), signed, ...(evidence ? { evidence: { sha256: evidence.sha256, kind: evidence.kind } } : {}), ...(photos && photos.length ? { photos: ansPhotos(photos) } : {}) });  /* clinic: the partner asked, the campaign's own unless its request names another of its list */
 async function certify(q, clinicSk, signed = new Date().toISOString(), evidence = null, photos = null){ const bad = requestProblems(q); if (bad.length) throw new Error('not a valid request: ' + bad.join('; '));
-  if (pubOf(clinicSk) !== lc(q.campaign.clinic)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`); if (evidence && !evidenceOk(evidence)) throw new Error('the file\'s fingerprint is not a SHA-256 of an invoice or a photo');
+  if (pubOf(clinicSk) !== askedOf(q)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`); if (evidence && !evidenceOk(evidence)) throw new Error('the file\'s fingerprint is not a SHA-256 of an invoice or a photo');
   if (photos && photos.length && !ansPhotosOk(ansPhotos(photos))) throw new Error('the photos of the delivery are not valid');
-  const statement = statementOf(q, signed, evidence, photos), sig = cashu.schnorrSignMessage(STMT + canon(statement), await derivedSk(TAG.statement, clinicSk));
-  const sigs = q.contributions.flatMap(k => k.proofs.map(p => cashu.schnorrSignMessage(p.secret, clinicSk)));  // NUT-11 signs the proof's secret
+  const c = campaignOf(q.campaign), statement = statementOf(q, signed, evidence, photos), sig = cashu.schnorrSignMessage(STMT + canon(statement), await derivedSk(TAG.statement, clinicSk)); let sigs;
+  // a campaign that pays from the lock: each donation's transaction is built here, checked as the mint will check it (it pays this
+  // partner what the request says, the rest stays under the same lock, nothing goes anywhere else), and signed whole (NUT-11 SIG_ALL)
+  if (c.lock === 'dest') { sigs = []; for (const k of q.contributions) { const tx = await reqTx(q, k), no = destProblems(tx, destOf(c), { payee: askedOf(q), pay: k.release - tx.fee }); if (no.length) throw new Error(`not a valid request: ${k.ref || 'a donation'}: ${no.join('; ')}`); sigs.push(destSign(tx, clinicSk)); } }
+  else sigs = q.contributions.flatMap(k => k.proofs.map(p => cashu.schnorrSignMessage(p.secret, clinicSk)));  // NUT-11 signs the proof's secret
   return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'certified', statement, sig, sigs }; }
-async function report(q, clinicSk, reason, note = '', signed = new Date().toISOString()){ if (pubOf(clinicSk) !== lc(q.campaign.clinic)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`);
+async function report(q, clinicSk, reason, note = '', signed = new Date().toISOString()){ if (pubOf(clinicSk) !== askedOf(q)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`);
   if (!REASONS.includes(reason)) throw new Error('reason: ' + REASONS.join(', '));
-  const statement = { type: 'streetcat/clinic-report', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, reason, note: String(note || '').slice(0, 500), clinic: lc(q.campaign.clinic), signed };
+  const statement = { type: 'streetcat/clinic-report', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, reason, note: String(note || '').slice(0, 500), clinic: askedOf(q), signed };
   return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'report', statement, sig: cashu.schnorrSignMessage(REPORT + canon(statement), await derivedSk(TAG.statement, clinicSk)) }; }
 // Streetcat's check of an answer to its own request q: "certified" only when every proof carries a valid signature from the campaign's
 // clinic key AND the declaration is signed with the clinic's statement key and names exactly this request and these proofs
 async function checkAnswer(q, a){ const v = { ok: false, kind: a && a.kind, proofs: 0, signed: 0, other: 0, statement: 'missing', text: '' };
   if (!a || a.t !== 'streetcat.answer' || a.v !== 1 || a.id !== q.id) { v.text = '✗ this is not the answer to this request'; return v; }
-  const c = campaignOf(q.campaign), spk = await derivedPub(TAG.statement, c.clinic), st = a.statement, who = !c.pkind || c.pkind === 'clinic' ? 'clinic' : 'partner';  /* a shop or another partner: its key is the partner's */
-  if (a.kind === 'report') { const good = !!st && st.type === 'streetcat/clinic-report' && st.request === q.id && lc(st.clinic) === c.clinic && canon(st.campaign) === canon(campShort(c)) && verify(a.sig, REPORT + canon(st), spk);
+  const c = campaignOf(q.campaign), me = askedOf(q), D = c.lock === 'dest', spk = await derivedPub(TAG.statement, me), st = a.statement, who = !c.pkind || c.pkind === 'clinic' ? 'clinic' : 'partner';  /* a shop or another partner: its key is the partner's; `me`: the partner asked */
+  if (a.kind === 'report') { const good = !!st && st.type === 'streetcat/clinic-report' && st.request === q.id && lc(st.clinic) === me && canon(st.campaign) === canon(campShort(c)) && verify(a.sig, REPORT + canon(st), spk);
     v.statement = good ? 'ok' : 'badsig'; v.ok = good; v.text = good ? `the ${who} reports a problem (${st.reason})${st.note ? ': ' + st.note : ''}` : `✗ a report that is not signed with ${c.name}'s ${who} key`; return v; }
   if (a.kind !== 'certified') { v.text = '✗ an answer of an unknown kind'; return v; }
   const want = statementOf(q, st && st.signed, st && evidenceOk(st.evidence) ? st.evidence : null, st && ansPhotosOk(st.photos) ? st.photos : null),  /* its photos too: named, signed */ signedBy = !!st && verify(a.sig, STMT + canon(st), spk), same = !!st && canon(st) === canon(want);
-  v.statement = !st ? 'missing' : !signedBy ? (lc(st.clinic) !== c.clinic ? 'otherkey' : 'badsig') : !same ? 'mismatch' : 'ok';
-  const proofs = q.contributions.flatMap(k => k.proofs); v.proofs = proofs.length;
-  proofs.forEach((p, i) => { const s = (a.sigs || [])[i]; if (!s) return; if (verify(s, p.secret, c.clinic)) v.signed++; else v.other++; });
+  v.statement = !st ? 'missing' : !signedBy ? (lc(st.clinic) !== me ? 'otherkey' : 'badsig') : !same ? 'mismatch' : 'ok';
+  const proofs = q.contributions.flatMap(k => k.proofs);
+  // a campaign that pays from the lock: one signature per donation, on the whole transaction its request says (built here anew)
+  if (D) { v.proofs = q.contributions.length; for (let i = 0; i < q.contributions.length; i++) { const s = (a.sigs || [])[i]; if (!s) continue; let tx = null; try { tx = await reqTx(q, q.contributions[i]); } catch (_) {} if (tx && destSigned(tx, s, me)) v.signed++; else v.other++; } }
+  else { v.proofs = proofs.length; proofs.forEach((p, i) => { const s = (a.sigs || [])[i]; if (!s) return; if (verify(s, p.secret, c.clinic)) v.signed++; else v.other++; }); }
   v.ok = v.proofs > 0 && v.signed === v.proofs && v.statement === 'ok';
-  v.text = v.ok ? `✓ certified: all ${v.proofs} proof${v.proofs === 1 ? '' : 's'} signed with ${c.name}'s ${who} key, and its declaration names exactly them`
+  v.text = v.ok ? (D ? `✓ certified: ${v.proofs === 1 ? 'its payment' : 'all ' + v.proofs + ' payments'} signed whole with ${c.name}'s ${who} key, and its declaration names exactly ${v.proofs === 1 ? 'it' : 'them'}` : `✓ certified: all ${v.proofs} proof${v.proofs === 1 ? '' : 's'} signed with ${c.name}'s ${who} key, and its declaration names exactly them`)
     : v.signed && v.signed < v.proofs ? `✗ Partly signed (${v.signed} of ${v.proofs}) — not certified`
     : v.other && !v.signed ? `✗ Signed with a key that is not ${c.name}'s ${who} key — not certified`
     : v.statement !== 'ok' ? `✗ its declaration ${({ missing: 'is missing', badsig: `is not signed with ${c.name}'s ${who} key`, otherkey: `names another ${who} key`, mismatch: 'does not match this request' })[v.statement]} — not certified` : '✗ not certified';
@@ -253,7 +303,7 @@ async function remainderPart(proof, i){ const r = proof.dleq && proof.dleq.r; if
   return { secret, r: bf, B_: cashu.blindMessage(enc.encode(secret), bf).B_.toHex(true) }; }
 const remainderSlots = amount => { const a = amt(amount); return a > 1 ? Math.ceil(Math.log2(a)) : 0; };  // a rest is smaller than its proof: at most this many pieces
 // which proofs pay `amount` out of a donation: whole proofs, largest first, then at most one proof split
-// How a donation is cut when it is locked (StreetCat, 8 Nov, review point 3): a release takes whole proofs and splits at most one, and the
+// How a donation is cut when it is locked: a release takes whole proofs and splits at most one, and the
 // mint does not bind what a split proof's rest becomes (SIG_INPUTS), so the piece that is split is what a changed Rescue client could
 // take beyond the amount confirmed. Cut small, that piece is small: no proof holds more than a tenth of the donation (the largest
 // denomination the mint has at or under that), the rest in the usual powers of two; about a dozen proofs, never more than twenty-odd.
@@ -289,11 +339,180 @@ const findRemainder = async (w, proof) => (await findRemainders(w, [proof])).get
 // every proof of a donation as the mint sees it, the rest of what was released in part followed down: each with its state, its
 // witness, how deep it is (0: the donation's own proofs) and how much of it went back under the lock (`putBack`)
 async function traceDonation(w, proofs, depth = 0){ const states = await w.checkProofsStates(proofs), byY = new Map(states.map(s => [lc(s.Y), s])), out = [];
-  const spent = proofs.filter(p => (byY.get(yOf(p.secret)) || {}).state === 'SPENT'), rest = spent.length && depth < 8 ? await findRemainders(w, spent) : new Map();
+  const spent = proofs.filter(p => (byY.get(yOf(p.secret)) || {}).state === 'SPENT'), rest = spent.length && depth < 48 ? await findRemainders(w, spent) : new Map();  /* each piece of a rest is at most half the proof it comes from, so no chain is longer than a proof has bits (the limit was 8: a rest of a rest nine deep was not found) */
   for (const p of proofs) { const s = byY.get(yOf(p.secret)) || {}, back = rest.get(yOf(p.secret)) || [];
     out.push({ proof: p, state: s.state || 'UNKNOWN', witness: s.witness || null, depth, putBack: back.reduce((a, x) => a + amt(x.amount), 0) });
     if (back.length) out.push(...await traceDonation(w, back, depth + 1)); }
   return out; }
+
+// ---------- a lock that says where the money may go: `dest` (docs/dest-lock.md; experimental, 10 Nov) ----------
+// Under the lock above, two signatures decide nothing about the outputs: it is Streetcat's app that pays out and puts the rest back.
+// A mint that knows the tag ["dest","pubkeys"] refuses a spend unless every output is opened in the witness and is either a payment
+// to a partner that signed that very transaction, or the same lock again. Streetcat's key (the lock's data) has to sign and can never
+// be paid. The partners that can be paid are the lock's pubkeys: one, or a list. A mint that does not announce the rule ignores the tag, and any two of the
+// keys could send the ecash anywhere: nothing is locked this way unless destMint says its mint enforces it.
+const DEST = 'pubkeys', PAY = 'streetcat/dest-pay/v2';
+const destMint = info => { const n = info && info.nuts && info.nuts['11']; return !!n && Array.isArray(n.dest) && n.dest.includes(DEST); };
+// the secret of one proof of a donation: `streetcat` orders, `payees` are the partners, `refund` is the donor's key for after `deadline`
+function destSecret({ streetcat, payees, deadline, refund }, nonce = hex(root.crypto.getRandomValues(new Uint8Array(32)))){ const keys = [streetcat, ...(Array.isArray(payees) ? payees : []), refund];
+  if (keys.length < 3 || keys.some(k => !pointOk(k)) || new Set(keys.map(xOnly)).size !== keys.length || !Number.isInteger(Number(deadline)) || Number(deadline) < 1)
+    throw new Error('a lock needs Streetcat\'s key, at least one partner, the donor\'s refund key (each key once) and a deadline');
+  return JSON.stringify(['P2PK', { nonce, data: lc(streetcat), tags: [['sigflag', 'SIG_ALL'], ['n_sigs', '2'], ['pubkeys', ...payees.map(lc)], ['locktime', String(Number(deadline))], ['refund', lc(refund)], ['dest', DEST]] }]); }
+// what such a campaign promises, read with the strict reader above (lockOf). `c`: { streetcat, payees, deadline }
+function destLockProblem(l, c){ if (!l) return 'not a P2PK lock'; if (l.bad) return l.bad;
+  const pay = ((c && c.payees) || []).map(xOnly).sort(); if (!pay.length) return 'the campaign names no partner';
+  if (!l.dest) return 'no rule about where it goes: its signers could send it anywhere'; if (l.dest !== DEST) return 'a rule about where it goes that this app does not know';
+  if (l.sigflag !== 'SIG_ALL') return 'its signatures would not cover where it goes';
+  if (xOnly(l.main[0]) !== xOnly(c.streetcat)) return 'the key that orders is not Streetcat\'s';
+  if (l.main.slice(1).map(xOnly).sort().join() !== pay.join()) return 'it could pay other keys than the campaign\'s partners';
+  /* audit of 10 Nov: the mint pays a partner by its key as the lock writes it, and this app as the campaign writes it. The same point written 03… for 02… is one signer to a signature, and passed here; the mint then refused every payment from it. The order is the campaign's too: the app files a donation by its lock's keys as written (index.js lockId) */
+  if (l.main[0] !== lc(c.streetcat) || l.main.slice(1).join() !== ((c && c.payees) || []).map(lc).join()) return 'its keys are not written as the campaign writes them (their order, or 02… for 03…): the mint could not pay from it';
+  if (l.n !== 2) return `needs ${l.n} signature(s), not 2`; if (l.locktime !== Number(c.deadline)) return 'its deadline is not the campaign deadline';
+  if (!l.refund.length) return 'no refund key: anyone could take it after the deadline'; if (l.refund.length !== 1) return 'more than one refund key: only the donor may take it back';
+  if (l.main.map(xOnly).includes(xOnly(l.refund[0]))) return 'its refund key is Streetcat\'s or a partner\'s: only the donor may take it back';
+  if (l.nRefund !== 1) return 'unusual refund rule'; if (l.unknown.length) return `a tag this app does not know (${l.unknown[0]})`; return ''; }
+// a lock without its nonce (its kind, data and tags as written: the mint compares them exactly), and a secret's nonce
+const lockShape = s => { try { const j = JSON.parse(s); return canon([j[0], j[1].data, j[1].tags == null ? [] : j[1].tags]); } catch (_) { return ''; } };
+const nonceOf = s => { try { return String(JSON.parse(s)[1].nonce || ''); } catch (_) { return ''; } };
+// a payment as the mint takes one: a P2PK secret with a nonce, a key and no tags (nobody else could ever spend it). The key it pays, or ''.
+const payKey = s => { try { const j = JSON.parse(s), d = Array.isArray(j) && j.length === 2 && j[0] === 'P2PK' ? j[1] : null;
+  return d && typeof d === 'object' && !Array.isArray(d) && typeof d.data === 'string' && typeof d.nonce === 'string' && d.nonce && (d.tags == null || (Array.isArray(d.tags) && !d.tags.length)) && Object.keys(d).every(k => k === 'nonce' || k === 'data' || k === 'tags') ? lc(d.data) : ''; } catch (_) { return ''; } };
+const piecesOf = (n, denoms) => { const sizes = (denoms && denoms.length ? denoms.map(Number).filter(d => d > 0) : Array.from({ length: 40 }, (_, i) => 2 ** i)).sort((a, b) => b - a), out = [];
+  for (const s of sizes) while (n >= s) { out.push(s); n -= s; } if (n) throw new Error('the mint\'s denominations cannot make this amount'); return out; };
+// THE OUTPUTS OF A RELEASE COME FROM A SEED THAT ONLY ITS REQUEST CARRIES (audit of 10 Nov). Before, they were worked out from the proofs
+// spent (their secret and the r in their DLEQ), which the published ledger shows to everyone: anyone could work out the blinded messages
+// a release would use and have the mint sign them first with a sat of their own, and the mint never signs one twice ("outputs already
+// signed"): for a few sats a stranger could block every release of a donation until its deadline. The seed is 32 random bytes made
+// with the request, which travels sealed to the partner alone; Streetcat's app and the partner's build the same transaction from it,
+// letter for letter, and nobody else can know its blinded messages before the mint has signed them. Nothing has to be found again by
+// working it out: the partner has the request; the donor and the status page read where the rest went in the witness (destTrace).
+// A payment is locked to the partner's key alone (no tags: the mint refuses a payment that anyone else could also spend); a rest goes
+// back under the very lock it came from, with a new nonce.
+const SEED = /^[0-9a-f]{64}$/, newSeed = () => hex(root.crypto.getRandomValues(new Uint8Array(32)));
+async function destPart(seed, kind, i, secretOf){ if (!SEED.test(String(seed || ''))) throw new Error('this is not a payment under the lock');
+  const base = concat(unhex(seed), enc.encode(kind), new Uint8Array([i >> 8, i & 255]));
+  const nonce = hex(await sha256(concat(enc.encode(PAY + '/nonce\n'), base))); let bf = big(await sha256(concat(enc.encode(PAY + '/r\n'), base))) % N; if (bf === 0n) bf = 1n;
+  const secret = secretOf(nonce); return { secret, r: bf, B_: cashu.blindMessage(enc.encode(secret), bf).B_.toHex(true) }; }
+// One donation's part of a release, as one transaction (a SIG_ALL spend takes one lock, and each donation has its own refund key):
+// `proofs` are the proofs that pay (planRelease: whole ones and at most one split), `pay` what goes to `payee`. `pay` is what the
+// donation gives up; the mint's input fee (`fee`) comes out of it, as it comes out of a release under today's lock, so the partner
+// gets pay - fee and what is left of the split proof goes back whole under the same lock (a donor's rest is never what pays a fee;
+// before 10 Nov the fee came out of the rest, and a donation released whole had none to pay it with). Outputs: the payment's first,
+// then the rest's.
+async function destTx({ proofs, pay, payee, keysetId, denoms, fee = 0, seed = newSeed() }){ pay = Number(pay); if (!pointOk(payee)) throw new Error('the partner\'s key is not a public key');
+  const plan = planRelease(proofs, pay); if (plan.inputs.length !== proofs.length) throw new Error('more proofs than this payment needs');
+  if (!Number.isInteger(fee) || fee < 0 || pay - fee < 1) throw new Error('nothing would be left to pay the partner after the mint\'s fee');
+  const spec = { id: String(keysetId), pay: piecesOf(pay - fee, denoms), rest: plan.remainder ? piecesOf(plan.remainder, denoms) : [], seed };  /* all a request has to say of it */
+  return { ...await destBuild({ inputs: plan.inputs, payee, ...spec }), spec }; }
+// The transaction itself, from what a request says of it: the proofs it spends, in their order, who is paid, the keyset of its outputs,
+// their amounts (`pay` to the partner, `rest` back under the lock) and its seed. Whoever is given these few things builds the same
+// transaction, letter for letter: the partner's app the one it signs, Streetcat's the one it sends.
+async function destBuild({ inputs, payee, id, pay, rest = [], seed }){ if (!pointOk(payee)) throw new Error('the partner\'s key is not a public key');
+  const ins = (Array.isArray(inputs) ? inputs : []).map(slim); if (!ins.length || typeof id !== 'string' || !id || !wholes(pay) || !pay.length || !wholes(rest) || !SEED.test(String(seed || ''))) throw new Error('this is not a payment under the lock');
+  const parts = [], same = JSON.parse(ins[0].secret); for (let i = 0; i < pay.length; i++) parts.push({ amount: pay[i], ...await destPart(seed, 'pay', i, nonce => JSON.stringify(['P2PK', { nonce, data: lc(payee) }])) });
+  for (let i = 0; i < rest.length; i++) parts.push({ amount: rest[i], ...await destPart(seed, 'rest', i, nonce => JSON.stringify([same[0], { ...same[1], nonce }])) });  /* the same lock, a new nonce */
+  return { inputs: ins, outputs: parts.map(x => ({ amount: x.amount, id, B_: x.B_ })), open: parts.map(x => ({ secret: x.secret, r: x.r.toString(16).padStart(64, '0') })), pay: sumOf(pay), rest: sumOf(rest), fee: ins.reduce((t, x) => t + x.amount, 0) - sumOf(pay) - sumOf(rest), payee: lc(payee) }; }
+// What the partner's app checks before it signs such a transaction, and Streetcat's before it sends one: the mint's own rule (so a
+// refusal is known before anything is signed) and that it pays `pay` sat to `payee`, no more and no less. The partner signs the whole
+// transaction, so this is where it sees what it signs. `c`: { streetcat, payees, deadline }. The list carries what it found: paid, rest, fee.
+function destProblems(tx, c, { payee, pay }){ const p = [], ins = tx && Array.isArray(tx.inputs) ? tx.inputs : [], outs = tx && Array.isArray(tx.outputs) ? tx.outputs : [], open = tx && Array.isArray(tx.open) ? tx.open : [];
+  let paid = 0, rest = 0, total = 0, given = 0; if (!ins.length || !outs.length) return Object.assign(['it spends nothing'], { paid, rest, fee: 0 });
+  const lock = lockShape(ins[0].secret), nonces = new Set(ins.map(x => nonceOf(x.secret))), seen = new Set();
+  for (const x of ins) { const bad = destLockProblem(lockOf(x.secret), c); if (bad) p.push('a proof is not this campaign\'s: ' + bad); else if (lockShape(x.secret) !== lock) p.push('its proofs are not under one lock'); total += amt(x.amount); }
+  if (!pointOk(payee) || !((c && c.payees) || []).some(k => sameKey(k, payee))) p.push('the one to be paid is not a partner of this campaign');
+  if (outs.length !== open.length) p.push('not every output is opened');
+  else outs.forEach((o, i) => { const s = String((open[i] || {}).secret || ''), a = amt(o.amount); given += a; let B = ''; try { B = cashu.blindMessage(enc.encode(s), BigInt('0x' + open[i].r)).B_.toHex(true); } catch (_) {}
+    if (!s || !B || B !== lc(o.B_) || !Number.isInteger(a) || a < 1) { p.push('an output is not what it is said to be'); return; } if (seen.has(s)) { p.push('two outputs have one secret'); return; } seen.add(s);
+    if (lockShape(s) === lock) { if (nonces.has(nonceOf(s))) p.push('what stays locked repeats a proof it comes from'); else rest += a; return; }
+    if (payKey(s) && payKey(s) === lc(payee)) paid += a; else p.push('an output goes somewhere else than to the partner or back under the lock'); });
+  if (!p.length && paid !== Number(pay)) p.push(`it pays ${paid} sat, not ${pay}`);
+  if (!p.length && given > total) p.push('it gives out more than it spends');
+  return Object.assign([...new Set(p)], { paid, rest, fee: total - given }); }
+// NUT-11's SIG_ALL message for a swap: every input's secret and C, then every output's amount and B_. Both keys sign this text.
+const destMessage = tx => tx.inputs.map(x => x.secret + x.C).join('') + tx.outputs.map(o => String(amt(o.amount)) + o.B_).join('');
+const destSign = (tx, sk) => cashu.schnorrSignMessage(destMessage(tx), sk);
+const destSigned = (tx, sig, pk) => verify(sig, destMessage(tx), pk);
+const destParts = async (w, parts) => { const out = [];  /* proofs from opened outputs and the mint's signatures: amount, DLEQ and r with each; `to`: the key a payment pays ('' for a rest, and for an output that is no payment) */
+  for (const x of parts) { const keys = await w.keyChain.ensureKeysetKeys(x.sig.id), pr = new cashu.OutputData({ amount: x.sig.amount, id: x.sig.id, B_: x.B_ }, x.r, enc.encode(x.secret)).toProof(x.sig, keys);
+    const rest = lockShape(x.secret) === x.lock; out.push({ proof: pr, amount: amt(x.sig.amount), rest, to: rest ? '' : payKey(x.secret), B_: lc(x.B_) }); }
+  return out; };
+// The swap itself. cashu-ts writes its own witnesses, so the transaction goes as it is: the first input carries both signatures, the
+// opened outputs and, for whoever reads the mint afterwards, the transaction's inputs (`inputs`: each one's Y, in order). The mint does
+// not read that list; with it anyone who holds the donation can write the signed text again and check both signatures (destTrace), so a
+// release is proven by the mint's record and nobody else's spend can be taken for one. What comes back, part by part: `to` (a key), `rest` (true: back under the lock), its amount and its proof, with
+// the mint's DLEQ proof and r, which a later request for what is left needs.
+async function destSwap(w, tx, sigs){ const witness = JSON.stringify({ signatures: sigs, outputs: tx.open, inputs: tx.inputs.map(x => yOf(x.secret)) }), lock = lockShape(tx.inputs[0].secret);
+  const res = await w.mint.swap({ inputs: tx.inputs.map((x, i) => ({ id: x.id, amount: amt(x.amount), secret: x.secret, C: x.C, ...(i ? {} : { witness }) })), outputs: tx.outputs });
+  if (!res || !Array.isArray(res.signatures) || res.signatures.length !== tx.outputs.length) throw new Error('the mint did not answer with a signature for every output');
+  return destParts(w, tx.outputs.map((o, i) => ({ secret: tx.open[i].secret, r: BigInt('0x' + tx.open[i].r), B_: o.B_, sig: res.signatures[i], lock }))); }
+// Is what the mint signed (destSwap, destFind) this very transaction: every output of it, each for its amount? Asked before a
+// transaction read back from the mint is booked as done (audit of 10 Nov: anything found under its blinded messages was taken for it).
+const destWhole = (tx, parts) => !!tx && Array.isArray(parts) && parts.length === tx.outputs.length && parts.every((x, i) => x.B_ === lc(tx.outputs[i].B_) && x.amount === amt(tx.outputs[i].amount));
+// What the mint has signed of a transaction, asked by its outputs (NUT-09), part by part as destSwap gives them; nothing when it was
+// never taken. The partner finds its payment this way, with the request alone (it built the transaction itself, so it holds every
+// output's secret and r: nobody has to hand the payment over); and Streetcat's app what became of a release whose answer was lost.
+async function destFind(w, tx){ const lock = lockShape(tx.inputs[0].secret), found = [];
+  for (let at = 0; at < tx.outputs.length; at += 200) { const chunk = tx.outputs.slice(at, at + 200).map((o, i) => ({ o, x: tx.open[at + i] }));
+    const res = await w.mint.restore({ outputs: chunk.map(c => ({ amount: 0, id: c.o.id, B_: c.o.B_ })) }), sigs = new Map((res.outputs || []).map((b, i) => [b.B_, (res.signatures || [])[i]]));
+    for (const c of chunk) { const sig = sigs.get(c.o.B_); if (sig) found.push({ secret: c.x.secret, r: BigInt('0x' + c.x.r), B_: c.o.B_, sig, lock }); } }
+  return destParts(w, found); }
+// Where a spent proof under `dest` went, from what the mint keeps: the opened outputs in its witness (NUT-07) and the mint's
+// signatures for their blinded messages (NUT-09), which carry the amounts. The partner needs nobody to hand its payment over, nor
+// the donor to find what is left; and the status page reads from it how much went to which key. `lockSecret`: the spent proof's secret.
+async function destOutputs(w, witness, lockSecret){ let o = null; try { o = JSON.parse(witness).outputs; } catch (_) {} if (!Array.isArray(o) || !o.length) return [];
+  const lock = lockShape(lockSecret), parts = [], found = [];
+  for (const x of o) { try { if (!x || typeof x.secret !== 'string' || !/^[0-9a-f]{64}$/.test(String(x.r))) continue; const secret = x.secret, r = BigInt('0x' + x.r); parts.push({ secret, r, B_: cashu.blindMessage(enc.encode(secret), r).B_.toHex(true), lock }); } catch (_) {} }
+  for (let at = 0; at < parts.length; at += 200) { const chunk = parts.slice(at, at + 200), id = w.keysetId || w.keyChain.getCheapestKeyset().id;
+    const res = await w.mint.restore({ outputs: chunk.map(s => ({ amount: 0, id, B_: s.B_ })) }), sigs = new Map((res.outputs || []).map((b, i) => [b.B_, (res.signatures || [])[i]]));
+    for (const s of chunk) { const sig = sigs.get(s.B_); if (sig) found.push({ ...s, sig }); } }
+  return destParts(w, found); }
+// What became of a donation under `dest`, from the mint alone: how much is still locked, how much was paid to which partner, what the
+// mint kept in fees and how much went back to its donor. Under SIG_ALL only a transaction's first proof carries a witness and its
+// signatures are on the whole transaction, so who signed cannot be read proof by proof, as under today's lock. It is read transaction
+// by transaction instead (audit of 10 Nov: before, a release was guessed from the shape of the witness):
+// · A RELEASE IS PROVEN. Its witness names its inputs (destSwap) and opens its outputs, so the signed text can be written again here;
+//   a spend counts as a release only when Streetcat's key and every partner it pays have signed that text, which is the mint's own
+//   rule. Then its inputs, its payments, its rest and its fee are exact.
+// · WHAT STAYS LOCKED IS FOLLOWED FROM THE WITNESS, wherever it was put: a rest is any opened output under the same lock. Nothing is
+//   looked for where it could be worked out from the proofs: a stranger can put a sat there (see destPart).
+// · NOTHING IS COUNTED TWICE: an opened output counts once, whichever proofs carry a copy of the witness (the mint reads only the first).
+// · ANY OTHER SPEND IS NOT A RELEASE. With a signature and no payment to a partner it went the one other way the mint allows, back to
+//   its donor after the deadline (`refunded`); a donor who opens its outputs, or pays a stranger, cannot make that look like a release.
+//   One that pays a partner without the two signatures shown (a client that leaves the inputs out, or a donor paying a partner after
+//   the deadline) is `unproven`: said as it is, never as a release.
+// Each proof of `trace` gets `how` (locked · pending · nostate · released · refunded · unproven · unknown) and `left`, how much of it
+// left the lock (its amount less what went back under it), so the sums by state add up to the donation.
+async function destTrace(w, proofs){ const trace = [], bySecret = new Map(), opened = new Map(), read = new Map(), witOf = x => { try { const j = JSON.parse(x.witness); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch (_) { return null; } };
+  for (let layer = (proofs || []).slice(), depth = 0; layer.length && depth < 64; depth++) { const states = await w.checkProofsStates(layer), stateOf = new Map(states.map(t => [lc(t.Y), t])), more = [];
+    for (const p of layer) { if (bySecret.has(p.secret)) continue; const t = stateOf.get(yOf(p.secret)) || {}, x = { proof: p, state: t.state || 'UNKNOWN', witness: t.witness || null, depth }; bySecret.set(p.secret, x); trace.push(x);
+      if (x.state !== 'SPENT' || !x.witness) continue; let outs = read.get(x.witness); if (!outs) { outs = await destOutputs(w, x.witness, p.secret); read.set(x.witness, outs); } opened.set(p.secret, outs);  /* the mint keeps one spend's witness with every input: it is asked about once */
+      for (const o of outs) if (o.rest && !bySecret.has(o.proof.secret) && !more.some(m => m.secret === o.proof.secret)) more.push(o.proof); }
+    layer = more; }
+  const lock = lockOf(proofs[0] && proofs[0].secret), keys = lock && !lock.bad ? lock.main : [], byY = new Map(trace.map(x => [yOf(x.proof.secret), x])), counted = new Set(), paid = {}, loose = {}, txs = [];
+  let released = 0, fees = 0, refunds = false, carry = 0;
+  for (const x of trace) { x.left = amt(x.proof.amount); x.how = x.state === 'UNSPENT' ? 'locked' : x.state === 'PENDING' ? 'pending' : x.state === 'SPENT' ? '' : 'nostate'; }
+  const sigsOf = wit => (Array.isArray(wit.signatures) ? wit.signatures : []).filter(g => typeof g === 'string').slice(0, 32);
+  // the releases: signed by Streetcat and by every partner paid, on this very transaction
+  for (const x of trace) { if (x.state !== 'SPENT' || x.how || !x.witness || !keys.length) continue; const wit = witOf(x); if (!wit || !Array.isArray(wit.inputs) || !Array.isArray(wit.outputs)) continue;
+    const outs = opened.get(x.proof.secret) || [], ins = wit.inputs.slice(0, 2000).map(y => byY.get(lc(y)));
+    if (!ins.length || ins[0] !== x || ins.some(i => !i || i.state !== 'SPENT' || i.how) || new Set(ins).size !== ins.length || !outs.length || outs.length !== wit.outputs.length) continue;
+    const text = ins.map(i => i.proof.secret + i.proof.C).join('') + outs.map(o => String(o.amount) + o.B_).join(''), sigs = sigsOf(wit), signers = keys.filter(k => sigs.some(g => verify(g, text, k)));
+    if (!signers.includes(keys[0]) || signers.length < lock.n || !outs.every(o => o.rest || (!!o.to && o.to !== keys[0] && signers.includes(o.to)))) continue;
+    const tx = { first: yOf(x.proof.secret), inputs: ins.map(i => yOf(i.proof.secret)), paid: {}, rest: 0, fee: 0 }; let inSum = 0, outSum = 0;
+    for (const i of ins) { i.how = 'released'; inSum += amt(i.proof.amount); }
+    for (const o of outs) { counted.add(o.proof.secret); outSum += o.amount; if (o.rest) tx.rest += o.amount; else { tx.paid[o.to] = (tx.paid[o.to] || 0) + o.amount; paid[o.to] = (paid[o.to] || 0) + o.amount; released += o.amount; } }
+    tx.fee = inSum - outSum; fees += tx.fee; txs.push(tx);
+    let back = tx.rest; for (let k = ins.length - 1; k >= 0 && back > 0; k--) { const cut = Math.min(back, ins[k].left); ins[k].left -= cut; back -= cut; } }  /* what went back is taken off the last inputs: the one that was split */
+  // every other spend: what it put back under the lock stays locked; the rest of it left, and not as a release
+  const takeBack = (x, n) => { n += carry; const cut = Math.min(n, x.left); x.left -= cut; carry = n - cut; };  /* more put back than one proof held: off the next ones */
+  for (const x of trace) { if (x.state !== 'SPENT' || x.how) continue; const wit = x.witness ? witOf(x) : null, outs = (wit && opened.get(x.proof.secret)) || [], fresh = outs.filter(o => !counted.has(o.proof.secret)); let back = 0, gave = false;
+    for (const o of fresh) { counted.add(o.proof.secret); if (o.rest) back += o.amount; else if (o.to && keys.slice(1).includes(o.to)) { loose[o.to] = (loose[o.to] || 0) + o.amount; gave = true; } }
+    takeBack(x, back); if (!wit || (outs.length && !fresh.length)) continue;  /* no witness, or a copy of one counted before: it went as the donation's others did (below) */
+    x.how = gave ? 'unproven' : sigsOf(wit).length ? 'refunded' : ''; if (x.how === 'refunded') refunds = true; }
+  const some = trace.some(x => x.how === 'unproven');
+  for (const x of trace) if (x.state === 'SPENT' && !x.how) { takeBack(x, 0); x.how = refunds ? 'refunded' : some ? 'unproven' : 'unknown'; }
+  const sumOfHow = (...h) => trace.filter(x => h.includes(x.how)).reduce((a, x) => a + x.left, 0), total = (proofs || []).reduce((a, p) => a + amt(p.amount), 0);
+  return { trace, txs, total, locked: sumOfHow('locked'), pending: sumOfHow('pending', 'nostate'), released, paid, fees, refunds, refunded: sumOfHow('refunded'), unproven: sumOfHow('unproven'), loose, unknown: sumOfHow('unknown') }; }
 
 // ---------- the published ledger, version 2 ----------
 // Each donation by its code: amount, date, what each part paid for, and the tokens of whatever was put back. The clinic's signed
@@ -303,7 +522,8 @@ async function ledgerEntry({ token, proofs, date, parts = [], remainders = [] })
 function ledgerV2({ campaign, clinicKeySource = '', entries = [], certificates = [], published = new Date().toISOString() }){ const c = campaignOf(campaign);
   return { v: 2, campaign: { ...c, ...(campaign.hue != null ? { hue: campaign.hue } : {}), ...(campaign.to ? { to: campaign.to } : {}), ...(campaign.sig ? { sig: campaign.sig } : {}) }, clinicKeySource, published, donations: entries.flatMap(e => [e.token, ...(e.remainders || [])]), entries, certificates: certificates.map(x => ({ statement: x.statement, sig: x.sig })) }; }
 // a declaration from a ledger: is it signed with the campaign's clinic statement key?
-const certificateOk = async (c, x) => !!x && !!x.statement && x.statement.type === 'streetcat/clinic-certificate' && canon(x.statement.campaign) === canon(campShort(campaignOf(c))) && verify(x.sig, STMT + canon(x.statement), await derivedPub(TAG.statement, campaignOf(c).clinic));
+const certificateOk = async (c, x) => { if (!x || !x.statement || x.statement.type !== 'streetcat/clinic-certificate') return false; const k = campaignOf(c), by = k.lock === 'dest' ? lc(x.statement.clinic) : k.clinic;  /* a campaign with a list of partners: the one that declares it, one of the list */
+  return payeesOf(k).includes(by) && canon(x.statement.campaign) === canon(campShort(k)) && verify(x.sig, STMT + canon(x.statement), await derivedPub(TAG.statement, by)); };
 
 // ---------- handed over in person ----------
 // A volunteer's acknowledgment: signed with the statement key derived from the volunteer's own key (never Streetcat's release key).
@@ -368,8 +588,7 @@ const catPartOk = p => !!p && p.t === 'streetcat.cat-photo' && p.v === 1 && CATI
 // request: the clinic keeps it all the same, and the photo is whole only when its SHA-256 is right)
 function reqPhotoParts(id, slot, sha256, b64, from, clinic){ const n = Math.max(1, Math.ceil(b64.length / CAT_CHUNK));
   return Array.from({ length: n }, (_, i) => ({ t: 'streetcat.request-photo', v: 1, id, kind: slot + '.' + i, slot, sha256: lc(sha256), part: i, of: n, data: b64.slice(i * CAT_CHUNK, (i + 1) * CAT_CHUNK), from: lc(from), clinic: lc(clinic) })); }
-// The partner's photos when it confirms (StreetCat, 7 Nov: a shop, «fotos del albarán del cuando se recibe el pedido o fotos del pedido»; another
-// partner, of what was delivered or done): one or two, the delivery note (or the receipt) and the goods (or the work done), made small on
+// The partner's photos when it confirms: one or two, the delivery note (or the receipt) and the goods (or the work done), made small on
 // its phone, named in its signed declaration by SHA-256 (so they cannot be swapped afterwards), and sent to Streetcat apart, by relay in
 // parts, as a request's are. A clinic confirms as before: the invoice's fingerprint only, the file staying on its phone.
 const ANS_SLOTS = ['note', 'goods'];
@@ -398,7 +617,8 @@ const pwKey = async (pw, salt, iterations, use) => root.crypto.subtle.deriveKey(
 async function sealKey(sk, pw){ const salt = root.crypto.getRandomValues(new Uint8Array(16)), iv = root.crypto.getRandomValues(new Uint8Array(12));
   const data = new Uint8Array(await root.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await pwKey(pw, salt, KDF_ITER, 'encrypt'), unhex(sk)));
   return { kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: KDF_ITER, salt: b64.enc(salt) }, cipher: { name: 'AES-GCM', iv: b64.enc(iv) }, data: b64.enc(data) }; }
-async function openSealed(s, pw){ let k; try { k = hex(new Uint8Array(await root.crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(s.cipher.iv) }, await pwKey(pw, b64.dec(s.kdf.salt), Number(s.kdf.iterations), 'decrypt'), b64.dec(s.data)))); } catch (_) { k = ''; }
+async function openSealed(s, pw){ const rounds = Number(s && s.kdf && s.kdf.iterations); if (!(rounds >= 100000 && rounds <= 5000000)) throw new Error('this is not a key sealed by this app');  /* audit of 10 Nov: the count came from the file with no limits (1 was taken, a thousand million froze the page) */
+  let k; try { k = hex(new Uint8Array(await root.crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(s.cipher.iv) }, await pwKey(pw, b64.dec(s.kdf.salt), Number(s.kdf.iterations), 'decrypt'), b64.dec(s.data)))); } catch (_) { k = ''; }
   if (!SK.test(k)) throw new Error('wrong password, or the receipt is damaged'); return k; }
 async function makeReceipt({ campaign, token, proofs, refundSk, created = new Date().toISOString(), password = '' }){  /* a signed campaign keeps its signature */
   const r = { format: RECEIPT, version: 1, created, campaign: campaign.sig ? { ...campSigned(campaign), sig: String(campaign.sig) } : { ...campaignOf(campaign), ...(campaign.hue != null ? { hue: Number(campaign.hue) } : {}) },
@@ -447,7 +667,7 @@ async function lnAddressInvoice(address, sat, { fetch: f = root.fetch.bind(root)
   const cb = new URL(p.callback); cb.searchParams.set('amount', String(msat)); const inv = await get(cb.href); if (typeof inv.pr !== 'string' || !/^ln/i.test(inv.pr)) throw new Error(`${address} gave no invoice`);
   return { invoice: inv.pr, min: Math.ceil(min / 1000), max: Math.floor(max / 1000), domain: new URL(url).host }; }
 
-// DEADLINES (plan step 1, approved by StreetCat on 8 Nov, 22:11). A request asks the partner to do the work on a day; its donations can be
+// DEADLINES (plan step 1). A request asks the partner to do the work on a day; its donations can be
 // taken back by their donors from their lock's refund date (its locktime, read from each proof: never a name or a date on the page).
 // The sats are needed until the work is done, confirmed by the partner and released by Streetcat: the end of the work's day, plus the
 // partner's days to confirm, plus a margin. Days are Madrid days, whatever the phone's zone: a day with no hour ends at the end of that
@@ -487,6 +707,7 @@ function invoiceExpiry(invoice){ const s = String(invoice || '').trim().toLowerC
   return { at, expiry: x, expires: at + x }; }
 
 root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf, TYPES, PKINDS,
+  DEST, payeesOf, destMint, destSecret, destLockProblem, destTx, destBuild, destProblems, destMessage, destSign, destSigned, destSwap, destFind, destWhole, destOutputs, destTrace, lockShape, askedOf, reqTx, requestSplit,
   TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry,
   makeRequest, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,

@@ -1,5 +1,4 @@
-// The donor's locked donation goes to Streetcat by itself (StreetCat, 8 Nov, 23:20: «Si has pagado para algo, ¿para qué tienes que hacerlo
-// dos veces?»). In the three apps (donor, Rescue, partner), against the local mint and local relays:
+// The donor's locked donation goes to Streetcat by itself. In the three apps (donor, Rescue, partner), against the local mint and local relays:
 //  1. a donation locks: with no tap, the line says "sent to Streetcat ✓", the donor's outbox holds it once, and it is in Rescue's campaign;
 //  2. no relay answers: the line says so in red, and the app keeps trying by itself;
 //  3. the relay comes back: it goes, the line turns to "sent to Streetcat ✓", and Rescue's campaign has it, once.

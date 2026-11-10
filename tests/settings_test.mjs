@@ -2,7 +2,7 @@
 // encrypted with a password (PBKDF2-SHA256 and AES-GCM): it must not hold the key in the clear; a wrong password changes nothing; the
 // right one, on a phone that never had the key, brings back the same key and the older ones kept with it. The checklist says what the
 // clinic still needs to confirm without coverage, and turns ready once the app has saved itself (service worker) and the key is there.
-// The cat recognition can be got there ahead of time, on wifi (StreetCat, 6 Nov: «añade offline setup»): a warning until it is saved, never
+// The cat recognition can be got there ahead of time, on wifi: a warning until it is saved, never
 // "not ready"; a tap shows it coming, then it is saved whole where the service worker reads it; a file that cannot come is said in red.
 import { chromium } from 'playwright';
 import fs from 'fs';

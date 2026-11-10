@@ -1,6 +1,6 @@
 // Nothing may be wider than the phone: every tab of every role, and the status page, at 320, 375, 390 and 430 px.
 // Prints one line per width; a screen that overflows is named with how many pixels it sticks out and the widest element.
-// Then every phone shows Donate as an iPhone 14–16 does (StreetCat, 5 Nov: "se tiene que ver igual en todos los teléfonos"): in
+// Then every phone shows Donate as an iPhone 14–16 does: in
 // Chromium's mobile emulation, which reads the viewport meta tag as phones do, fit.js lays the page out 390 px wide (a little wider on
 // a short screen) and the browser scales it to the screen; opened from a signed campaign link with an amount chosen, Donate must not
 // scroll in what Safari or Chrome shows with their bars, on seven phones from the first SE to the Pro Max.

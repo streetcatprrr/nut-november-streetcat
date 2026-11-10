@@ -1,5 +1,4 @@
-// What Streetcat pays for (StreetCat, 7 Nov: «las peticiones pueden ser de muchos tipos… comida… una operación veterinaria…
-// esterilización»; «Puede haber una hucha… para comida de una colonia, otra… para alguna determinada clínica»; «Perfecto. Implementalo.»):
+// What Streetcat pays for:
 // Home's four kinds in two rows of two, a screen per kind; pots (campaigns) of one kind, for a colony, with the partner who confirms the
 // spending, each chosen from its own list ("+ New …" the first time); and requests paid only from a pot of their kind, the pot bringing
 // its partner. Against the local mint and two local relays, with made-up keys: a clinic and a shop, each with its own key; Rescue adds

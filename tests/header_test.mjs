@@ -1,5 +1,4 @@
-// The header and the clinic's home (StreetCat, 6 Nov: «Donate, Streetcat, Clinic… así es donde se puede alternar»; «en el header, la B»;
-// «botones grandes… del mismo tamaño»; «la 2, la de la rejilla»). The header is the three roles, the one on screen marked, and the status
+// The header and the clinic's home. The header is the three roles, the one on screen marked, and the status
 // page apart. A first visit opens on Donate and says what the page is; a role in the header switches to it, the role on screen goes back to
 // its first screen, and the role is kept for the next visit; a campaign link always opens Donate; an address of one role shows only that
 // role. The status page has the same header, and a role there opens the app as that role. The clinic's home is six buttons of one size,
@@ -33,7 +32,7 @@ const J = JSON.stringify;
 // a first visit: Donate, saying what the page is; the three roles and Status in the header
 const A = await open(BASE + 'index.html');
 let h = await head(A); check('a first visit opens on Donate', h.role === 'donor' && h.screen === 'donate', J(h));
-check('the header shows Donor, Rescue, Partner and Status, Donor marked (StreetCat, 7 Nov: the clinic, a shop or another: «Partner»)', h.shown.join() === 'donor,streetcat,clinic' && h.on.join() === 'donor' && h.status && (await A.evaluate(() => [...document.querySelectorAll('#hd-roles button')].map(b => b.dataset.label || b.textContent).join())) === 'Donor,Rescue,Partner', J(h));
+check('the header shows Donor, Rescue, Partner and Status, Donor marked', h.shown.join() === 'donor,streetcat,clinic' && h.on.join() === 'donor' && h.status && (await A.evaluate(() => [...document.querySelectorAll('#hd-roles button')].map(b => b.dataset.label || b.textContent).join())) === 'Donor,Rescue,Partner', J(h));
 check('Status is the magnifier icon, named "Status" for screen readers', await A.evaluate(() => { const a = document.getElementById('hd-status'); return a.getAttribute('aria-label') === 'Status' && !!a.querySelector('svg') && !a.textContent.trim(); }));
 check('…the header fits in one line', await A.evaluate(() => document.querySelector('.sc-header').getBoundingClientRect().height <= 60 && document.scrollingElement.scrollWidth <= innerWidth));
 check('no "Who are you?" screen, and no block of text on Donate', await A.evaluate(() => !document.getElementById('who') && !/Who are you|Donations in ecash that nobody/.test(document.body.innerText)));

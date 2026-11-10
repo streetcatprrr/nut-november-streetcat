@@ -1,5 +1,4 @@
-// Hold to confirm (StreetCat, 7 Nov: «que la barra hubiese que pulsarla durante… 3 segundos hasta que se cargase entera… y luego… algún
-// parpadeo»; «cuando sea una acción definitiva»), against the local mint and a local test relay (made-up keys, fake money). Every button
+// Hold to confirm, against the local mint and a local test relay (made-up keys, fake money). Every button
 // that moves money or signs needs holding; Pay with Lightning, which only shows an invoice, stays a tap. A tap does nothing and says
 // "hold to confirm"; let go early, the fill empties and nothing happens; held its full time (the app's own, read from the page), the
 // fill reaches the right in the colour of whose screen it is (Streetcat green, the donor orange, the clinic blue), blinks twice and the
@@ -49,14 +48,14 @@ const link = made.match(/http\S+#c=\S+/)[0];
 await setHold(donor, 600); await donor.goto(link); await donor.reload(); await tab(donor, 'decash'); await donor.fill('#d-token', await plain(2100));
 await donor.focus('#d-go'); await donor.keyboard.down('Space'); await donor.waitForTimeout(300); const dcol = await fillColor(donor, '#d-go'), dfill = await fill(donor, '#d-go');
 await donor.waitForTimeout(700); await donor.keyboard.up('Space'); const locked = await waitText(donor, '#d-out', /LOCKED|Failed/, 30000);
-check('the donor holds Space on "Lock my donation": it fills in orange, and the donation is locked', dcol.role === 'donor' && dcol.c === dcol.want && dfill > .2 && /LOCKED 2100 sat for MOCHI/.test(locked), `${dcol.c} · ${(locked.match(/LOCKED 2100 sat for MOCHI/) || [locked.slice(0, 60)])[0]}`);
+check('the donor holds Space on "Lock my donation": it fills in orange, and the donation is locked', dcol.role === 'donor' && dcol.c === dcol.want && dfill > .2 && /LOCKED 2 100 sat for MOCHI/.test(locked), `${dcol.c} · ${(locked.match(/LOCKED 2 100 sat for MOCHI/) || [locked.slice(0, 60)])[0]}`);
 const token = await donor.evaluate(() => window.__vetlock.donorKeys().map(k => k.lockedToken).filter(Boolean).pop());
 
 // the clinic certifies it, held: blue; done, it cannot be held again
 await setHold(clinic, 600); await tab(clinic, 'certify'); await clinic.fill('#c-token', token); await clinic.waitForTimeout(800);
 await at(clinic, '#c-go'); await clinic.mouse.down(); await clinic.waitForTimeout(300); const ccol = await fillColor(clinic, '#c-go'); await clinic.waitForTimeout(700); await clinic.mouse.up();
 const cert = await waitText(clinic, '#c-out', /CERTIFIED|Failed|Not possible/, 30000);
-check('the clinic holds "Certify": it fills in blue, and the token is certified', ccol.role === 'clinic' && ccol.c === ccol.want && /^CERTIFIED 2100 sat/.test(cert), `${ccol.c} · ${cert.split('\n')[0]}`);
+check('the clinic holds "Certify": it fills in blue, and the token is certified', ccol.role === 'clinic' && ccol.c === ccol.want && /^CERTIFIED 2 100 sat/.test(cert), `${ccol.c} · ${cert.split('\n')[0]}`);
 await at(clinic, '#c-go'); await clinic.mouse.down(); await clinic.waitForTimeout(300); const again = await clinic.$eval('#c-go', b => b.classList.contains('holding')); await clinic.mouse.up();
 check('…done ("✓ Certified"), it cannot be held again', !again && /Certified/.test(await txt(clinic, '#c-go')), await txt(clinic, '#c-go'));
 check('the three colours differ: green, orange, blue', new Set([col.c, dcol.c, ccol.c]).size === 3, [col.c, dcol.c, ccol.c].join(' · '));

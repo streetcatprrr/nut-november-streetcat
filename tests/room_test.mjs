@@ -1,5 +1,4 @@
-// Donations that went missing (StreetCat, 8 Nov, 04:51: «Creo una campaña, la pago, sale de mi wallet, pero no llega a la campaña en el
-// rescue»; 05:01: «Chequéalo tú»). The relays had them; Rescue's app lost them, without a word. Three ways it did, each tried here in the
+// Donations that went missing. The relays had them; Rescue's app lost them, without a word. Three ways it did, each tried here in the
 // three apps (donor, Rescue, partner), against the local mint and two local relays:
 //  A. Rescue's storage full of copies of what it had sent (its outbox kept every event, photos too): the donation was read, not saved,
 //     and never read again. Now the outbox keeps only how a sent message went, and the donation is in the campaign.
@@ -51,7 +50,7 @@ const donate = async (n, beforeLock) => { await donor.goto(L1); await donor.relo
   const it = (await donor.evaluate(() => window.__vetlock.outbox())).find(x => !before.has(x.id) && x.t === 'streetcat.donation');
   return it && { ...it, amount: +((locked.match(/LOCKED (\d+) sat/) || [])[1] || 0) }; };  /* what was locked: a mint with fees keeps a sat of it */
 
-// A. Rescue's storage full of what its outbox kept: copies of messages sent long ago (as on StreetCat's phone)
+// A. Rescue's storage full of what its outbox kept: copies of messages sent long ago
 const free0 = await room(rescue);
 await rescue.evaluate(free => { const item = n => ({ id: 'photo' + n, ev: { id: 'photo' + n, kind: 1059, content: 'x'.repeat(n) }, relays: ['wss://a', 'wss://b'], label: 'request photo', ref: 'r', t: 'streetcat.request-photo', acked: ['wss://a', 'wss://b'], tries: 1, next: 0, created: Date.now() - 86400e3, state: 'sent' });
   const was = localStorage.getItem('vetlock.outbox') || '[]', base = JSON.parse(was), len0 = JSON.stringify([...base, item(0)]).length, n = free + was.length - len0 - 3000;

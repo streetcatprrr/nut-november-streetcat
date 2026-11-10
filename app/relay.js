@@ -11,7 +11,7 @@
 (function (root) {
 'use strict';
 const C = root.scCore, K = root.nostrkit; if (!C || !K) throw new Error('relay.js needs core.js and nostr-bundle.js first');
-// the three that carried the live test from StreetCat's network (5 Nov 2026); damus and 0xchat could not be reached from there. On 8 Nov,
+// the three that carried the live test (5 Nov 2026); damus and 0xchat could not be reached from there. On 8 Nov,
 // from there, nos.lol took nothing new (no answer), relay.primal.net came and went, and nostr.mom confirmed some 20–30 s late; of
 // eighteen relays tried that day, nostr.oxtr.dev and purplerelay.com took an announcement and a gift wrap in under 1.5 s and gave both
 // back (by id, by tag, and a wrap by its recipient), so they joined. Left out: relays that refused one of the two kinds (relay.nos.social,
@@ -50,7 +50,7 @@ const has = (url, id, o = {}) => fetchFrom(url, { ids: [id] }, { timeout: (o && 
 const late = r => ({ url: r.url, ok: true, msg: '', late: true });
 // One event to every relay at once. A relay that was sent it but gave no answer in time may have taken it all the same: on 8 Nov
 // nostr.mom confirmed half a minute late and nos.lol never, and Rescue said "no relay took it" of campaigns donors could already see
-// (StreetCat, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»; 18:22: «Si. Arréglalo»). So such a relay is asked
+//. So such a relay is asked
 // whether it has the event before it counts as not taken (`late`). One that answered no (OK false, with its reason) is believed, and
 // one that could not be reached was never sent it. `silent`: sent, and no answer yet.
 async function publish(ev, relays = RELAYS, o){
@@ -69,8 +69,7 @@ async function publishChecked(ev, relays = RELAYS, { timeout = 8000, later = [20
 // { get(key), set(key, value) } (localStorage in the app; its set answers false when the phone has no room left); it keeps the
 // wrapped events, which are already encrypted, only while they wait: once sent (or given up), only how it went is kept, the last
 // 300 of those. It kept every event it ever sent, photos too, and filled the app's storage (about 5 MB for everything it keeps):
-// after that nothing it received could be saved, and donations went missing without a word (StreetCat, 8 Nov, 04:51: «la pago, sale
-// de mi wallet, pero no llega a la campaña en el rescue»).
+// after that nothing it received could be saved, and donations went missing without a word.
 const OUTBOX = 'vetlock.outbox', KEEP_DONE = 300;
 const NO_ROOM = 'this phone has no room left to save it: the app\'s storage is full';
 const slim = a => { const done = a.filter(x => x.state !== 'sending'), drop = new Set(done.slice(0, Math.max(0, done.length - KEEP_DONE)).map(x => x.id));
@@ -118,7 +117,7 @@ async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen =
     let rumor, payload; try { rumor = K.unwrapEvent(ev, k.sk); payload = await C.unpack(rumor.content); } catch (_) { continue; }  // not for us, or not readable
     const want = expect ? await expect(payload) : null;
     // not expected here yet (its request or its campaign is not in this browser yet): asked again next time, not dropped for good
-    // (StreetCat, 7 Nov: the app on his home screen got the clinic's answer before Import all brought the request, and lost it)
+    //
     if (!want) { seen.delete(id); deferred.push({ id, created: ev.created_at }); continue; }
     if (rumor.pubkey !== await pubOf(want)) continue;  // not from who it says
     if (payload && payload.id && seen.has('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''))) continue; if (payload && payload.id) seen.add('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''));
@@ -147,16 +146,15 @@ async function latestLedger(id, { relays = RELAYS, timeout } = {}){
 // expires at its deadline (NIP-40). A donor's "Check for requests" asks the relays for the announcements of Streetcat's published keys
 // and keeps a campaign only when the event names it, its signer is that campaign's ledger key, the campaign's own signature holds, and
 // it is still open: anything else is ignored. Each campaign once, the newest.
-// Since 7 Nov (StreetCat: campaigns and concrete requests, «3»), the announcement also says what it is and which cats it pays for, in
+// Since 7 Nov, the announcement also says what it is and which cats it pays for, in
 // tags the same signature covers: ['k', 'request'] for a request on its own (one cat, its own pot) and, for each request made from
 // it, ['cat', name, procedure, state], the state 'requested', 'done' (the partner confirmed it) or 'released' (Streetcat released the
-// sats to its own reserve: the partner is not paid by the app, so it is not called 'paid'; StreetCat, 8 Nov, review point 5). Announcements
+// sats to its own reserve: the partner is not paid by the app, so it is not called 'paid'). Announcements
 // of before said 'paid' for that: read as 'released'.
 const ANNOUNCE = 'streetcat-campaign', CAT_STATES = ['requested', 'done', 'released'], catState = s => s === 'paid' ? 'released' : CAT_STATES.includes(s) ? s : 'requested';
 const catTags = cats => (cats || []).slice(0, 40).map(x => ['cat', String(x.name || '').trim().slice(0, 40), String(x.procedure || '').trim().slice(0, 80), catState(x.state)]).filter(t => t[1]);
 // Since 9 Nov the announcement also says when the campaign was made (['created', unix seconds], covered by the same signature): the event's
-// own time moves each time it is announced again (once a day), so it cannot order the donors' list, newest first (StreetCat, 9 Nov, 03:45:
-// «que salgan cronológicamente… y salga el último, el primero de la lista»).
+// own time moves each time it is announced again (once a day), so it cannot order the donors' list, newest first.
 async function announceEvent(c, streetcatSk, { kind, cats, created } = {}){ const id = await C.campaignId(c), made = Math.floor(Number(created) / 1000);
   return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', 'announce:' + id], ['t', ANNOUNCE], ['expiration', String(Number(c.deadline))], ...(made > 0 ? [['created', String(made)]] : []), ...(kind === 'request' ? [['k', 'request']] : []), ...catTags(cats)], content: JSON.stringify(c) }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
 async function announcedOk(ev){ try { if (!ev || ev.kind !== LEDGER_KIND || !K.verifyEvent(ev)) return null; const c = JSON.parse(ev.content), id = await C.campaignId(c);

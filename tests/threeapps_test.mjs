@@ -1,15 +1,13 @@
-// Three apps, one for each (StreetCat, 8 Nov, 00:33: «van a ser tres aplicaciones separadas, una para donar, otra para el Rescue y otra
-// para el proveedor… No puede haber redundancias. Tienes que pensar que son tres aplicaciones separadas»; 00:17, of my suggestions:
-// «La 1 me parece bien. La 4 me parece bien. Y la 2 me parece bien, creo»). The donors' app, Rescue's and the partner's, each with its
+// Three apps, one for each. The donors' app, Rescue's and the partner's, each with its
 // own storage, by relay only. Rescue's new campaign offers its link, not "open donation page"; the donation reaches Rescue; Rescue's
 // request reaches the partner's app as soon as it comes to the front (no button touched), listed by its code (no photo in the list:
-// StreetCat, 8 Nov, 01:21: «ya al entrar en la petición se ven las fotos del gato, si las hay»);
+// they are in the request when it is opened);
 // the confirmation reaches Rescue's app as soon as it comes to the front, and Home lists it under "To release"; a tap opens it, and it
 // is released. The partner's list keeps apart a request whose pot's refund date has passed. Against the local mint and two relays.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
-import { pinBrowser } from './pin.mjs';
+import { pinBrowser, pin } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
 const w = new Wallet(MINT); await w.loadMint();
@@ -53,7 +51,7 @@ await tab(partner, 'work'); await partner.waitForTimeout(2000); await front(part
 const came = await partner.waitForFunction(id => window.__vetlock.creqs().some(r => r.id === id), qid, { timeout: 15000 }).then(() => true).catch(() => false);
 check('the partner\'s app, back in front, has the request at once (no "Check for requests")', came);
 await partner.waitForTimeout(600); await showW(partner, 'w-pend'); const item = await partner.$$eval('#w-list .item', its => its.map(it => ({ nm: (it.querySelector('.nm') || {}).textContent, sub: (it.querySelector('.sub2') || {}).textContent, img: !!it.querySelector('img') })));
-check('…listed by its code first, the one Rescue shows; no photo in the list (StreetCat, 8 Nov: they are in the request when it is opened)', item.length === 1 && item[0].nm === 'Crypto · Spay' && item[0].sub === `${qid} · 21 sat · TNR SOL` && !item[0].img, JSON.stringify(item));
+check('…listed by its code first, the one Rescue shows; no photo in the list', item.length === 1 && item[0].nm === 'Crypto · Spay' && item[0].sub === `${qid} · 21 sat · TNR SOL` && !item[0].img, JSON.stringify(item));
 await partner.click('#w-list .item'); await partner.waitForSelector('#creq.on'); await partner.check('#cr-ok'); await partner.click('#cr-go'); const conf = await waitText(partner, '#cr-out', /CONFIRMED|✗/, 30000);
 check('…confirmed there', /CONFIRMED/.test(conf), conf.split('\n')[0]);
 // RESCUE'S APP, in front again: Home lists what is to release, first; a tap opens it, and it is released
@@ -66,11 +64,12 @@ check('…a tap opens it, ready: "Release 21 sat"', go === 'Release 21 sat' && !
 await rescue.click('#sq-go'); const rel = await waitText(rescue, '#sq-steps', /✓ released/, 60000); await tab(rescue, 'home'); await rescue.waitForTimeout(400);
 check('…released; and Home has nothing left to release', /✓ released/.test(rel) && !(await rescue.$('#h-kinds button.req.torel')) && !(await rescue.$$eval('#h-kinds > .mut', ms => ms.some(m => /^To release/.test(m.textContent)))), rel.replace(/\s+/g, ' ').slice(-50));
 // the partner's list keeps apart a request whose pot's refund date has passed (an older one, from another Rescue)
-const other = await page(); await other.evaluate(async ({ clinicPk, MINT }) => { const C = window.scCore, R = window.scRelay, hex = u => Array.from(u, x => x.toString(16).padStart(2, '0')).join(''); let sk, dk; do { sk = hex(crypto.getRandomValues(new Uint8Array(32))); dk = hex(crypto.getRandomValues(new Uint8Array(32))); } while (!/^[0-7]/.test(sk) || !/^[0-7]/.test(dk));  /* Streetcat's key, and a donor's for the refund (A06: never Streetcat's or the partner's) */
+const other = await page(); const oldSc = await other.evaluate(async ({ clinicPk, MINT }) => { const C = window.scCore, R = window.scRelay, hex = u => Array.from(u, x => x.toString(16).padStart(2, '0')).join(''); let sk, dk; do { sk = hex(crypto.getRandomValues(new Uint8Array(32))); dk = hex(crypto.getRandomValues(new Uint8Array(32))); } while (!/^[0-7]/.test(sk) || !/^[0-7]/.test(dk));  /* Streetcat's key, and a donor's for the refund (A06: never Streetcat's or the partner's) */
   const camp = { name: 'TNR VIEJO', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sk), clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) - 3600 };
   const proofs = [{ id: '00ad268c4d1f5826', amount: 16, secret: JSON.stringify(['P2PK', { nonce: hex(crypto.getRandomValues(new Uint8Array(32))), data: camp.streetcat, tags: [['pubkeys', camp.clinic], ['n_sigs', '2'], ['locktime', String(camp.deadline)], ['refund', C.pubOf(dk)]] }]), C: C.pubOf(sk), dleq: { e: hex(crypto.getRandomValues(new Uint8Array(32))), s: hex(crypto.getRandomValues(new Uint8Array(32))), r: hex(crypto.getRandomValues(new Uint8Array(32))) } }];  /* shaped as a mint's signature and its DLEQ proof (A04): only where the request goes in the list is checked here */
   const q = await C.makeRequest({ campaign: camp, patient: 'Viejo', procedure: 'sterilisation', date: '2026-11-06', contributions: [{ release: 16, proofs }] });
-  const m = new Map(), box = R.outbox({ get: k => m.get(k) ?? null, set: (k, v) => m.set(k, v) }); await box.add(q, sk, clinicPk, { relays: localStorage.getItem('vetlock.relays').split(',') }); await box.flush(); }, { clinicPk, MINT });
+  const m = new Map(), box = R.outbox({ get: k => m.get(k) ?? null, set: (k, v) => m.set(k, v) }); await box.add(q, sk, clinicPk, { relays: localStorage.getItem('vetlock.relays').split(',') }); await box.flush(); return camp.streetcat; }, { clinicPk, MINT });
+await pin(oldSc);  /* that key was made by hand, not by the app: pinned here, as a Streetcat key of this test (review of 9 Nov, S1: the partner takes requests only from Streetcat's published key) */
 await tab(partner, 'work'); await front(partner); await partner.waitForFunction(() => window.__vetlock.creqs().length === 2, null, { timeout: 15000 }).catch(() => {}); await partner.waitForTimeout(600);
 const grps = () => partner.$$eval('#w-list > *', xs => xs.map(x => x.classList.contains('grp') ? '# ' + x.textContent : (x.querySelector('.nm') || {}).textContent));
 await showW(partner, 'w-pend'); const gPend = await grps(); await showW(partner, 'w-dn'); const groups = [...gPend, ...await grps()];  /* pending, then done: each behind its number */

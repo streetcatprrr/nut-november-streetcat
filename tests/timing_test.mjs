@@ -1,4 +1,4 @@
-// Deadlines (plan step 1, approved by StreetCat on 8 Nov, 22:11), in the three apps against the local mint and two local relays (made-up
+// Deadlines (plan step 1), in the three apps against the local mint and two local relays (made-up
 // keys, fake money). Two pots of one partner: refunds open in 2 days in one, in 30 in the other. A request for work in 5 days from the
 // first: the dates, then in red "✗ Refund window opens …, before the work", the funding checked at the mint now in green, the button
 // says "Send anyway", and "Pay from …" offers only the other pot, with its date; chosen, "✓ Refund window opens after the required

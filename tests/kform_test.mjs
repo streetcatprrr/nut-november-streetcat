@@ -1,6 +1,6 @@
-// The campaign form asks only for the name (StreetCat, 7 Nov: «menos parámetros para crear una nueva campaña… que me des una lista»; «Si»):
+// The campaign form asks only for the name:
 // against the local mint (answering for Minibits' address) and a local test relay, with made-up keys. One browser holds Streetcat's
-// and the clinic's keys, as StreetCat's does: the form shows the name, one line with the rest filled in (sterilisation, refunds after 30
+// and the clinic's keys: the form shows the name, one line with the rest filled in (sterilisation, refunds after 30
 // days, Minibits) and "edit", and the two keys in their colours, Streetcat green and the clinic blue («tienen que estar en sus colores»).
 // Held, the keys shuffle and land as the button fills («que se estén barajando las claves»); let go early, they are back at once. A
 // campaign made with only its name carries all that, signed. The next one starts from it; "edit" opens every field with those values,
@@ -31,7 +31,7 @@ const in30 = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
 const p = await page(); await tab(p, 'csettings'); await p.click('#cs-new'); await p.waitForTimeout(1000); const clinicPk = await txt(p, '#cs-pk');
 await tab(p, 'release'); await p.click('#s-new'); await p.waitForTimeout(1000); await p.reload(); await p.waitForTimeout(500); const scPk = await p.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('streetcat', false)));
 await tab(p, 'home'); await p.click('#h-new'); await p.waitForSelector('#campaign.on');
-check('a new campaign asks for the name and shows the refund date (30 days), as a long control; operation, partner key and mint are folded (StreetCat, 8 Nov: no small print, no "edit")', JSON.stringify(await visible(p)) === '["k-name","k-dl"]' && (await p.inputValue('#k-dl')) === in30 && !(await p.$eval('#k-more', d => d.open)) && (await txt(p, '#k-more summary')) === 'Operation, partner key and mint', (await visible(p)).join(' '));
+check('a new campaign asks for the name and shows the refund date (30 days), as a long control; operation, partner key and mint are folded', JSON.stringify(await visible(p)) === '["k-name","k-dl"]' && (await p.inputValue('#k-dl')) === in30 && !(await p.$eval('#k-more', d => d.open)) && (await txt(p, '#k-more summary')) === 'Operation, partner key and mint', (await visible(p)).join(' '));
 check('…nothing over the kinds, and the deadline control is as wide and high as the choose buttons', !(await p.$$eval('#campaign > label', ls => ls.some(l => /What it pays/.test(l.textContent)))) && await p.$eval('#k-dl', d => { const r = d.getBoundingClientRect(), c = document.getElementById('k-col').getBoundingClientRect(); return Math.abs(r.width - c.width) < 2 && Math.abs(r.height - c.height) < 2; }));
 const K = await keyLines(p);
 check('the two keys show in their colours: Streetcat green, the partner (this browser\'s clinic key, not named yet) blue', K.length === 2 && K[0].label === 'Streetcat' && K[0].text === scPk && K[0].role === 'streetcat' && Number(K[0].h) === 150 && K[1].label === 'partner' && K[1].text === clinicPk && K[1].role === 'clinic' && Number(K[1].h) === 250, K.map(k => `${k.label} ${k.text.slice(0, 10)}… ${k.role} ${k.h}`).join(' · '));

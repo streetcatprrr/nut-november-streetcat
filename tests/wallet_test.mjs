@@ -38,13 +38,13 @@ const openRequest = async amount => { await donor.evaluate(() => { const v = win
 // the request: plain, the campaign's mint, a Nostr transport to a key of this donation
 let pr = await openRequest(21); const t0 = (pr.transport || [])[0] || {}, prof = t0.target ? readProfile(t0.target) : {};
 check('the page shows a plain payment request: sat, the campaign\'s mint only, no lock in it', pr.unit === 'sat' && JSON.stringify(pr.mints) === JSON.stringify([MINT]) && !pr.nut10 && String(pr.amount) === '21' && pr.singleUse === true && /MOCHI/.test(pr.description || ''), `${pr.description}`);
-{ const href = await donor.getAttribute('#dw-open', 'href');  /* StreetCat, 9 Nov, 02:15: «Haz el botón. Opening wallet en pay with the cash» */
+{ const href = await donor.getAttribute('#dw-open', 'href');
   check('"open in wallet" hands that same request to the phone\'s Cashu wallet (a cashu: link, which only Cashu wallets open)', href === 'cashu:' + donor._creq, String(href).slice(0, 24) + '…'); }
 check('…to be paid by NIP-17 to a key made for this donation, on the app\'s relays', t0.type === 'nostr' && JSON.stringify(t0.tags) === JSON.stringify([['n', '17']]) && /^[0-9a-f]{64}$/.test(prof.pubkey || '') && JSON.stringify(prof.relays) === JSON.stringify(URLS));
 check('…as one QR a wallet can scan', (await donor.$$('#dw-term .qr svg')).length === 1);
 const frameOf = sel => donor.evaluate(sel => { const x = document.querySelector(sel + ' .qr .frame'); return x ? { on: !x.classList.contains('off'), bg: getComputedStyle(x.firstElementChild).backgroundColor, live: x.getAnimations().length > 0 } : null; }, sel);
 { await donor.waitForTimeout(1400); const f = await frameOf('#dw-term');  /* openRequest tapped "copy request" */
-  check('"copy request" draws the frame around the QR, as "copy invoice" does, in the same orange (StreetCat, 9 Nov, 14:03)', !!f && f.on && f.bg === 'rgb(247, 147, 26)' && f.live, JSON.stringify(f)); }
+  check('"copy request" draws the frame around the QR, as "copy invoice" does, in the same orange', !!f && f.on && f.bg === 'rgb(247, 147, 26)' && f.live, JSON.stringify(f)); }
 { const vs = donor.viewportSize(), over = []; for (const wd of [320, 375, 390, 430]) { await donor.setViewportSize({ width: wd, height: 740 }); await donor.waitForTimeout(80); const o = await donor.evaluate(() => document.scrollingElement.scrollWidth - innerWidth); if (o > 0) over.push(`${wd}px +${o}`); } await donor.setViewportSize(vs); check('…and the screen fits at 320, 375, 390 and 430 px', !over.length, over.join(', ')); } if (SHOT) { await donor.waitForTimeout(1200); await donor.screenshot({ path: `${SHOT}/w1-donor-wallet-request.png`, fullPage: true }); }
 const reqs = () => donor.evaluate(() => window.__vetlock.wreqs()), refundPkOf = async id => (await reqs()).find(x => x.id === id).pk;
 
@@ -79,7 +79,7 @@ const other = await (async () => { const w2 = new cashu.Wallet('http://127.0.0.1
 if (other) { await openRequest(2); await donor.fill('#d-token', other); await donor.click('#d-go'); const so = await waitText(donor, '#de-out', /✗|Failed/, 20000); check('ecash from another mint is not taken', /is from http:\/\/127\.0\.0\.1:3339, but the campaign uses/.test(so)); }
 
 // the amount chosen is said on both ways to pay, and the request carries it as chosen, even when "Pay with ecash" is tapped while the
-// amount still flips (StreetCat, 9 Nov, 03:11: «ya debería de venir la factura con la cantidad»; 03:14: «Sí, haz las dos»)
+// amount still flips
 { await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); await donor.fill('#d-amt', ''); await donor.dispatchEvent('#d-amt', 'input');
   const none = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);
   await donor.click('button[data-amt="210"]'); const set = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);

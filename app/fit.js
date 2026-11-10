@@ -1,5 +1,4 @@
-// Every phone shows these pages as an iPhone 14–16 does (StreetCat, 5 Nov: "si es un mini, se tiene que ver igual en todos los
-// teléfonos. Sea un mini, un Pro Max o lo que sea. Y se tiene que ver en todos los navegadores"). On a phone held upright, the
+// Every phone shows these pages as an iPhone 14–16 does. On a phone held upright, the
 // page is laid out 390 px wide and the browser scales it to the screen: larger on a Pro Max, smaller on a mini, the same picture
 // on all of them. A screen too short for the first screen's height (data-need, in px at 390: Donate without scrolling) is laid
 // out a little wider, so it is drawn a little smaller and still fits. Tablets, computers and a phone on its side keep the page's

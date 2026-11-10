@@ -168,4 +168,4 @@ check('two pots of one partner, deadlines one second apart: the same level on ev
 const iq = await w.createMintQuoteBolt11(21), ie = C.invoiceExpiry(iq.request);
 check('an invoice\'s own expiry is read from it: its timestamp plus its x field', !!ie && ie.expires === Number(iq.expiry), `${ie && ie.expires} · the mint's quote ${iq.expiry}`);
 check('…and a damaged invoice gives none', C.invoiceExpiry(iq.request.slice(0, -1) + (iq.request.endsWith('q') ? 'p' : 'q')) === null && C.invoiceExpiry('cashuB…') === null);
-say(bad ? `core: ${bad} check(s) failed` : 'core: every check passed');
+say(bad ? `core: ${bad} check(s) failed` : 'core: every check passed'); process.exit(bad ? 1 : 0);  /* audit of 10 Nov: it said so and still exited 0, so a battery read it as passed */

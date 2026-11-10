@@ -37,8 +37,7 @@ const clBox = R.outbox(store()); await clBox.add(R.receiptFor(q), cl, camp.stree
 const back = await R.receive([sc], { relays: urls, expect: scExpects }), ans = back.messages.find(m => m.payload.t === 'streetcat.answer');
 check('Streetcat gets the receipt and the answer', back.messages.length === 2 && back.messages.some(m => m.payload.t === 'streetcat.received'), back.messages.map(m => m.payload.t).join(', '));
 check('and the answer is certified', ans && (await C.checkAnswer(q, ans.payload)).ok, ans && (await C.checkAnswer(q, ans.payload)).text);
-// 3b) an answer that comes before this browser knows its request (StreetCat, 7 Nov: the app on his home screen got the clinic's answer
-// before Import all brought the request, and lost it): kept for later, it comes once the request is there
+// 3b) an answer that comes before this browser knows its request: kept for later, it comes once the request is there
 const later = new Map(), laterExpects = p => p && ['streetcat.answer', 'streetcat.received'].includes(p.t) && later.has(p.id) ? later.get(p.id).campaign.clinic : null, seenL = new Set();
 const before = await R.receive([sc], { relays: urls, seen: seenL, expect: laterExpects }); later.set(q.id, q); const after = await R.receive([sc], { relays: urls, seen: seenL, expect: laterExpects });
 check('an answer that comes before its request is known here is not dropped: it comes once the request is there', before.messages.length === 0 && after.messages.length === 2 && after.messages.some(m => m.payload.t === 'streetcat.answer'), `${before.messages.length}, then ${after.messages.length}`);
@@ -67,7 +66,7 @@ check('a relay sees no content: no cat, no campaign, no spending key, no proof',
 check('nor who sent it: each wrap is signed by a throwaway key', relays[0].events.every(e => e.pubkey !== scMsg && e.kind === 1059));
 const dead = await R.publish(item.ev, ['ws://127.0.0.1:7199'], { timeout: 3000 }); check('a relay that is not there fails fast', !dead[0].ok, dead[0].msg);
 
-// 7) what the outbox keeps (StreetCat, 8 Nov, 04:51: donations paid and sent never reached the campaign). It kept every event it ever
+// 7) what the outbox keeps. It kept every event it ever
 // sent, photos too, until the phone had no room left for anything; now it keeps a message's copy only while it waits
 const st7 = store(), box7 = R.outbox(st7), saved7 = () => JSON.parse(st7.get('vetlock.outbox'));
 const a7 = await box7.add(q, sc, camp.clinic, { relays: urls }); const kept7 = saved7().find(x => x.id === a7.id);
@@ -84,7 +83,7 @@ const run8 = box8.flush({ force: true }); await new Promise(r => setTimeout(r, 3
 check('a message added while the outbox is sending is kept (it was overwritten by the list read first)', JSON.parse(st8.get('vetlock.outbox')).some(x => x.id === c8.id && x.state === 'sending' && x.ev));
 await slow.close();
 
-// 8) relays slow to confirm (StreetCat, 8 Nov, 18:00: «Segunda vez que me pasa esto. Creo campaña y no funciona»): nostr.mom confirmed half a
+// 8) relays slow to confirm: nostr.mom confirmed half a
 // minute late and nos.lol never, and the app took a campaign donors could see for not announced. A relay that was sent it and gave no
 // answer is asked whether it has it; one that answered no is believed; one that could not be reached was never sent it
 const late8 = startRelay({ port: 7105, okDelay: 4000 }), keep8 = startRelay({ port: 7106, storeDelay: 3000 }), mute8 = startRelay({ port: 7107, mute: true }), no8 = startRelay({ port: 7108, refuse: true });

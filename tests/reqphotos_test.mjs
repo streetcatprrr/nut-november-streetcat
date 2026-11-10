@@ -1,4 +1,4 @@
-// The cat's photos in Streetcat's request (StreetCat, 6 Nov: «para ver que realmente se está certificando el gato que es»), against
+// The cat's photos in Streetcat's request, against
 // the local mint and two local test relays (made-up keys, fake money). The photos are drawn here: no real photo
 // is kept with the tests. Streetcat takes three photos of the cat as caught (face, sides), each made small on its phone; the request
 // names them, and they follow it by relay, in parts, encrypted to the clinic's key. The clinic gets the request and its photos whole
@@ -55,7 +55,7 @@ await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#
 await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length === 3, null, { timeout: 30000 });
 const dons = await sc.$$eval('#sn-dons .item', xs => xs.map(x => ({ ref: x.querySelector('.nm').textContent, avail: Number(x.querySelector('.sub2').textContent.match(/^([\d ]+) sat/)[1].replace(/ /g, '')) })));
 const smalls = dons.filter(d => d.avail < 1000).sort((x, y) => y.avail - x.avail), bigRef = dons.find(d => d.avail > 1000).ref, smallRef = smalls[0].ref, spareRef = smalls[1].ref;
-check('the new request offers three photos of the cat, under "Photos", with no text under them (StreetCat, 9 Nov, 14:07)', (await sc.$$eval('#sn-shots .shot', bs => bs.map(b => b.dataset.slot).join())) === 'face,left,right' && (await sc.evaluate(() => document.getElementById('sn-shots').previousElementSibling.textContent.trim())) === 'Photos' && !(await sc.$('#sn-shots-st')));
+check('the new request offers three photos of the cat, under "Photos", with no text under them', (await sc.$$eval('#sn-shots .shot', bs => bs.map(b => b.dataset.slot).join())) === 'face,left,right' && (await sc.evaluate(() => document.getElementById('sn-shots').previousElementSibling.textContent.trim())) === 'Photos' && !(await sc.$('#sn-shots-st')));
 await sc.fill('#sn-cat', 'MOCHI'); await sc.fill('#sn-proc', 'sterilisation (spay)'); await shoot(sc, 2);
 await sc.fill('#sn-use-' + bigRef, '1500');
 check('…taken, each shows in its place, and still no line under them', (await sc.$$eval('#sn-shots .shot.has img', xs => xs.length)) === 3 && !(await sc.$('#sn-shots-st')));
@@ -70,7 +70,7 @@ await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic
 await clinic.waitForFunction(() => document.querySelectorAll('#cr-pics img[src]').length === 3, null, { timeout: 20000 }).catch(() => {});
 const whole = await clinic.evaluate(shas => Promise.all(shas.map(s => window.__vetlock.photoHere(s))), q1.photos.map(p => p.sha256));
 check('the clinic gets the request with its three photos, whole (each the one its SHA-256 says)', (await imgs(clinic, '#cr-pics')) === 3 && whole.every(Boolean), whole.join());
-check('…and sees them, under "Photos from Streetcat", with no text under them (StreetCat, 9 Nov, 14:09)', (await txt(clinic, '#cr-pics-st')) === '' && (await txt(clinic, '#cr-pics-box label')) === 'Photos from Streetcat' && await clinic.isVisible('#cr-pics-box'));
+check('…and sees them, under "Photos from Streetcat", with no text under them', (await txt(clinic, '#cr-pics-st')) === '' && (await txt(clinic, '#cr-pics-box label')) === 'Photos from Streetcat' && await clinic.isVisible('#cr-pics-box'));
 await clinic.click('#cr-pics button:nth-child(2)'); const big = await clinic.$eval('#cr-pics button:nth-child(2)', b => b.classList.contains('big') && getComputedStyle(b).order === '-1');
 await clinic.click('#cr-pics button:nth-child(2)'); const small = await clinic.$eval('#cr-pics button:nth-child(2)', b => !b.classList.contains('big'));
 check('a tap shows a photo big, first; a second tap, small again', big && small); await fits(clinic, 'the clinic\'s request with photos'); await shot(clinic, 'q3-clinic-request-photos');

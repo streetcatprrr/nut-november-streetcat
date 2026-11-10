@@ -1,4 +1,4 @@
-// Which cat is this? A hint on the phone, never a proof (StreetCat, 6 Nov: «sí, empieza»). A photo is cut down to its cat (YOLOS-tiny)
+// Which cat is this? A hint on the phone, never a proof. A photo is cut down to its cat (YOLOS-tiny)
 // and turned into 384 numbers (DINOv2 small); photos of one cat give numbers close to each other. Chosen on 6 Nov among four models,
 // on 58 photos of 14 named cats from Wikimedia Commons (docs/HANDOFF.md). The models run in catid-worker.js; their files (ai/1/ and
 // ai/2/, 121 MB) come only when the clinic or Streetcat asks for them, and then the service worker keeps them, for without a connection.

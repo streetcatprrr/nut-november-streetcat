@@ -1,4 +1,4 @@
-// Repeat and drafts (plan step 2, approved by StreetCat on 8 Nov, 22:11), in Rescue and the partner's app against the local mint and two
+// Repeat and drafts (plan step 2), in Rescue and the partner's app against the local mint and two
 // local relays (made-up keys, fake money). A sterilisation request (MOCHI, 50 sat) is confirmed by the partner and released. "Repeat
 // request" opens New request with its pot and what it is, and says where it comes from; the cat, photos, cost, date, note and
 // donations are chosen again ("Last time: 50 sat on … · check the cost"). Sent, it has a new id and says "Repeated from R-…"; the old

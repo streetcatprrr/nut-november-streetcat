@@ -1,6 +1,4 @@
-// Moving everything from one browser to another of the same phone (StreetCat, 7 Nov, 23:23, after moving the keys from Safari to the app
-// on his home screen: «Por qué no se han importado las claves de las campañas. Quiero que tú importes todas las claves del navegador a
-// la app ya»). Export all carries the keys, as before (at the top, so an app of before still takes them), and everything this browser
+// Moving everything from one browser to another of the same phone. Export all carries the keys, as before (at the top, so an app of before still takes them), and everything this browser
 // keeps with them: campaigns, partners, colonies, requests, donations, and the photos. Import all adds what the other browser lacks and
 // keeps what it has; twice is the same as once. Against the local mint and two local relays, with made-up keys.
 import { chromium } from 'playwright';

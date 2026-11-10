@@ -1,7 +1,4 @@
-// Donate as it starts, from whatever it shows (StreetCat, 8 Nov, 15:07: «¿por qué la página del donante se queda con la última donación?
-// ¿Por qué no se tiene una flecha o algo para volver hacia atrás a hacer una nueva donación?»; 15:08: «a pesar de que haya una solicitud
-// abierta, tendría que tener una manera de saltarse esa solicitud… Y resetearse… que tampoco se quede la lista de solicitudes abierta
-// perpetuamente»). Donate is the donor's first screen, so the header's arrow did not show there. Now, over Donate's start — Streetcat's
+// Donate as it starts, from whatever it shows. Donate is the donor's first screen, so the header's arrow did not show there. Now, over Donate's start — Streetcat's
 // open requests listed, an invoice waiting to be paid, a donation made (LOCKED) — the arrow shows, and it, the phone's back, the role in
 // the header and "donate again" all go back to Donate as it starts. An invoice left waiting stays below ("resume") and is finished by
 // itself if it is paid; one that expires unpaid goes. The list closes when Donate is left. Local mint, two local relays.
@@ -47,7 +44,7 @@ check('…so does the phone\'s back, and the app stays on Donate', plain(l2c), J
 await donor.click('#d-check'); await donor.waitForSelector('#d-reqs button.req', { timeout: 30000 }); await tab(donor, 'refund'); await tab(donor, 'donate'); await donor.waitForTimeout(300); const l2d = await look(donor);
 check('…and leaving Donate closes it: it is not there when Donate is back', !l2d.list && l2d.camp, JSON.stringify(l2d));
 
-// 3 · an invoice waiting (a wallet that does not pay, as StreetCat's this morning): skipped with the arrow, kept below
+// 3 · an invoice waiting (a wallet that does not pay): skipped with the arrow, kept below
 await donor.click('#d-check'); await donor.waitForSelector('#d-reqs button.req', { timeout: 30000 }); await donor.locator('#d-reqs button.req', { hasText: 'TNR FOREST' }).click(); await waitText(donor, '#d-campinfo', /TNR FOREST/i, 15000);
 await donor.route('**/v1/mint/quote/bolt11/*', async r => { const res = await r.fetch(), j = await res.json(); return r.fulfill({ response: res, json: { ...j, state: 'UNPAID', paid: false } }); });  /* the wallet has not paid */
 await donor.fill('#d-amt', '21'); await donor.dispatchEvent('#d-amt', 'input'); await donor.click('#d-ln'); await donor.waitForSelector('#donate.paying', { timeout: 15000 }); await waitText(donor, '#d-out', /waiting for the payment/, 15000); const l3 = await look(donor);
@@ -82,8 +79,7 @@ await donor.evaluate(() => window.__vetlock.tick()); await donor.waitForTimeout(
 check('an invoice skipped and expired unpaid goes at the next check: nothing was charged, nothing waits below', plain(l6) && !l6.pend && left6 === 0, JSON.stringify({ ...l6, pending: left6 }));
 await donor.unroute('**/v1/mint/quote/bolt11/*');
 
-// 7 · the app closed and opened again (StreetCat, 9 Nov, 00:03: «Cuando cierro y abro la app, no tiene que, al entrar en donante, haber ningún
-// request marcado, hasta que yo no le dé a check for requests»): a campaign picked from the list, with an invoice waiting
+// 7 · the app closed and opened again: a campaign picked from the list, with an invoice waiting
 const unpaid = p => p.route('**/v1/mint/quote/bolt11/*', async r => { const res = await r.fetch(), j = await res.json(); return r.fulfill({ response: res, json: { ...j, state: 'UNPAID', paid: false } }); });
 const prices = p => p.route('**/api/v1/prices', r => r.fulfill({ json: { EUR: 88000, USD: 100000 } }));
 await unpaid(donor); await donor.click('#d-check'); await donor.waitForSelector('#d-reqs button.req', { timeout: 30000 }); await donor.locator('#d-reqs button.req', { hasText: 'TNR FOREST' }).click(); await waitText(donor, '#d-campinfo', /TNR FOREST/i, 15000);
@@ -100,8 +96,7 @@ check('…until Check for requests, which lists the open requests as always', l7
 const outside = await donor.context().newPage(); await prices(outside); await unpaid(outside); await outside.goto(url7.replace(/&pick=1$/, '')); const t7 = await waitText(outside, '#d-campinfo', /TNR FOREST/i, 15000);
 check('a donation link opened from outside still opens its campaign, in a new session too', /TNR FOREST/i.test(t7), t7.slice(0, 40));
 // 8 · the iPhone's home-screen app (navigator.standalone) opens no link from outside, so a campaign in its address when it opens is where it
-// was left, or the link its icon was made with (StreetCat, 9 Nov, 01:40: «Acabo de cerrar la app y volver a abrir, y en Donor me sigue saliendo
-// arriba TNR playa»): nothing chosen, even with no mark; but back from the wallet app while an invoice of this session is on screen, it stays
+// was left, or the link its icon was made with: nothing chosen, even with no mark; but back from the wallet app while an invoice of this session is on screen, it stays
 const app = await donor.context().newPage(); app.on('pageerror', e => say('PAGEERROR', e.message)); await app.addInitScript(() => Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true }));
 await prices(app); await unpaid(app); await app.goto(url7.replace(/&pick=1$/, '')); await app.waitForTimeout(2500); const l8a = await look(app);
 check('the iPhone app opened at a campaign\'s address with no mark (as its icon may be): Donate starts with nothing chosen, the address cleared', plain(l8a) && !l8a.campText && !/#c=/.test(app.url()), JSON.stringify({ ...l8a, url: app.url().slice(-24) }));

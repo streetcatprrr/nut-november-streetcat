@@ -2,7 +2,7 @@
 // a token with one proof unsigned, or signed with another key, is refused before anything is sent to the mint; a part the donor
 // already took back is left out of the release; a clinic can still certify after the deadline (with a warning); and the status
 // page counts each proof once, however many ledger entries list it. Once certified or released, the button says so and cannot be
-// pressed again (StreetCat, 5 Nov: "tiene que quedar claro que el token se ha liberado"), the phone buzzes, and the same token pasted
+// pressed again, the phone buzzes, and the same token pasted
 // again says at once that it was released, before anyone presses anything.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken, schnorrSignMessage, createRandomSecretKey } from '@cashu/cashu-ts';

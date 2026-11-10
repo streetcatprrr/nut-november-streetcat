@@ -32,14 +32,15 @@ const open = async name => { await viewer.goto(BASE + `status.html?l=campaigns/$
   return viewer.evaluate(() => ({ rows: [...document.querySelectorAll('.row')].map(x => ({ ref: x.dataset.ref, amount: Number(x.dataset.amount), status: x.dataset.status, ok: x.dataset.ok === '1', text: x.innerText })), tot: Object.fromEntries([...document.querySelectorAll('#tot div')].map(d => [d.querySelector('span').textContent.split(' · ')[0], d.querySelector('b').textContent])) })); };
 const v2 = await open('v2'); if (process.env.SHOT) { await viewer.waitForTimeout(5000); await viewer.screenshot({ path: process.env.SHOT }); } const rA = v2.rows.find(r => r.ref === eA.ref), rB = v2.rows.find(r => r.ref === eB.ref);
 check('v2: one row per donation (the rest of A, listed apart, counts inside A)', v2.rows.length === 2, v2.rows.map(r => `${r.ref} ${r.amount} ${r.status}`).join(' | '));
-check('A: 1500 released and the rest locked again, from the mint', rA && rA.ok && /1500 sat released/.test(rA.text) && new RegExp(`${plan.remainder} sat locked \\(put back\\)`).test(rA.text), rA && rA.text.split('\n').find(l => /put back/.test(l)));
-check('A: what it paid for, declared by the clinic', rA && /→ 1500 sat: MOCHI · sterilisation \(spay\) · 2026-11-04 · ✓ declared by the clinic/.test(rA.text));
-check('totals add up proof by proof', v2.tot.released === `${1500 + total(B)} sat` && v2.tot.locked === `${plan.remainder} sat`, JSON.stringify(v2.tot));
+check('A: 1500 released and the rest locked again, from the mint', rA && rA.ok && /1 500 sat released/.test(rA.text) && new RegExp(`${plan.remainder} sat locked \\(put back\\)`).test(rA.text), rA && rA.text.split('\n').find(l => /put back/.test(l)));
+check('A: what it paid for, declared by the clinic', rA && /→ 1 500 sat: MOCHI · sterilisation \(spay\) · 2026-11-04 · ✓ declared by the clinic/.test(rA.text));
+const plainNum = s => String(s).replace(/\s/g, '');  /* amounts are written "1 521 sat" since 9 Nov (fmtSat): compared without the spaces */
+check('totals add up proof by proof', plainNum(v2.tot.released) === `${1500 + total(B)}sat` && plainNum(v2.tot.locked) === `${plan.remainder}sat`, JSON.stringify(v2.tot));
 await viewer.click('#m-open'); await viewer.fill('#m-tok', eA.ref.toLowerCase()); await viewer.click('#m-go'); const look = (await viewer.textContent('#m-out')).trim();
-check('a donation found by its code', /^LISTED ✓ · DON-/.test(look) && /→ 1500 sat/.test(look), look.split('\n').join(' / '));
+check('a donation found by its code', /^LISTED ✓ · DON-/.test(look) && /→ 1 500 sat/.test(look), look.split('\n').join(' / '));
 await viewer.fill('#m-tok', 'DON-00000000'); await viewer.click('#m-go'); check('a code that is not there', /^NOT LISTED ✗/.test((await viewer.textContent('#m-out')).trim()));
 const v1 = await open('v1'); check('a version 1 ledger adds up the same, from the mint alone', v1.tot.released === v2.tot.released && v1.tot.locked === v2.tot.locked, JSON.stringify(v1.tot));
 const alt = await open('altered'); check('an altered declaration is not shown as the clinic\'s', alt.rows.every(r => !/declared by the clinic/.test(r.text)) && alt.rows.some(r => /declaration is not in the ledger/.test(r.text)));
-const und = await open('understated'); check('a ledger that says less went to procedures than the mint shows released is flagged', und.rows.some(r => /the mint shows 1500 sat released from it, but the ledger says 1000/.test(r.text)));
+const und = await open('understated'); check('a ledger that says less went to procedures than the mint shows released is flagged', und.rows.some(r => /the mint shows 1\s500 sat released from it, but the ledger says 1\s000 sat/.test(r.text)));
 await b.close();
-say(bad ? `ledger: ${bad} check(s) failed` : 'ledger: every check passed');
+say(bad ? `ledger: ${bad} check(s) failed` : 'ledger: every check passed'); process.exit(bad ? 1 : 0);  /* a failed check fails the run: it used to end with 0 either way, and two stale expectations went unseen from 9 Nov to 10 Nov */

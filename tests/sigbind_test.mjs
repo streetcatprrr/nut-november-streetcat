@@ -1,4 +1,4 @@
-// What the mint enforces on a split release (StreetCat, 8 Nov, 02:01, review point 3): the clinic signs the proofs (NUT-11, SIG_INPUTS)
+// What the mint enforces on a split release: the clinic signs the proofs (NUT-11, SIG_INPUTS)
 // and, apart, a statement with the amount. Hypothesis: a Rescue client that holds Streetcat's key and the clinic's valid signatures
 // can spend the whole split proof without putting the rest back under the lock. Against the local mint, with fake money. This test
 // tells which it is; it does not fix anything. It also measures what the honest app exposes: only the one split proof.

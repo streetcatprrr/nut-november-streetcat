@@ -1,4 +1,4 @@
-// "Already in the records?" (app/catid.js, app/index.js; StreetCat, 6 Nov: «que les avise de posibles redundancias»): on the clinic's new
+// "Already in the records?" (app/catid.js, app/index.js): on the clinic's new
 // record the cat's photos are compared, on this phone, with the clinic's records, and the three most alike are shown in order: a hint,
 // never a proof. The photos are drawn here, six patterns, each drawn as the views of its record and once more, moved and turned, as the
 // new photo: no real photo is kept with the tests. Checked: with no records nothing is offered and nothing is fetched; it asks before the
@@ -68,7 +68,7 @@ await p.waitForFunction(() => document.querySelectorAll('#cn-like-list img[src]'
 const T = await tiles(p);
 check('…on a tap it shows the 121 MB coming, then the records compared photo by photo', run.seen.some(s => /^getting the cat recognition(…|: \d+ of 121 MB)$/.test(s)) && run.seen.some(s => /^comparing with your 5 records: \d+ of 12 photos$/.test(s)), run.seen.filter(s => !DONE.test(s)).slice(0, 3).join(' | ') + ' …');
 check("the three records most like it, the drawn cat's own first, with its photo", T.length === 3 && T[0].name === 'MOCHI' && /^MOCHI, /.test(T[0].alt) && T.every(t => t.src), T.map(t => t.name).join(' · ') + ` · in ${secs} s`);
-check('…and nothing written under the tiles (StreetCat, 9 Nov, 14:11: «quita ese texto también»)', run.s === '[done]', run.s);
+check('…and nothing written under the tiles', run.s === '[done]', run.s);
 check('every photo was worked out once and kept: the 12 of the records and the new one', (await kept(p)) === 13, `${await kept(p)} kept`);
 check('…and it fits the phone at 390 px', (await over(p)) <= 0, `${await over(p)} px over`);
 await shot(p, 'like-2-match');
