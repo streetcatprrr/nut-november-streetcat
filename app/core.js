@@ -67,7 +67,8 @@ function lockOf(secret){ let s; try { s = JSON.parse(secret); } catch (_) { retu
   else for (const x of tags) { if (!Array.isArray(x) || !x.length || !x.every(v => typeof v === 'string' && v)) { why.push('a tag is not a list of texts'); continue; }
     if (Object.prototype.hasOwnProperty.call(t, x[0])) why.push(`the tag ${x[0]} is given twice`); else t[x[0]] = x.slice(1); }
   const whole = (k, dflt) => { const v = t[k]; if (v === undefined) return dflt; if (v.length !== 1 || !WHOLE.test(v[0])) { why.push(`its ${k} is not a whole number`); return NaN; } return Number(v[0]); };
-  const keys = (list, what) => { if (list.some(k => !pointOk(k))) why.push(`${what} is not a public key`); return list.map(lc); };
+  /* fuzzing of 11 Nov: a key with capital letters in it is the same key to a signature, and passed here; the mint with the `dest` rule pays a partner by its key letter for letter, so nothing could ever be paid from such a donation */
+  const keys = (list, what) => { if (list.some(k => !pointOk(k))) why.push(`${what} is not a public key`); else if (list.some(k => k !== lc(k))) why.push(`${what} is written with capital letters: the mint could not pay from it`); return list.map(lc); };
   const main = keys([d.data, ...(t.pubkeys || [])], 'a signing key'), refund = keys(t.refund || [], 'a refund key');
   if (new Set(main.map(xOnly)).size !== main.length) why.push('one signing key is given twice');
   if (new Set(refund.map(xOnly)).size !== refund.length) why.push('one refund key is given twice');
@@ -126,6 +127,17 @@ async function signCampaign(c, sk){ const o = campSigned(c); if (!SK.test(sk || 
 async function campaignSig(c){ if (!c || c.sig == null || c.sig === '') return 'unsigned';
   try { const o = campSigned(c); return /^[0-9a-f]{128}$/i.test(String(c.sig)) && verify(String(c.sig), CAMP_SIG + canon(o), await derivedPub(TAG.statement, o.streetcat)) ? 'signed' : 'broken'; } catch (_) { return 'broken'; } }
 
+// A request is text anyone can write too, when it comes by link, file or QR and not through the relay (whose seal says who sent it):
+// one naming Streetcat's published key and real proofs from the public ledger would have a partner sign for work nobody asked of it.
+// So a request carries Streetcat's signature over "streetcat/request/v1", a newline and its canonical JSON, made with the same derived
+// key as a campaign's. 'signed', 'unsigned' or 'broken', as for a campaign. (Independent review, 11 Nov.)
+const REQ_SIG = 'streetcat/request/v1\n', reqBody = q => { const { sig, ...o } = q; return o; };
+async function signRequest(q, sk){ const c = campaignOf(q.campaign); if (!SK.test(sk || '') || pubOf(sk) !== c.streetcat) throw new Error('this is not the campaign\'s Streetcat key');
+  return { ...reqBody(q), sig: cashu.schnorrSignMessage(REQ_SIG + canon(reqBody(q)), await derivedSk(TAG.statement, lc(sk))) }; }
+async function requestSig(q){ if (!q || q.sig == null || q.sig === '') return 'unsigned';
+  try { return /^[0-9a-f]{128}$/i.test(String(q.sig)) && verify(String(q.sig), REQ_SIG + canon(reqBody(q)), await derivedPub(TAG.statement, campaignOf(q.campaign).streetcat)) ? 'signed' : 'broken'; } catch (_) { return 'broken'; } }
+const REQ_TEXT = { patient: 120, procedure: 200, note: 2000 }, reqTooLong = q => Object.entries(REQ_TEXT).filter(([k, n]) => String(q[k] == null ? '' : q[k]).length > n).map(([k]) => k);  /* a link is as long as its writer likes: these are not */
+
 // ---------- the request: Streetcat → clinic ----------
 // One procedure, and what of each donation pays for it: all of it, or a part (a split donation). Only the proofs that pay are sent; of
 // each, what signing needs (its secret, amount and keyset) and what shows its amount is real: the mint's signature C and its DLEQ proof
@@ -181,6 +193,7 @@ async function makeRequest({ campaign, patient, procedure, date, note = '', cont
   if (D && !payeesOf(c).includes(to)) throw new Error('the partner asked is not one of this campaign\'s partners');
   if (D && !(dest && dest.keysetId)) throw new Error('a request of this campaign says where every sat goes: it needs the mint\'s keyset');
   if (!String(patient || '').trim() || !String(procedure || '').trim() || !DAY.test(String(date || ''))) throw new Error('a request needs the cat, the procedure and the date');
+  { const long = reqTooLong({ patient, procedure, note }); if (long.length) throw new Error(`too long: ${long.join(', ')}`); }
   const ph = (photos || []).map(x => ({ slot: x.slot, sha256: lc(x.sha256), bytes: x.bytes, w: x.w, h: x.h })); if (ph.length && !reqPhotosOk(ph)) throw new Error('the photos of the cat are not valid');
   if (!Array.isArray(contributions) || !contributions.length) throw new Error('a request needs at least one donation');
   const out = [], seen = new Set();
@@ -199,6 +212,7 @@ function requestProblems(q){ if (!q || q.t !== 'streetcat.request') return ['thi
   if (D && !payeesOf(c).includes(lc(q.payee))) p.push('it does not ask one of this campaign\'s partners');
   if (!/^R-[0-9A-F]{10}$/.test(String(q.id))) p.push('it has no valid request number');
   if (!String(q.patient || '').trim() || !String(q.procedure || '').trim() || !DAY.test(String(q.date || ''))) p.push('the cat, the procedure or the date is missing');
+  { const long = reqTooLong(q); if (long.length) p.push(`its ${long.join(' and its ')} is too long`); }
   if (!Array.isArray(q.contributions) || !q.contributions.length) p.push('it names no donation');
   if (q.photos !== undefined && !reqPhotosOk(q.photos)) p.push('its photos of the cat are not valid');
   const seen = new Set(), seeds = new Set();
@@ -658,13 +672,17 @@ async function readReceipt(input){ let text = '';
 // user@domain → https://domain/.well-known/lnurlp/user (plain http only for a local test server), then its callback for an invoice
 const lnAddressUrl = a => { const m = /^([a-z0-9._+-]+)@([a-z0-9.-]+\.[a-z]{2,}|localhost|127\.0\.0\.1)(:\d{1,5})?$/i.exec(String(a || '').trim()); if (!m) return null; const local = /^(localhost|127\.0\.0\.1)$/i.test(m[2]);
   return (local ? 'http://' : 'https://') + m[2].toLowerCase() + (m[3] || '') + '/.well-known/lnurlp/' + m[1].toLowerCase(); };
-async function lnAddressInvoice(address, sat, { fetch: f = root.fetch.bind(root) } = {}){ const url = lnAddressUrl(address); if (!url) throw new Error('this is not a Lightning address (name@domain)');
+// A call that ends: a server that never answers must not leave a button busy for ever (audit of 10 Nov).
+const fetchT = (u, o = {}, ms = 15000) => { if (root.AbortSignal && root.AbortSignal.timeout) return root.fetch(u, { ...o, signal: root.AbortSignal.timeout(ms) });
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms); return root.fetch(u, { ...o, signal: c.signal }).finally(() => clearTimeout(t)); };
+async function lnAddressInvoice(address, sat, { fetch: f = fetchT } = {}){ const url = lnAddressUrl(address); if (!url) throw new Error('this is not a Lightning address (name@domain)');
   const get = async u => { let r; try { r = await f(u, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error(`${address} cannot be reached from this browser`); } let j = null; try { j = await r.json(); } catch (_) {}
     if (!r.ok || !j) throw new Error(`${address} answered HTTP ${r.status}`); if (j.status === 'ERROR') throw new Error(`${address} says: ${j.reason || 'error'}`); return j; };
   const p = await get(url); if (p.tag !== 'payRequest' || typeof p.callback !== 'string') throw new Error(`${address} is not a Lightning address that takes payments`);
   const msat = Math.floor(sat) * 1000, min = Number(p.minSendable || 0), max = Number(p.maxSendable || 0);
   if (max && msat > max) throw Object.assign(new Error(`${address} takes at most ${Math.floor(max / 1000)} sat`), { max: Math.floor(max / 1000) }); if (msat < min) throw Object.assign(new Error(`${address} takes at least ${Math.ceil(min / 1000)} sat`), { min: Math.ceil(min / 1000) });
   const cb = new URL(p.callback); cb.searchParams.set('amount', String(msat)); const inv = await get(cb.href); if (typeof inv.pr !== 'string' || !/^ln/i.test(inv.pr)) throw new Error(`${address} gave no invoice`);
+  const read = invoiceExpiry(inv.pr); if (read && (read.msat == null || read.msat > msat)) throw new Error(`${address} gave an invoice for more than was asked`);  /* read here, not taken on trust; one for less is paid, and the rest comes back as change */
   return { invoice: inv.pr, min: Math.ceil(min / 1000), max: Math.floor(max / 1000), domain: new URL(url).host }; }
 
 // DEADLINES (plan step 1). A request asks the partner to do the work on a day; its donations can be
@@ -704,12 +722,16 @@ function invoiceExpiry(invoice){ const s = String(invoice || '').trim().toLowerC
   const words = []; for (const ch of s.slice(i + 1)) { const v = B32.indexOf(ch); if (v < 0) return null; words.push(v); }
   if (words.length < 7 + 104 + 6 || !bech32Ok(s.slice(0, i), words)) return null; const data = words.slice(0, -6), num = ws => ws.reduce((n, w) => n * 32 + w, 0);
   const at = num(data.slice(0, 7)); let x = 3600; for (let j = 7; j + 3 <= data.length - 104;) { const type = data[j], len = data[j + 1] * 32 + data[j + 2]; if (type === 6) x = num(data.slice(j + 3, j + 3 + len)); j += 3 + len; }
-  return { at, expiry: x, expires: at + x }; }
+  return { at, expiry: x, expires: at + x, msat: invoiceMsat(s.slice(0, i)) }; }
+// what an invoice asks for, from its first part (lnbc210n…): millisats, or null when it names no amount or is not read
+function invoiceMsat(hrp){ const m = /^ln(?:bcrt|bc|tbs|tb|sb)(?:(\d{1,15})([munp])?)?$/.exec(hrp); if (!m || !m[1]) return null;
+  const n = BigInt(m[1]), v = m[2] === 'm' ? n * 100000000n : m[2] === 'u' ? n * 100000n : m[2] === 'n' ? n * 100n : m[2] === 'p' ? (n % 10n ? null : n / 10n) : n * 100000000000n;
+  return v == null || v > 9007199254740991n ? null : Number(v); }
 
 root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derivedPub, derivedSk, donRef, lockOf, lockProblem, campaignOf, TYPES, PKINDS,
   DEST, payeesOf, destMint, destSecret, destLockProblem, destTx, destBuild, destProblems, destMessage, destSign, destSigned, destSwap, destFind, destWhole, destOutputs, destTrace, lockShape, askedOf, reqTx, requestSplit,
-  TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry,
-  makeRequest, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
+  TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry, fetchT,
+  makeRequest, signRequest, requestSig, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
   ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,

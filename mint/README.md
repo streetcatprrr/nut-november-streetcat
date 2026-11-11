@@ -10,7 +10,8 @@ it, and it has only ever run with fake money. Do not run a mint that holds real 
 ## What it changes
 
 - `cashu/mint/dest.py` (new): the rule. Everything in it fails closed. A spend it accepts on the main path is kept
-  readable: the first input's witness is stored with every input, so NUT-07 returns it for any of them.
+  readable: its witness must list the transaction's inputs (since 11 Nov), and is stored with every input, so NUT-07
+  returns it for any of them.
 - `cashu/mint/conditions.py`: a lock that carries `dest` is verified there, main path and refund path; nothing else changes.
 - `cashu/mint/verification.py`: an opened output may not repeat a secret that was already spent (a guard against a
   wallet's mistake, read outside the swap's own database transaction: it is not a guarantee).
@@ -45,6 +46,20 @@ of 1024 characters allows. The setting is one limit for every kind of lock, not 
 node tests/dest_test.mjs                                  # the rule, tried every way
 STOCK=http://127.0.0.1:3338 node tests/dest_test.mjs      # and the same lock at a mint without the patch
 ```
+
+## On a server
+
+`install.sh` sets the same test mint up on a fresh Debian 12 or Ubuntu 24.04 server, behind HTTPS, kept running by
+systemd:
+
+```
+sudo bash mint/install.sh mint.example.org
+```
+
+The name must point at the server first, with ports 80 and 443 open. The mint's key is made on the server and written to
+`/etc/nutshell-dest/env`, never printed; a second run installs the code afresh and keeps the key and the database. It
+sets up the fake backend only and refuses any other. The copying, patching and load check have been tried here; the
+script as a whole has not yet been run on a real server.
 
 ## Licence
 

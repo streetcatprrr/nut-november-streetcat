@@ -136,10 +136,10 @@ function parseLedger(j){ if (!j || typeof j !== 'object') throw new Error('not a
   const donations = (Array.isArray(j.donations) ? j.donations : []).map(d => typeof d === 'string' ? d : d && d.token).filter(Boolean).map(s => String(s).trim());
   // version 2 (core.js) also says, donation by donation (its DON- code), what each part paid for, with the clinic's signed declarations
   const v2 = j.v === 2, entries = v2 && Array.isArray(j.entries) ? j.entries.filter(e => e && /^DON-[0-9A-F]{8}$/.test(String(e.ref))) : [], certificates = v2 && Array.isArray(j.certificates) ? j.certificates.filter(x => x && x.statement) : [];
-  return { campaign: { ...c, mint: norm(c.mint), deadline: Number(c.deadline) }, clinicKeySource: String(j.clinicKeySource || ''), donations, entries, certificates }; }
+  return { campaign: { ...c, mint: norm(c.mint), deadline: Number(c.deadline) }, clinicKeySource: String(j.clinicKeySource || ''), donations, entries, certificates, more: j.more && Number.isInteger(j.more.n) && j.more.n > 0 ? { n: j.more.n, sat: Number(j.more.sat) || 0 } : null }; }
 async function loadLedger(src){ src = (src || '').trim(); if (!src) throw new Error('paste the ledger link or JSON');
   if (src.startsWith('{')) return parseLedger(JSON.parse(src));
-  const res = await fetch(src, { cache: 'no-store' }); if (!res.ok) throw new Error('could not load ' + src + ' (HTTP ' + res.status + ')'); return parseLedger(await res.json()); }
+  const res = await scCore.fetchT(src, { cache: 'no-store' }); if (!res.ok) throw new Error('could not load ' + src + ' (HTTP ' + res.status + ')'); return parseLedger(await res.json()); }
 
 // the vet's receipt behind a declaration: its fingerprint (SHA-256), and a file checked against it here, in this browser (nothing is sent)
 function evidenceLine(e){ const d = el('div', 'mut code ev'); if (!e || !/^[0-9a-f]{64}$/.test(String(e.sha256 || ''))) { d.textContent = 'no receipt fingerprint'; return d; }
@@ -284,7 +284,7 @@ async function run(){ const btn = $('l-go'); btn.disabled = true; show($('l-out'
     for (const t of L.donations) { const r = await checkToken(L.campaign, t); if (dedupe(r, seen)) results.push(r); }
     L.declared = new Map(); for (const x of L.certificates) if (await scCore.certificateOk(L.campaign, x)) for (const k of x.statement.contributions || []) L.declared.set(x.statement.request + '|' + k.ref, x.statement);  // signed with the clinic's statement key
     LAST = { L, results, ys: new Set(results.flatMap(r => r.ys.map(y => y.toLowerCase()))) }; renderList(L.campaign, results, L);
-    if (L.campaign.lock === 'dest') { let says = null; try { says = scCore.destMint(await (await fetch(L.campaign.mint + '/v1/info')).json()); } catch (_) {}  /* the rule is the mint's: one that does not announce it lets the two signers send the ecash anywhere */
+    if (L.campaign.lock === 'dest') { let says = null; try { says = scCore.destMint(await (await scCore.fetchT(L.campaign.mint + '/v1/info')).json()); } catch (_) {}  /* the rule is the mint's: one that does not announce it lets the two signers send the ecash anywhere */
       if (says === false) addNote('✗ This mint does not say it enforces where these donations may go: what left the lock could have gone anywhere.', true);
       else if (says === null) addNote('✗ The mint could not be asked whether it enforces where these donations may go.', true); }  /* not known is said too (audit of 10 Nov: the page was silent, as if the mint had said yes) */ renderRaw(L.campaign, results); document.body.classList.add('loaded'); window.scrollTo(0, 0);
     setTimeout(() => view && view.close(), Math.max(0, 4400 - (Date.now() - t0)));  // the ledger stays while the mint is asked, then the totals show
@@ -307,7 +307,7 @@ $('m-go').onclick = async () => { const btn = $('m-go'); btn.disabled = true; sh
   } catch (e) { show($('m-out'), 'Failed: ' + (e.message || e), 'bad'); } btn.disabled = false; };
 
 // donations made from this browser: the donation app at this address keeps a copy of each locked token it made (never its refund key here)
-function savedTokens(){ let a; try { a = JSON.parse(localStorage.getItem('vetlock.donor.keys') || '[]'); } catch (_) { return []; }
+function savedTokens(){ let a; try { a = JSON.parse(scVault.read('vetlock.donor.keys') || '[]');  /* through the vault: with a PIN not given in this tab, none are read */ } catch (_) { return []; }
   return (Array.isArray(a) ? a : []).filter(k => k && typeof k.lockedToken === 'string' && k.lockedToken.startsWith('cashu')).map(k => ({ token: k.lockedToken, name: typeof k.campaign === 'string' ? k.campaign : '', hue: k.hue })); }
 async function campaignOf(t){ const meta = cashu.getTokenMetadata(t.token), w = await wallet(meta.mint), dec = w.decodeToken(t.token), l = lockOf(dec.proofs[0]);
   if (!l || l.pubkeys.length !== 2) return null; const memo = String(dec.memo || ''), name = t.name || memo.split(' ')[0] || 'donation';
@@ -345,7 +345,7 @@ let NOSTR = null;
 const deepLook = () => { if (!deep || !LAST) return; document.body.classList.add('lookup'); flapLabel($('m-open'), 'back to the list', 0); $('m-tok').value = deep.toUpperCase(); $('m-go').click(); };
 (async () => { let src = null; if (nid) { try { src = await fromNostr(nid); } catch (_) {} }
   const note = t => addNote(t, /^not found on the relays/.test(t));  /* the ledger's file instead of the relays: a warning */
-  if (src) { $('l-src').value = src; await run(); if (LAST && NOSTR) note(`ledger from Nostr, signed with the campaign's ledger key, published ${new Date(NOSTR.at * 1000).toLocaleString(EN, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (${NOSTR.relays} of ${NOSTR.of} relays)`); deepLook(); return; }
+  if (src) { $('l-src').value = src; await run(); if (LAST && NOSTR) note(`ledger from Nostr, signed with the campaign's ledger key, published ${new Date(NOSTR.at * 1000).toLocaleString(EN, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (${NOSTR.relays} of ${NOSTR.of} relays)`); if (LAST.L && LAST.L.more) addNote(`✗ ${LAST.L.more.n} smaller donation${LAST.L.more.n > 1 ? 's' : ''} (${fmtSat(LAST.L.more.sat)}) are not listed here: this ledger is full. Streetcat's ledger file has them all.`, true); deepLook(); return; }
   if (q) { LINKED = String(q).trim().startsWith('{') ? String(q).trim() : ''; $('l-src').value = q; await run(); if (nid && LAST) note('not found on the relays: this is the ledger\'s file'); deepLook(); return; }
   if (nid) show($('l-out'), 'Failed: this campaign\'s ledger was not found on the relays.', 'bad'); })();
 runHere();

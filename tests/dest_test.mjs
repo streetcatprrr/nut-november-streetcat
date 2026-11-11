@@ -50,8 +50,9 @@ const payTo = (pk, tags) => JSON.stringify(['P2PK', { nonce: nonce(), data: pk, 
 const donate = async (n, tags) => { const r = await swap(await plain(n), pieces(n).map(a => output(a, locked(tags)))); if (!r.ok) throw new Error('could not lock: ' + r.detail); return r.proofs; };
 const message = (inputs, outs, quote = '') => inputs.map(p => p.secret + p.C).join('') + outs.map(o => String(o.amount) + o.B_).join('') + quote;
 // a spend of `inputs` into `outs`, signed by `signers` over this very transaction, its outputs opened unless told otherwise
-const spend = (inputs, outs, signers, { open = outs.map(o => ({ secret: o.secret, r: rHex(o.r) })) } = {}) => {
-  const witness = JSON.stringify({ signatures: signers.map(k => cashu.schnorrSignMessage(message(inputs, outs), k.sk)), ...(open ? { outputs: open } : {}) });
+const ysOf = ps => ps.map(p => cashu.hashToCurve(enc.encode(p.secret)).toHex(true));
+const spend = (inputs, outs, signers, { open = outs.map(o => ({ secret: o.secret, r: rHex(o.r) })), list = ysOf(inputs) } = {}) => {
+  const witness = JSON.stringify({ signatures: signers.map(k => cashu.schnorrSignMessage(message(inputs, outs), k.sk)), ...(open ? { outputs: open } : {}), ...(list ? { inputs: list } : {}) });
   return swap(inputs.map((p, i) => i ? p : { ...p, witness }), outs); };
 const sum = ps => ps.reduce((a, p) => a + p.amount, 0);
 
@@ -99,6 +100,8 @@ const tries = [
   ['an opening with a blinding factor that is not one', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: 'zz' }] }), /malformed opening/],
   ['an opening whose blinding factor is the right number, written in upper case', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: rHex(whole[0].r).toUpperCase() }] }), /malformed opening/],
   ['an opening whose blinding factor has a space in it (Python would read past it)', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: rHex(whole[0].r).slice(0, 62) + ' ' + rHex(whole[0].r).slice(62, 63) }] }), /malformed opening|does not match/],
+  ['a payment to A with its key in upper case (11 Nov: a payee is named letter for letter)', () => spend(don2, [output(64, JSON.stringify(['P2PK', { nonce: nonce(), data: A.pk.toUpperCase() }]))], [S, A]), /where the lock does not allow/],
+  ['a payment to A with a space before its secret', () => spend(don2, [output(64, ' ' + payTo(A.pk))], [S, A]), /white space/],
   ['an output locked to a stranger', () => spend(don2, [output(64, payTo(X.pk))], [S, A]), /where the lock does not allow/],
   ['an output locked to the ordering key', () => spend(don2, [output(64, payTo(S.pk))], [S, A]), /where the lock does not allow/],
   ['a payment to A that a stranger could also spend (extra pubkeys, n_sigs 1)', () => spend(don2, [output(64, payTo(A.pk, [['pubkeys', X.pk], ['n_sigs', '1']]))], [S, A]), /where the lock does not allow/],
@@ -137,6 +140,11 @@ const odd = await donate(8, lockTags({ dest: 'anywhere' })), oddTry = await spen
 check('refused: a `dest` policy the mint does not know', refused(oddTry, /unknown policy/), oddTry.ok ? 'ACCEPTED' : oddTry.detail);
 
 // a lock that asks for fewer than two signatures: the ordering key alone could move it from the lock to the lock, for the mint's fees
+// the witness lists the transaction's inputs (11 Nov): without them a reader who knows one input could not check who signed
+{ const many = await donate(7, TAGS), to = () => pieces(7).map(a => output(a, payTo(A.pk))), ys = ysOf(many);
+  for (const [what, list] of [['no list of inputs', 0], ['an empty list', []], ['the inputs in another order', [...ys].reverse()], ['one input left out', ys.slice(1)], ['one more than there are', [...ys, ys[0]]], ['the inputs in upper case', ys.map(y => y.toUpperCase())], ['a list that is not one', 'all']]) {
+    const res = await spend(many, to(), [S, A], { list }); check('refused: a payment whose witness has ' + what, refused(res, /must list the inputs/) && await allState(many, 'UNSPENT'), res.ok ? 'ACCEPTED' : res.detail); }
+  const fair = await spend(many, to(), [S, A]); check('…and with its three inputs listed in order, it is paid', many.length === 3 && fair.ok === true && await allState(many, 'SPENT'), fair.detail || `${many.length} inputs`); }
 for (const n of ['1', null]) { const tags = lockTags({ n }), one1 = await donate(8, tags), alone = await spend(one1, [output(8, locked(tags))], [S]), two = await spend(one1, [output(8, payTo(A.pk))], [S, A]);
   check(`refused: a \`dest\` lock ${n ? 'with n_sigs 1' : 'that names no n_sigs'}, the ordering key alone or with a payee`, refused(alone, /at least two signatures/) && refused(two, /at least two signatures/) && await allState(one1, 'UNSPENT'), alone.ok || two.ok ? 'ACCEPTED' : alone.detail); }
 // the two signers put a proof of their own first, so that the donor's proof would carry no witness: it carries it all the same

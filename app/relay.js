@@ -101,24 +101,35 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
 // `marks`: per relay and messaging key, when that relay last answered all it held (EOSE, under the limit); a read starts two days and
 // ten minutes before it (NIP-59 dates a wrap up to two days back), not nine days. `floor`: the oldest wrap still to be taken here (its
 // request not here yet, or no room to keep it): a read never starts after it, so it comes again. A relay that does not answer, refuses
-// (CLOSED) or sends the limit moves no mark: an unknown answer is not an empty one. Returns the new marks, and the wraps it deferred.
-const LIMIT = 500, SLACK = 600;
+// (CLOSED) or whose pages do not end moves no mark: an unknown answer is not an empty one. Returns the new marks, and the wraps it deferred.
+const LIMIT = 500, SLACK = 600, PAGES = 20, TRIES = 3, TRIED = new Map(), retry = () => TRIED.clear();
 async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), expect, timeout, marks = null, floor = 0, limit = LIMIT } = {}){
   const mine = await Promise.all(sks.map(keysOf)), byPub = new Map(mine.map(k => [k.pub, k])), pubs = [...byPub.keys()], t0 = now(), base = Math.max(0, since - TWO_DAYS);
   const sinceFor = (u, p) => { const m = Number(marks && marks[u] && marks[u][p]) || 0; let s = m - TWO_DAYS - SLACK > base ? m - TWO_DAYS - SLACK : base; if (floor > 0) s = Math.min(s, floor - SLACK); return Math.max(base, s); };
-  const per = await Promise.all(relays.map(u => fetchFrom(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout })
-    .then(evs => ({ url: u, ok: true, complete: !!evs.complete, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
-  const next = {}; for (const r of per) { if (!r.complete) continue; const n = new Map(); for (const ev of r.events) { const to = ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1]; n.set(to, (n.get(to) || 0) + 1); }
-    for (const p of pubs) if ((n.get(p) || 0) < limit) (next[r.url] = next[r.url] || {})[p] = t0; }
+  // A relay that sends the limit holds more: the older ones are asked for, page by page (`until` the oldest received), so a flood of
+  // wraps to a key (anyone can send them) does not bury a real message (audit of 10 Nov). `full`: the keys whose pages did not end.
+  const toOf = ev => ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1];
+  const readAll = async u => { const evs = await fetchFrom(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout }), full = new Set(), ids = new Set(evs.map(e => e && e.id));
+    for (const p of pubs) { let page = evs.filter(e => toOf(e) === p), n = 0;
+      while (page.length >= limit) { if (!evs.complete || n++ >= PAGES) { full.add(p); break; } let more;
+        try { more = await fetchFrom(u, { kinds: [WRAP], '#p': [p], since: sinceFor(u, p), until: Math.min(...page.map(e => e.created_at)), limit }, { timeout }); } catch (_) { full.add(p); break; }
+        const fresh = more.filter(e => e && e.id && !ids.has(e.id)); for (const e of fresh) { ids.add(e.id); evs.push(e); }
+        if (!more.complete || (more.length >= limit && !fresh.length)) { full.add(p); break; } page = more; } }
+    return { url: u, ok: true, complete: !!evs.complete, full, events: evs }; };
+  const per = await Promise.all(relays.map(u => readAll(u).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  const next = {}; for (const r of per) { if (!r.complete) continue; for (const p of pubs) if (!r.full.has(p)) (next[r.url] = next[r.url] || {})[p] = t0; }
   const deferred = [];
   const out = [], wraps = new Map(); for (const r of per) for (const ev of r.events) if (ev && ev.id && !wraps.has(ev.id)) wraps.set(ev.id, { ev, from: [r.url] }); else if (ev && wraps.has(ev.id)) wraps.get(ev.id).from.push(r.url);
-  for (const [id, { ev, from }] of wraps) { if (seen.has(id)) continue; seen.add(id);
+  for (const [id, { ev, from }] of wraps) { if (seen.has(id) || (TRIED.get(id) || 0) >= TRIES) continue; seen.add(id);
     const to = (ev.tags.find(t => t[0] === 'p') || [])[1], k = byPub.get(to); if (!k || !K.verifyEvent(ev)) continue;
     let rumor, payload; try { rumor = K.unwrapEvent(ev, k.sk); payload = await C.unpack(rumor.content); } catch (_) { continue; }  // not for us, or not readable
     const want = expect ? await expect(payload) : null;
     // not expected here yet (its request or its campaign is not in this browser yet): asked again next time, not dropped for good
     //
-    if (!want) { seen.delete(id); deferred.push({ id, created: ev.created_at }); continue; }
+    // …but each opening costs a decryption, and anyone can send wraps to a key: one that was not expected TRIES times is left alone
+    // until the app is opened again, or until something new is here that it may belong to (retry()). Without this a flood of wraps
+    // made every check slower for as long as the relays kept them (11 Nov: 1 300 wraps, 12 s a check, every minute).
+    if (!want) { seen.delete(id); TRIED.set(id, (TRIED.get(id) || 0) + 1); if (TRIED.size > 20000) TRIED.delete(TRIED.keys().next().value); deferred.push({ id, created: ev.created_at }); continue; }
     if (rumor.pubkey !== await pubOf(want)) continue;  // not from who it says
     if (payload && payload.id && seen.has('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''))) continue; if (payload && payload.id) seen.add('p:' + payload.t + ':' + payload.id + ':' + (payload.kind || ''));
     out.push({ payload, wrap: id, relays: from, at: rumor.created_at, created: ev.created_at }); }
@@ -128,7 +139,13 @@ async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen =
 // ledger key derived from the campaign's Streetcat key, so anyone can check who signed it from the campaign alone. Readers take the
 // newest event whose signer and campaign check out: one under that id signed by any other key, or naming another campaign, is ignored.
 const LEDGER_KIND = 30078, LEDGER_MAX = 120000;
-async function ledgerEvent(L, streetcatSk){ const c = C.campaignOf(L.campaign), content = JSON.stringify(L);
+async function ledgerEvent(L, streetcatSk){ const c = C.campaignOf(L.campaign); let content = JSON.stringify(L);
+  // A ledger too large for a relay is no longer refused whole (many small donations, which cost their sender nothing, stopped it from
+  // being published at all; independent review, 11 Nov): what does not fit is left out, the smallest donations nothing was paid from
+  // first, and the ledger says how many and how much (more). The file export still carries all of it.
+  if (content.length > LEDGER_MAX && Array.isArray(L.entries)) { const order = L.entries.map((e, i) => [e, i]).sort((a, b) => ((b[0].parts || []).length ? 1 : 0) - ((a[0].parts || []).length ? 1 : 0) || (Number(b[0].amount) || 0) - (Number(a[0].amount) || 0) || a[1] - b[1]).map(x => x[0]);
+    const made = n => { const keep = new Set(order.slice(0, n)), es = L.entries.filter(e => keep.has(e)), out = L.entries.filter(e => !keep.has(e)); return JSON.stringify({ ...L, entries: es, ...(Array.isArray(L.donations) ? { donations: es.flatMap(e => [e.token, ...(e.remainders || [])]) } : {}), more: { n: out.length, sat: out.reduce((a, e) => a + (Number(e.amount) || 0), 0) } }); };
+    let lo = 0, hi = order.length; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (made(mid).length <= LEDGER_MAX) lo = mid; else hi = mid - 1; } content = made(lo); }
   if (content.length > LEDGER_MAX) throw new Error(`this ledger is ${Math.round(content.length / 1000)} kB, too large for a relay: publish its file instead`);
   return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', await C.campaignId(c)], ['t', 'streetcat-ledger']], content }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
 async function ledgerOk(ev, id){ try { if (!ev || ev.kind !== LEDGER_KIND || (ev.tags.find(t => t[0] === 'd') || [])[1] !== id || !K.verifyEvent(ev)) return null;
@@ -188,5 +205,5 @@ async function receivePayments(skHex, { relays = RELAYS, since = now() - 7 * 864
 // "received": what the app sends back as soon as a request or an answer arrives, so the sender knows it got there
 const receiptFor = payload => ({ t: 'streetcat.received', v: 1, id: payload.id, of: payload.t, at: new Date().toISOString() });
 
-root.scRelay = { RELAYS, NO_ROOM, keysOf, pubOf, wrap, publish, publishChecked, has, outbox, receive, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, ANNOUNCE, announceEvent, announcedOk, openCampaigns, bech32, nprofile, receivePayments };
+root.scRelay = { RELAYS, NO_ROOM, keysOf, pubOf, wrap, publish, publishChecked, has, outbox, receive, retry, receiptFor, fetchFrom, publishTo, LEDGER_KIND, ledgerEvent, ledgerOk, latestLedger, ANNOUNCE, announceEvent, announcedOk, openCampaigns, bech32, nprofile, receivePayments };
 })(typeof window !== 'undefined' ? window : globalThis);

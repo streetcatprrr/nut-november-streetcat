@@ -45,7 +45,7 @@ diff -ruN a/cashu/mint/conditions.py b/cashu/mint/conditions.py
 diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 --- a/cashu/mint/dest.py
 +++ b/cashu/mint/dest.py
-@@ -0,0 +1,319 @@
+@@ -0,0 +1,349 @@
 +"""
 +Destination-bound P2PK: the `dest` tag.
 +
@@ -57,8 +57,8 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +in a swap whose every output is opened in the witness and is locked either to
 +one of the lock's `pubkeys` that signed the transaction, or with the very same
 +lock. The key in `data` has to sign and can never be paid. Such a spend is kept
-+readable: its witness is stored with every one of its inputs. The refund path
-+is NUT-11's, for the lock's `refund` keys only.
++readable: its witness lists the transaction's inputs and is stored with every
++one of them. The refund path is NUT-11's, for the lock's `refund` keys only.
 +
 +Everything here fails closed: whatever is malformed, missing or unknown
 +refuses the spend.
@@ -192,9 +192,23 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +        if lock.data.lower() not in signers:
 +            raise TransactionError("dest: the key in data has not signed.")
 +
-+        payees = {key.lower() for key in lock.tags.get_tag_all("pubkeys")}
++        # as the lock writes them: a payment names its payee letter for letter
++        payees = set(lock.tags.get_tag_all("pubkeys"))
 +        if len(openings) != len(outputs):
 +            raise TransactionError("dest: every output must be opened in the witness.")
++
++        # The witness names the inputs it spends, in the transaction's order:
++        # the SIG_ALL message cannot be rebuilt without them, so a reader who
++        # knows one input could not check the signatures of a spend of many.
++        listed = self._dest_inputs(proofs[0].witness)
++        spent = [
++            hash_to_curve(proof.secret.encode("utf-8")).format().hex()
++            for proof in proofs
++        ]
++        if listed != spent:
++            raise TransactionError(
++                "dest: the witness must list the inputs of the transaction."
++            )
 +
 +        input_nonces = {Secret.deserialize(proof.secret).nonce for proof in proofs}
 +        seen: Set[str] = set()
@@ -217,12 +231,12 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +                continue
 +
 +            # otherwise a plain payment to a payee that signed for it
-+            payee = condition.data.lower()
++            payee = condition.data
 +            if condition.tags.root or payee not in payees:
 +                raise TransactionError(
 +                    "dest: an output goes where the lock does not allow."
 +                )
-+            if payee not in signers:
++            if payee.lower() not in signers:
 +                raise TransactionError("dest: a payee is paid without its signature.")
 +
 +    def _dest_refund_path_ok(
@@ -270,6 +284,18 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +        except Exception:
 +            pass
 +        return []
++
++    def _dest_inputs(self, witness: Optional[str]) -> List[str]:
++        """The inputs a witness lists (their Y, hex), or nothing."""
++        try:
++            listed = json.loads(witness or "").get("inputs")
++        except Exception:
++            return []
++        if not isinstance(listed, list) or not all(
++            isinstance(y, str) for y in listed
++        ):
++            return []
++        return listed
 +
 +    def _dest_witness(self, witness: Optional[str]) -> Tuple[List[str], List[Opening]]:
 +        """The signatures and the opened outputs of a witness."""
@@ -326,6 +352,10 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +        """B_ must be hash_to_curve(secret) + r·G."""
 +        if not secret or len(secret) > settings.mint_max_secret_length:
 +            raise TransactionError("dest: an opened secret is empty or too long.")
++        if secret != secret.strip():
++            # NUT-10 reads a secret past leading white space; a reader of the
++            # mint's record should not have to
++            raise TransactionError("dest: an opened secret has white space around it.")
 +        try:
 +            # bytes.fromhex() skips spaces and a short scalar is padded: an r
 +            # that only looks like one would be stored for readers as given

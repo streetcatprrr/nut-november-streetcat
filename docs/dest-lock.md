@@ -42,7 +42,8 @@ A P2PK secret MAY carry the tag `["dest", "pubkeys"]`. In such a lock:
 ## Spending on the main path
 
 All inputs of the transaction carry the same lock (the NUT-11 rule for `SIG_ALL`). The witness of the first input holds the
-signatures and, for each output of the swap in the same order, the output opened:
+signatures, for each output of the swap in the same order the output opened, and the transaction's inputs (the `Y` of each,
+in the transaction's order):
 
 ```json
 {"signatures": ["<sig>", "<sig>"],
@@ -57,7 +58,7 @@ The mint accepts the spend only if all of this holds:
 3. At least `n_sigs` distinct keys of `data` and `pubkeys` have a valid signature on the NUT-11 `SIG_ALL` message, and
    the key in `data` is one of them. The witness holds no more signatures than the lock has keys.
 4. There is one opening per output, and for each `B_ = hash_to_curve(secret) + r·G`, with `r` written as 64 lower-case
-   hex digits and nothing else.
+   hex digits and nothing else, and the secret with no white space before or after it.
 5. Every opened secret is one of two things:
    - **the same lock**: a P2PK secret with the inputs' `data` and `tags`, value for value and in the same order, and a
      nonce no input has;
@@ -65,14 +66,17 @@ The mint accepts the spend only if all of this holds:
      with no tags, and that key is one of the valid signers of this transaction.
 6. No two outputs have the same secret, and none has a secret the mint has already seen spent (a guard against a
    wallet's mistake; see Limits for what it does not stop).
+7. The witness's `inputs` is the list of the transaction's inputs: the `Y` of each (lower-case hex), all of them, once,
+   in the transaction's order.
 
 When it accepts, the mint **stores the first input's witness with every input** of the transaction. NUT-07 then returns
-it for any of them.
+it for any of them. With rule 7, every spend the mint accepts is one of two things: a payment on the main path whose
+record says all that is needed to check it, or a spend by the refund keys.
 
 So each spend splits the value between payees who signed for it and the same lock. Who certifies is who gets paid; what is
 not paid stays under the conditions the locker chose, refund key and deadline included.
 
-`inputs` is not read by the mint. It is there for whoever reads the mint afterwards (below).
+`inputs` is checked by the mint (rule 7), for whoever reads the mint afterwards (below).
 
 ## The refund path
 
@@ -93,8 +97,8 @@ The opened secret and `r`, with the blind signature the mint returns for that `B
 does not depend on anyone to hand over its payment, nor a donor to find what remains of a donation: both can rebuild the
 proofs from what the mint holds. They are useless to anyone else, since every output is locked.
 
-Who signed can be checked too. A spender SHOULD list the transaction's inputs in the witness (`inputs`: the `Y` of each,
-in order). Whoever holds those proofs can then write the `SIG_ALL` message again (the inputs' secrets and `C`, the opened
+Who signed can be checked too. The witness lists the transaction's inputs, and the mint refuses a main-path spend whose
+list is not exactly them. Whoever holds those proofs can then write the `SIG_ALL` message again (the inputs' secrets and `C`, the opened
 outputs' amounts and `B_`) and verify the signatures: a spend signed by the ordering key and by every payee it pays is a
 payment on the main path, proven by the mint's record. A reader SHOULD count nothing else as one. A spend by the refund
 keys can open outputs too, even pay a payee, and must not be taken for the organiser's.

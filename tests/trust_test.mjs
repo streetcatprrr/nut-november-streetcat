@@ -28,7 +28,7 @@ const open = async (p, link) => { await p.goto(BASE + 'index.html'); await p.got
 const clinic = await page('clinic'), clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', true)));
 const good = newSk(), evil = newSk(); pin(C.pubOf(good));
 const camp = sk => ({ name: 'TNR NORTE', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sk), clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 });
-const request = async sk => { const c = camp(sk); return C.makeRequest({ campaign: c, patient: 'MOCHI', procedure: 'sterilisation (spay)', date: new Date().toISOString().slice(0, 10), contributions: [{ proofs: await locked(64, c) }] }); };
+const request = async sk => { const c = camp(sk); return C.signRequest(await C.makeRequest({ campaign: c, patient: 'MOCHI', procedure: 'sterilisation (spay)', date: new Date().toISOString().slice(0, 10), contributions: [{ proofs: await locked(64, c) }] }), sk); };  /* signed by its sender's key, as the app sends them: one by link or file without it is refused */
 const qEvil = await request(evil), qGood = await request(good);
 check('the stranger\'s request is one the protocol itself finds valid (core.js): only who it is from is wrong', C.requestProblems(qEvil).length === 0);
 

@@ -30,8 +30,12 @@ function paintKeys(root){ const walker = document.createTreeWalker(root, NodeFil
 new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) { if (n.nodeType === 3 && n.parentNode) paintKeys(n.parentNode); else if (n.nodeType === 1) paintKeys(n); } }).observe(document.body, { childList: true, subtree: true, characterData: false });
 paintKeys(document.body);
 
+// Keys locked with a PIN (vault.js) and not opened in this tab yet: its screen asks for it, and nothing of the app runs before
+// (a start without its keys would make new ones, or take a payment it cannot sign for). The page starts again once it is given.
+if (scVault.locked()) { scVault.gate(); throw new Error('locked: the keys wait for the PIN'); }
 const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-const ls = { get(k){ try { return localStorage.getItem(k); } catch(_) { return null; } }, set(k, v){ try { localStorage.setItem(k, v); return true; } catch(_) { return false; } } };  // false: not saved (a full storage, a private window)
+// what is kept goes through the vault: with a PIN, the private keys are sealed as they are written and opened as they are read
+const ls = { get(k){ try { return scVault.read(k); } catch(_) { return null; } }, set(k, v){ try { return scVault.write(k, v); } catch(_) { return false; } } };  // false: not saved (a full storage, a private window)
 const KEYS = { clinic: 'vetlock.clinic.sk', streetcat: 'vetlock.streetcat.sk', donor: 'vetlock.donor.sk' };
 const newKey = () => hex(cashu.createRandomSecretKey());
 const pubOf = sk => hex(cashu.getPubKeyFromPrivKey(Uint8Array.from(sk.match(/../g).map(h => parseInt(h, 16)))));
@@ -107,7 +111,7 @@ function tokenCard(dec, info, state){ info.pubkeys.forEach((k, i) => roleOf(k, i
   const w = document.createElement('div'); w.className = 'who2'; w.textContent = `clinic ${abbr(info.pubkeys[1] || '')}\nStreetcat ${abbr(info.pubkeys[0])}\nrefund after ${fmtDate(info.locktime)}`; c.appendChild(w);
   c.appendChild(lockBar(state)); return c; }
 let RATE = null; const rate = async () => { if (RATE) return RATE; try { const c = JSON.parse(ls.get('vetlock.rate') || 'null'); if (c && Date.now() - c.at < 600000) return RATE = c.eur; } catch (_) {}
-  try { const r = await fetch('https://mempool.space/api/v1/prices', { cache: 'no-store' }); const j = await r.json(); if (j && j.EUR) { RATE = j.EUR; ls.set('vetlock.rate', JSON.stringify({ eur: j.EUR, at: Date.now() })); } } catch (_) {} return RATE; };
+  try { const r = await window.scCore.fetchT('https://mempool.space/api/v1/prices', { cache: 'no-store' }); const j = await r.json(); if (j && j.EUR) { RATE = j.EUR; ls.set('vetlock.rate', JSON.stringify({ eur: j.EUR, at: Date.now() })); } } catch (_) {} return RATE; };
 const eur = (sats, r) => { const v = sats / 1e8 * r; return v < 0.01 ? '< 0,01 €' : v.toFixed(2).replace('.', ',') + ' €'; };
 async function fiatInto(el, sats){ const r = await rate(); if (!r || !el || !(sats > 0)) return; const s = document.createElement('span'); s.className = 'mut'; s.textContent = ` ≈ ${eur(sats, r)}`; el.appendChild(s); }
 // a short buzz when an operation is confirmed. Android
@@ -307,7 +311,7 @@ const outLoad = x => new cashu.OutputData({ amount: cashu.Amount.from(x.a), id: 
 // once per mint and page, and only when it matters: choosing a campaign's partners, making it, and locking a donation to one that needs it.
 const DEST_MINTS = new Map();
 async function mintDest(url){ url = String(url || '').trim().replace(/\/+$/, ''); if (!/^https?:\/\//i.test(url)) return false; if (DEST_MINTS.has(url)) return DEST_MINTS.get(url);
-  try { const r = await fetch(url + '/v1/info', { cache: 'no-store' }); if (!r.ok) return false; const v = window.scCore.destMint(await r.json()); DEST_MINTS.set(url, v); return v; } catch (_) { return false; } }
+  try { const r = await window.scCore.fetchT(url + '/v1/info', { cache: 'no-store' }); if (!r.ok) return false; const v = window.scCore.destMint(await r.json()); DEST_MINTS.set(url, v); return v; } catch (_) { return false; } }
 async function buildOutputs(w, amount, lock){ const ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id);
   // a donation (locked) is cut small: no proof over a tenth of it (core.js donationSplit), so a release seldom splits a proof, and what
   // a split exposes stays small; what is not locked (a release, a refund) takes the usual denominations
@@ -489,8 +493,17 @@ refreshKeys();
 const makeKey = (role, warn) => { if (key(role, false) && !confirm(warn)) return; if (!setKey(role, newKey())) alert('This browser could not save a new key, so nothing changed.'); else buzz(); refreshKeys(); const code = $(role === 'clinic' ? 'c-pk' : 's-pk'); if (code) flapKeys(code, code.textContent, { speed: .6, hex: true }); };
 $('c-new').onclick = () => makeKey('clinic', 'Make a new clinic key? Publish the new public key before donations use it. The current key stays in this browser, so tokens locked to it can still be certified here.');
 $('s-new').onclick = () => makeKey('streetcat', 'Make a new Streetcat key? New campaigns will use it. The current key stays in this browser, so tokens locked to it can still be released here.');
-$('c-show').onclick = () => alert('Clinic private key (keep it secret):\n' + (key('clinic', false) || 'none'));
-$('s-show').onclick = () => alert('Streetcat private key (keep it secret):\n' + (key('streetcat', false) || 'none'));
+// a private key is shown on the page, never in a browser dialog (they stay on screen, and some browsers keep their text); with a PIN, it is asked again first
+const showSk = async (role, b) => { const sk = key(role, false); if (!sk) return flapLabel(b, 'no key'); if (scVault.on() && !(await scVault.askPin('PIN, to show the key'))) return; scVault.reveal(`${role === 'clinic' ? 'Clinic' : 'Streetcat'} private key · keep it secret`, sk); };
+$('c-show').onclick = () => showSk('clinic', $('c-show')); $('s-show').onclick = () => showSk('streetcat', $('s-show'));
+// the PIN that locks the keys on this phone (vault.js): set, lock now, remove; in Keys and in the partner's settings
+const pinDraw = () => { const on = scVault.on(); for (const p of ['x', 'cs']) { $(p + '-pin-sum').textContent = 'PIN for the keys · ' + (on ? 'on' : 'off'); for (const id of ['a', 'b', 'set']) $(`${p}-pin-${id}`).hidden = on; for (const id of ['lock', 'off']) $(`${p}-pin-${id}`).hidden = !on; } };
+for (const p of ['x', 'cs']) { const out = $(p + '-pin-out'), A = $(p + '-pin-a'), B = $(p + '-pin-b');
+  $(p + '-pin-set').onclick = async () => { if (A.value.length < scVault.MIN) return show(out, `✗ A PIN has ${scVault.MIN} characters or more.`, 'bad'); if (A.value !== B.value) return show(out, '✗ The two PINs are not the same.', 'bad');
+    show(out, 'locking…'); try { await scVault.set(A.value); A.value = B.value = ''; buzz(); show(out, '✓ Keys locked. The PIN is asked when the app opens.', 'ok'); } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } pinDraw(); };
+  $(p + '-pin-lock').onclick = () => { scVault.lock(); location.reload(); };
+  $(p + '-pin-off').onclick = async () => { const pin = await scVault.askPin('PIN, to remove it'); if (!pin) return; try { await scVault.clear(pin); show(out, 'PIN removed: the keys are kept as before.'); } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } pinDraw(); }; }
+pinDraw();
 for (const [id, role] of [['c-copy', 'clinic'], ['s-copy', 'streetcat']]) $(id).onclick = async () => { const b = $(id), sk = key(role, false);  // the public key is what goes into a campaign
   if (!sk) return flapLabel(b, 'no key'); const ok = await copyText(pubOf(sk)); if (ok) doneLabel(b); else flapLabel(b, 'select it'); if (ok) termShow(pubOf(sk), role, { hex: true, ms: 6000 }); };
 // everything else this browser keeps goes with the keys: campaigns, donations, requests, partners, colonies, cat records, released tokens, settings, and the photos. The keys
@@ -589,6 +602,7 @@ $('x-imp').onclick = async () => { const out = $('x-out'); show(out, ''); $('x-t
   CAMPMAP = null; refreshKeys(); for (const r of ['sc', 'clinic']) jset(RMARKS(r), {});  /* what it brought may have answers waiting: the next check reads all nine days */ try { renderHome(); } catch (_) {} xPrep(); const what = xWhat(Object.fromEntries(d), Object.fromEntries(phs));
   if (saved) { buzz(); $('x-box').value = ''; }
   const leftOut = left.length ? ` Left out, not ${mine.who}'s: ${left.join(', ')}; import the export in ${role === 'clinic' ? 'Rescue\'s' : 'the partner\'s'} app for those.` : '';
+  if (saved && window.scRelay) window.scRelay.retry();  /* messages that waited for what was imported are tried again */
   show(out, saved ? `${left.length ? '⚠ ' : ''}Imported, as ${mine.who}. The keys this browser had before are kept too.` + (what ? ` With them: ${what}; what this browser had stays too.` : '') + leftOut + ' Copy something else now, so the keys do not stay in the clipboard.' : '✗ This browser could not save everything (it may be full). Nothing was deleted; try again.', saved && !left.length ? '' : 'bad'); };  /* something left out: a warning, in red */
 
 // campaign from URL
@@ -1033,7 +1047,7 @@ document.querySelector('nav button[data-t="campaign"]').addEventListener('click'
 $('k-go').addEventListener('holdstart', () => $('k-keys').querySelectorAll('.kk').forEach(v => { if (v._t) flapKeys(v, v._t, { speed: holdMs() / 1200, hex: true }); }));
 $('k-go').addEventListener('holdstop', () => kKeys());
 // what this project needs from a mint, read from its own info (NUT-06) and keysets (NUT-02)
-async function mintCheck(url){ const get = async p => { const r = await fetch(url + p, { cache: 'no-store' }); if (!r.ok) throw new Error(p + ' answered HTTP ' + r.status); return r.json(); };
+async function mintCheck(url){ const get = async p => { const r = await window.scCore.fetchT(url + p, { cache: 'no-store' }); if (!r.ok) throw new Error(p + ' answered HTTP ' + r.status); return r.json(); };
   const info = await get('/v1/info'), ks = await get('/v1/keysets'), nuts = info.nuts || {}, on = n => !!(nuts[n] && nuts[n].supported === true);
   const ln = !!(nuts['4'] && !nuts['4'].disabled && (nuts['4'].methods || []).some(m => m.method === 'bolt11' && m.unit === 'sat'));
   const fees = (ks.keysets || []).filter(k => k.unit === 'sat' && k.active !== false).map(k => Number(k.input_fee_ppk || 0)), fee = fees.length ? Math.max(...fees) : null;
@@ -1064,7 +1078,7 @@ $('k-go').onclick = async () => { const btn = $('k-go'); busy(btn, true); try {
   c = await window.scCore.signCampaign(c, ssk);  /* signed with Streetcat's key (core.js): donors' pages refuse a link changed afterwards */
   const base = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'); let slug = base; for (let n = 2; camps().some(x => x.slug === slug); n++) slug = `${base}-${n}`;  /* a pot never takes the place of another of the same name */
   const link = location.href.split('#')[0].split('?')[0].replace(/\/(clinic|streetcat)$/, '/donate') + '#c=' + b64u.enc(JSON.stringify(c));  // a donation link opens as a donor, whatever page made it
-  ls.set(CAMPS, JSON.stringify([...camps(), { c, link, slug, created: Date.now() }])); renderHome(); buzz();
+  ls.set(CAMPS, JSON.stringify([...camps(), { c, link, slug, created: Date.now() }])); if (window.scRelay) window.scRelay.retry(); renderHome(); buzz();  /* a message that waited for this campaign is tried again */
   if (K.back === 'snew' && SN.type === K.type) { SN.pot = slug; if (!SN.col && c.colony) SN.col = c.colony; }  /* made from a request's "Choose pot": back there, it pays from it */
   const ledger = JSON.stringify({ campaign: c, clinicKeySource: 'https://… (where the clinic published its key)', donations: [] }, null, 1);
   // the result is its own screen: the mint's answer types itself out line by line, then three full-width actions
@@ -1156,7 +1170,7 @@ async function lnCheck(saving){ const st = $('h-ln-st'), v = $('h-ln').value.tri
   const url = window.scCore.lnAddressUrl(v); if (!url) { show(st, `✗ ${v} is not a Lightning address (name@domain)` + (saving ? ': nothing was saved.' : '.'), 'bad'); return; }
   if (saving) { ls.set(PAYTO, v); $('h-ln').value = v; }
   show(st, `checking ${v}…`);
-  try { let r; try { r = await fetch(url, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error('it cannot be reached from this browser'); } const j = await r.json().catch(() => null);
+  try { let r; try { r = await window.scCore.fetchT(url, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error('it cannot be reached from this browser'); } const j = await r.json().catch(() => null);
     if (!r.ok || !j || j.tag !== 'payRequest') throw new Error(j && j.reason ? j.reason : `it answered HTTP ${r.status}`);
     show(st, ''); if (saving) buzz();  /* it answers: nothing to say; only what is wrong, in red */
   } catch (e) { show(st, `✗ ${v}: ${e.message || e}. Until it answers, what is released stays in this browser.`, 'bad'); } }
@@ -1221,7 +1235,7 @@ async function reqAmounts(r){ const q = r.q, keysets = {}; let locked = (r.amoun
   const p = C.amountProblems(q, keysets, feeOf); r.amounts = { at: nowIso(), problems: [...p], wrong: p.wrong, unchecked: p.unchecked, uncheckable: p.uncheckable, ...(locked ? { locked } : {}) }; return r.amounts; }
 // what keeps a request from being confirmed: checked anew while it waits for review (one taken before these checks is held to them
 // too); once answered, what was found when it came
-const creqProblems = r => { if (r.state !== 'review') return r.problems || []; const p = reqProblems(r.q); return p.length ? p : r.amounts ? r.amounts.problems : []; };
+const creqProblems = r => { if (r.state !== 'review') return r.problems || []; const p = [...reqProblems(r.q), ...(r.unsigned || [])];  /* unsigned: what takeRequest found of its signature, kept with it */ return p.length ? p : r.amounts ? r.amounts.problems : []; };
 const creqInvalid = r => r.state !== 'review' ? !!(r.problems || []).length : !!reqProblems(r.q).length || !!(r.amounts && (r.amounts.wrong || r.amounts.uncheckable));  /* keys missing for now: not "not valid" */
 // the funding of a request, under its donations (plan step 1): what Streetcat's app could not check when it sent it, and what the mint
 // says of its proofs now; drawn again on its own when the mint answers, so nothing the partner is doing on the screen is reset
@@ -1241,7 +1255,10 @@ const cGroup = r => r.state === 'review' ? (Number(r.q.campaign.deadline) < Date
 async function takeRequest(q0, from){ const { photoData, ...q } = q0 || {};
   if (photoData && typeof photoData === 'object') for (const ph of Array.isArray(q.photos) ? q.photos : []) { const s = photoData[ph.slot]; if (typeof s === 'string' && s.length <= C.CAT_PHOTO_MAX * 2) { try { await keepPhoto(String(ph.sha256), unb64(s)); } catch (_) {} } }  /* a file carries its photos */
   const have = creqs().find(x => x.id === q.id); if (have) return have;
-  const r = { id: q.id, q, from, at: nowIso(), state: 'review', problems: reqProblems(q) }; saveCreq(r); if (!r.problems.length) amountsAgain(r.id);  /* its amounts, against the mint's keys (A04): apart, so a slow mint holds nothing up */
+  /* Whose request it is: through the relay its seal says so; by link, file or QR only Streetcat's signature on it does, and without
+     one it is shown but cannot be confirmed (independent review, 11 Nov: anyone could write one naming Streetcat's published key). */
+  const sg = await C.requestSig(q), unsig = sg === 'broken' ? ['its signature does not match: it was changed after Streetcat signed it'] : sg !== 'signed' && from !== 'relay' ? ['it is not signed by Streetcat: ask Streetcat to send it again'] : [];
+  const r = { id: q.id, q, from, at: nowIso(), state: 'review', problems: [...reqProblems(q), ...unsig], ...(unsig.length ? { unsigned: unsig } : {}) }; saveCreq(r); if (!r.problems.length) amountsAgain(r.id);  /* its amounts, against the mint's keys (A04): apart, so a slow mint holds nothing up */
   const sk = clinicSkFor(q); if (sk && OUTBOX && !r.problems.length) { try { await OUTBOX.add(R.receiptFor(q), sk, q.campaign.streetcat, { relays: relays(), label: 'received ' + q.id }); flush(); } catch (_) {} }  /* tells Streetcat it arrived */
   return r; }
 const CSEEN = 'vetlock.clinic.seen';
@@ -1272,7 +1289,7 @@ function renderWork(typed = false){ const list = $('w-list'); list.textContent =
   /* none of them: the list says nothing; the number says 0 */
   for (const g of W_SETS[W_SHOW] || []) { const rs = all.filter(r => cGroup(r) === g); if (!rs.length) continue; const gh = el('div', 'grp', CGROUP[g]); list.appendChild(gh); lines.push(gh);
     for (const r of rs) { const it = el('div', 'item'), l = el('div'), nm = el('div', 'nm', `${r.q.patient} · ${r.q.procedure}`), sub = el('div', 'sub2', `${r.q.id} · ${fmtSat(C.requestAmount(r.q))} · ${r.q.campaign.name}`); if (creqInvalid(r)) { sub.appendChild(document.createTextNode(' · ')); sub.appendChild(el('span', 'bad', '✗ not valid')); } l.appendChild(nm); l.appendChild(sub);  /* in red, as every warning */ it.appendChild(l);  /* its code first: the one Rescue shows (its photos are inside) */
-      const st = g === 'review' || g === 'old' ? ['→', 'wait'] : g === 'done' ? [r.pay && r.pay.state === 'paid' ? 'paid' : r.ackedAt ? 'received' : 'sent', 'ok'] : g === 'reported' ? [sentState(r.outbox).state === 'sent' || r.handed ? 'sent' : 'to send', 'bad'] : [sentShort(r.outbox), /^(not sent|offline)$/.test(sentShort(r.outbox)) ? 'bad' : ''];
+      const st = g === 'review' || g === 'old' ? ['→', 'wait'] : g === 'done' ? r.pay && r.pay.gone ? ['check', 'bad'] : [r.pay && r.pay.state === 'paid' ? 'paid' : r.ackedAt ? 'received' : 'sent', 'ok'] : g === 'reported' ? [sentState(r.outbox).state === 'sent' || r.handed ? 'sent' : 'to send', 'bad'] : [sentShort(r.outbox), /^(not sent|offline)$/.test(sentShort(r.outbox)) ? 'bad' : ''];
       const se = el('div', 'st ' + st[1], st[0]); it.appendChild(se); it.onclick = () => { CUR_CREQ = r.id; openTab('creq'); }; list.appendChild(it); lines.push(nm, sub, se); } }
   if (typed && lines.length) typeLines(lines);  /* shown at a tap: typed in, as the donor's list of requests */
   offlineChecks().then(items => { const bad = items.filter(i => i.state === 'bad').length, o = $('w-offline');  // "Offline setup", after Certify a token, in red while something is missing
@@ -1395,7 +1412,7 @@ async function cPayOut(w, r, locked, sk, to){ const mint = norm(r.q.campaign.min
   for (let i = 0; i < 2; i++) { const inv = (await C.lnAddressInvoice(to, want)).invoice, q = await w.createMeltQuoteBolt11(inv), room = total - inFee - amt(q.fee_reserve);  /* the exact room once the mint's reserve is known */
     if (amt(q.amount) <= room) { best = { inv, q }; if (room === amt(q.amount)) break; want = room; } else { if (best || room < 1) break; want = room; } }
   if (!best) throw new Error(`the mint keeps too much for fees to pay ${fmtSat(total)} out by Lightning`);
-  const m = { id: 'cp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), req: r.id, quote: best.q.quote, amount: amt(best.q.amount), to, mint, at: nowIso(), state: 'pending', used: extra.map(x => x.token) };
+  const m = { id: 'cp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), req: r.id, quote: best.q.quote, amount: amt(best.q.amount), to, mint, at: nowIso(), state: 'pending', used: extra.map(x => x.token), took: sum(locked) };  /* took: how much of the request's own payment goes with it, so that what was collected by another hand can be told (cCollect) */
   const prep = await w.ops.meltBolt11(best.q, inputs).prepare(); m.outs = (prep.outputData || []).map(outSave);  /* the change's blank outputs, kept with the payment before it is sent */
   if (!saveCPayout(m)) throw new Error('this phone could not write the payment down first (its storage is full or blocked), so it was not sent');
   try { const res = await w.completeMelt(prep); if (res.quote && res.quote.state && res.quote.state !== 'PAID') return { pending: true, amount: m.amount };
@@ -1421,9 +1438,14 @@ async function cCollect(id){ if (CPAY.busy.has(id)) return null; CPAY.busy.add(i
     if (!found.length) return more ? (r.pay || null) : setPay(id, { state: 'none', amount: 0, of });  /* every proof of it spent and nothing of it paid to this partner: its donor took it back, or it was paid under another request. Said (payLine), not left as "once Streetcat releases" for ever */
     const fs = await w.checkProofsStates(found), live = found.filter((p, i) => fs[i] && fs[i].state === 'UNSPENT'), amount = sum(found), state = more ? 'part' : 'paid';
     const sentSoFar = () => { const paid = cPayouts().filter(m => m.req === id && m.state === 'paid'); return paid.length ? { sent: paid.reduce((a, m) => a + m.amount, 0), to: paid[paid.length - 1].to, change: paid.reduce((a, m) => a + (m.change || 0), 0) } : {}; };
-    if (!live.length) return setPay(id, { state, amount, of, ...sentSoFar() });
+    /* What the mint paid this partner and is spent, but was not sent on from here: collected with the partner's key by another phone,
+       or by someone who has the key. It was shown as "✓ sent to your wallet", which this phone cannot know (outside review, 11 Nov).
+       Counted from the payments written down here (took); one written before that was kept says nothing either way. */
+    const elsewhere = spent => { const ms = cPayouts().filter(m => m.req === id && (m.state === 'paid' || m.state === 'pending')); if (ms.some(m => m.took == null)) return { gone: 0 };
+      const took = Math.max(Number(r.pay && r.pay.took) || 0, ms.reduce((a, m) => a + m.took, 0)); return { took, gone: Math.max(0, spent - took) }; };
+    if (!live.length) return setPay(id, { state, amount, of, ...sentSoFar(), ...elsewhere(amount) });
     const to = cPayTo(); if (!to) return setPay(id, { state: 'atmint', amount, of, to: '', why: '' });
-    try { const res = await cPayOut(w, r, live, sk, to); return setPay(id, res.pending ? { state: 'sending', amount, of, to } : { state, amount, of, to, ...sentSoFar() }); }
+    try { const res = await cPayOut(w, r, live, sk, to); return setPay(id, res.pending ? { state: 'sending', amount, of, to } : { state, amount, of, to, ...sentSoFar(), ...elsewhere(amount) }); }
     catch (e) { return setPay(id, { state: 'atmint', amount, of, to, why: String((e && e.message) || e).slice(0, 200) }); }
   } finally { CPAY.busy.delete(id); } }
 // every confirmed request not paid out yet (those whose pot closed more than a week ago are let be), and the change of a payment whose answer was lost
@@ -1437,14 +1459,15 @@ const payLine = r => { if (r.q.campaign.lock !== 'dest' || !r.answer || r.answer
   if (!p) return '· paid by the mint once Streetcat releases\n';
   if (p.state === 'none') return '✗ Not paid: its donations are no longer locked (taken back by their donors, or paid under another request). Ask Streetcat.\n';
   if (p.state === 'paid' || p.state === 'part') { const less = p.of && p.amount < p.of ? p.of - p.amount : 0;  /* part: some of the request's donations are not released yet; paid and less: one of them went another way (its donor took it back) */
-    return `✓ ${fmtSat(p.sent || p.amount)} sent to ${p.to || 'your wallet'}${p.change ? ` · ${fmtSat(p.change)} kept here for the next payment` : ''}\n` + (p.state === 'part' ? `· ${less ? fmtSat(less) : 'the rest'} to come once Streetcat releases it\n` : less ? `✗ ${fmtSat(less)} of ${fmtSat(p.of)} were not paid: that donation is no longer locked. Ask Streetcat.\n` : ''); }
+    const gone = p.gone || 0, sent = p.sent || (gone ? 0 : p.amount);  /* gone: collected with this partner's key, not from this phone */
+    return (sent ? `✓ ${fmtSat(sent)} sent to ${p.to || 'your wallet'}${p.change ? ` · ${fmtSat(p.change)} kept here for the next payment` : ''}\n` : '') + (gone ? `✗ ${fmtSat(gone)} collected with your key, not from this phone. Not you? Tell Streetcat and make a new key.\n` : '') + (p.state === 'part' ? `· ${less ? fmtSat(less) : 'the rest'} to come once Streetcat releases it\n` : less ? `✗ ${fmtSat(less)} of ${fmtSat(p.of)} were not paid: that donation is no longer locked. Ask Streetcat.\n` : ''); }
   if (p.state === 'sending') return `· ${fmtSat(p.amount)} on their way to ${to}\n`;
   return to ? `✗ ${fmtSat(p.amount)} paid by the mint, not sent to ${to}${p.why ? ': ' + p.why : ''}. It is tried again by itself.\n` : `✗ ${fmtSat(p.amount)} paid by the mint: set a Lightning address in settings to receive them\n`; };
 async function csLnCheck(saving){ const st = $('cs-ln-st'), v = $('cs-ln').value.trim().replace(/^lightning:/i, '');
   if (!v) { if (saving) ls.set(CPAYTO, ''); show(st, ''); return; }
   const url = C.lnAddressUrl(v); if (!url) { show(st, `✗ ${v} is not a Lightning address (name@domain)` + (saving ? ': nothing was saved.' : '.'), 'bad'); return; }
   if (saving) { ls.set(CPAYTO, v); $('cs-ln').value = v; } show(st, `checking ${v}…`);
-  try { let r; try { r = await fetch(url, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error('it cannot be reached from this phone'); } const j = await r.json().catch(() => null);
+  try { let r; try { r = await window.scCore.fetchT(url, { headers: { accept: 'application/json' } }); } catch (_) { throw new Error('it cannot be reached from this phone'); } const j = await r.json().catch(() => null);
     if (!r.ok || !j || j.tag !== 'payRequest') throw new Error(j && j.reason ? j.reason : `it answered HTTP ${r.status}`);
     show(st, ''); if (saving) { buzz(); cCollectAll().then(() => refreshStates()).catch(() => {}); }  /* it answers: nothing to say, as in Rescue's Keys; what waits at the mint is sent now */
   } catch (e) { show(st, `✗ ${v}: ${e.message || e}. Until it answers, what you are paid waits at the mint.`, 'bad'); } }
@@ -1456,7 +1479,7 @@ function renderSettings(){ const ln = $('cs-ln'); if (document.activeElement !==
   const sk = key('clinic', false), n = oldKeys('clinic').length; if (sk) roleOf(pubOf(sk), 'clinic'); $('cs-pk').textContent = sk ? pubOf(sk) : '— (none yet)'; $('cs-pk-old').textContent = n ? ` + ${n} older key${n > 1 ? 's' : ''} kept` : ''; undone($('cs-copy')); }
 $('cs-copy').onclick = async () => { const b = $('cs-copy'), sk = key('clinic', false); if (!sk) return flapLabel(b, 'no key'); const ok = await copyText(pubOf(sk)); if (ok) doneLabel(b); else flapLabel(b, 'select it'); };
 $('cs-new').onclick = () => { makeKey('clinic', 'Make a new clinic key? Streetcat must put the new public key in new campaigns. The current key stays on this phone, so requests of older campaigns can still be confirmed here.'); renderSettings(); flapKeys($('cs-pk'), $('cs-pk').textContent, { speed: .6, hex: true }); };
-$('cs-show').onclick = () => alert('Clinic private key (keep it secret):\n' + (key('clinic', false) || 'none'));
+$('cs-show').onclick = () => showSk('clinic', $('cs-show'));
 const B64 = { enc: u => btoa(String.fromCharCode(...u)), dec: s => Uint8Array.from(atob(String(s)), ch => ch.charCodeAt(0)) }, KDF_ITER = 310000;
 const pwKey = async (pw, salt, iter, use) => crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: iter }, await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']), { name: 'AES-GCM', length: 256 }, false, [use]);
 async function keyBackup(pw){ const sk = key('clinic', false); if (!sk) throw new Error('there is no clinic key to back up yet'); const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
@@ -1547,6 +1570,7 @@ async function dleqOk(w, proofs){ let ks; try { ks = await w.keyChain.ensureKeys
 // donation counts only for a campaign this phone made, read from this phone's own copy of it, and only if its ecash is that
 // campaign's mint's. Under the lock that says where the money may go, its proofs are one lock too (one refund key): a payment
 // spends one lock at a time, and a token with two made requests that failed only at the partner's button.
+const DUST_AFTER = 200, DUST_MIN = 1000;
 async function takeDonation(p, via){ let said; try { said = C.campaignOf(p.campaign); } catch (e) { throw Object.assign(new Error(`its campaign cannot be read (${String((e && e.message) || e).slice(0, 80)}): it is not counted`), { byPage: true }); }  /* wrong in itself: said once, not asked for again at every check */
   const same = camps().map(x => x && x.c).filter(x => { try { return !!x && campKey(C.campaignOf(x)) === campKey(said); } catch (_) { return false; } }), own = same.find(x => norm(x.mint) === norm(said.mint));
   if (!own) throw Object.assign(new Error(same.length ? `it names a mint (${String(said.mint).slice(0, 80)}) that is not ${C.campaignOf(same[0]).name}'s: it is not counted` : `it is for a campaign this phone did not make (${String(said.name).slice(0, 40)}): it is not counted`), { byPage: true });
@@ -1558,6 +1582,9 @@ async function takeDonation(p, via){ let said; try { said = C.campaignOf(p.campa
   const bad = [...new Set(dec.proofs.map(x => C.lockProblem(C.lockOf(x.secret), c)).filter(Boolean))]; if (bad.length) throw Object.assign(new Error(`not a donation of ${c.name}: ${bad.join('; ')}`), { byPage: true });
   if (c.lock === 'dest' && new Set(dec.proofs.map(x => C.lockShape(x.secret))).size !== 1) throw Object.assign(new Error(`not a donation of ${c.name}: its proofs are under more than one lock (more than one refund key), and a payment spends one lock at a time`), { byPage: true });
   if (!(await dleqOk(w, dec.proofs))) throw Object.assign(new Error('the mint\'s signature on it cannot be checked (no valid DLEQ proof): it is not counted'), { byPage: true });
+  /* A campaign that already holds many donations takes no more very small ones: each is kept whole on this phone, and they cost
+     their sender nothing (they come back at the deadline), so a flood of them would fill its storage (independent review, 11 Nov). */
+  { const held = Object.keys(scEntries(c)).length, given = dec.proofs.reduce((a, x) => a + amt(x.amount), 0); if (held >= DUST_AFTER && given < DUST_MIN) throw Object.assign(new Error(`${fmtSat(given)}: ${c.name} already holds ${held} donations and takes none under ${fmtSat(DUST_MIN)} now: it is not counted`), { byPage: true }); }
   await ledgerKeep(dec, info); const ref = await C.donRef(dec.proofs.map(yHex)), entries = scEntries(c);
   /* the first way it came, except that a handover in person, with its volunteer's receipt, is said even after the donor's app sent it by relay */
   if (entries[ref] && via && (!entries[ref].via || (via === 'in person' && entries[ref].via !== 'in person'))) { entries[ref].via = via; if (p.receipt) entries[ref].handover = p.receipt; saveEntries(c, entries); }
@@ -1663,8 +1690,9 @@ async function makeScRequest(c, f){ const sk = heldFor('streetcat', [c.streetcat
   // a pot that pays from the lock: the request names the partner asked and says each donation's transaction (core.js), which needs the mint's keyset and fee
   let dest = null; if (c.lock === 'dest') { try { const w = await wallet(c.mint), ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id); dest = { keysetId: ks.id, denoms: Object.keys(ks.keys).map(Number), fee: ps => amt(w.getFeesForProofs(ps)) }; }
     catch (e) { throw Object.assign(new Error('the mint does not answer: a request of this pot says where every sat goes, and needs the mint\'s keys'), { byPage: true }); } }
-  const q = await C.makeRequest({ campaign: c, patient: f.patient, procedure: f.procedure, date: f.date, note: f.note, contributions, photos, ...(dest ? { payee: f.payee || c.clinic, dest } : {}) });
+  let q = await C.makeRequest({ campaign: c, patient: f.patient, procedure: f.procedure, date: f.date, note: f.note, contributions, photos, ...(dest ? { payee: f.payee || c.clinic, dest } : {}) });
   if (!funding.checked) q.funding = { checked: false, at };  /* to the partner, outside what it signs: an older app ignores it */
+  q = await C.signRequest(q, sk);  /* signed whole, last: by link, file or QR it has no relay's seal to say who made it */
   const r = { id: q.id, q, slug: f.slug, ...(f.colony ? { colony: f.colony } : {}), ...(f.from ? { from: f.from } : {}), full: cashu.getEncodedToken({ mint: c.mint, proofs: full.map(fullProof) }), state: 'made', created: q.created,
     timing: { level: t.level, required: t.required, earliest: t.earliest, checkedAt: at, mintChecked: !!funding.checked } }; saveSreq(r);
   if (OUTBOX) { const it = await OUTBOX.add(q, sk, C.askedOf(q), { relays: relays(), label: 'request ' + q.id }); r.outbox = it.id; r.state = 'sent'; saveSreq(r);
@@ -2056,8 +2084,8 @@ async function releaseDest(r, sk){ const q = r.q, c = q.campaign, w = await wall
   const states = (await w.checkProofsStates(txs.flatMap(t => t.inputs))).map(x => x.state), entries = scEntries(c), done = r.destDone || (r.destDone = {}), short = []; let at = 0, paid = 0, back = 0, fee = 0, n = 0;
   for (let i = 0; i < txs.length; i++) { const k = q.contributions[i], tx = txs[i], st = states.slice(at, at + tx.inputs.length); at += tx.inputs.length; let parts = [];
     if (st.every(x => x === 'UNSPENT')) { try { parts = await C.destSwap(w, tx, [C.destSign(tx, sk), r.answer.sigs[i]]); }
-      catch (e) { if (cashu.isMintOperationError(e)) { short.push({ ref: k.ref, why: 'the mint refused it (' + String(e.message || e).slice(0, 120) + ')' }); continue; }  /* this donation's transaction, not the others': they are still paid, and it is said below (audit of 10 Nov: one refusal left the request half paid and "certified" for ever) */
-        try { parts = await C.destFind(w, tx); } catch (_) {}  /* no answer: did the mint take it? */
+      catch (e) { try { parts = await C.destFind(w, tx); } catch (_) { parts = []; }  /* an error, or no answer: did the mint take it all the same? Asked before anything is concluded (outside audit, 11 Nov: an error that came back after the mint had paid, or a release already made from another tab, was booked as "the mint refused it", and the payment was never written down) */
+        if (!C.destWhole(tx, parts) && cashu.isMintOperationError(e)) { short.push({ ref: k.ref, why: 'the mint refused it (' + String(e.message || e).slice(0, 120) + ')' }); continue; }  /* this donation's transaction, not the others': they are still paid, and it is said below (audit of 10 Nov: one refusal left the request half paid and "certified" for ever) */
         if (!C.destWhole(tx, parts)) throw Object.assign(new Error('the mint did not answer, so it is not known whether it paid. Nothing is lost: release again later, and what the mint has paid is not paid twice. (' + (e.message || e) + ')'), kept); } }
     else if (st.every(x => x === 'SPENT')) parts = await C.destFind(w, tx);  /* taken before: is it this very transaction that the mint signed? */
     /* only the whole of it, each output for its amount (audit of 10 Nov: whatever the mint had signed under its blinded messages was booked as this release; a second request over the same proofs "paid" what the first had) */

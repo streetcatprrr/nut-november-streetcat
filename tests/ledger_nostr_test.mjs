@@ -68,4 +68,13 @@ check('with no relay, the status page falls back to the ledger\'s file', /not fo
 await viewer.unroute('**/campaigns/mochi.json'); await viewer.goto(BASE + `status.html?n=${id}`); await viewer.waitForFunction(() => /Failed|Checked/.test(document.getElementById('l-out').textContent), null, { timeout: 40000 });
 check('…and without a file it says the ledger was not found', /not found on the relays/.test(await txt(viewer, '#l-out')));
 
+// A ledger too large for a relay (independent review, 11 Nov): no longer refused whole. What does not fit is left out, the smallest
+// donations nothing was paid from first, and the ledger says how many and how much; a small one is published as it is. In Node.
+{ const sk = newSk(), campBig = { name: 'BIG', op: 'sterilisation', mint: 'http://127.0.0.1:3338', streetcat: C.pubOf(sk), clinic: C.pubOf(newSk()), deadline: Math.floor(Date.now() / 1000) + 30 * 86400 };
+  const ref = i => 'DON-' + (0xA0000000 + i).toString(16).toUpperCase(), ent = (i, amount, extra = {}) => ({ ref: ref(i), amount, token: 'cashuB' + String(i).padStart(4, '0') + 'x'.repeat(900), parts: [], remainders: [], ...extra });
+  const entries = [ent(0, 1, { parts: [{ request: 'R-0000000001', patient: 'Luna', procedure: 'Spay', date: '2026-11-12', amount: 1 }] }), ...Array.from({ length: 150 }, (_, i) => ent(i + 1, (i * 37) % 149 + 2))];
+  const big = C.ledgerV2({ campaign: campBig, entries }), ev = await R.ledgerEvent(big, sk), j = JSON.parse(ev.content), kept = new Set(j.entries.map(e => e.ref)), out = entries.filter(e => !kept.has(e.ref));
+  const small = JSON.parse((await R.ledgerEvent(C.ledgerV2({ campaign: campBig, entries: entries.slice(0, 20) }), sk)).content);
+  check('a ledger too large for a relay is published with what fits: the donation that paid for something and the largest ones, and it says how many and how much are left out', JSON.stringify(big).length > 120000 && ev.content.length <= 120000 && j.entries.length > 40 && out.length > 0 && j.more && j.more.n === out.length && j.more.sat === out.reduce((a, e) => a + e.amount, 0) && kept.has(ref(0)) && Math.min(...j.entries.filter(e => !e.parts.length).map(e => e.amount)) >= Math.max(...out.map(e => e.amount)) && j.donations.length === j.entries.length && j.donations.every((t, i) => t === j.entries[i].token), `${j.entries.length} of ${entries.length} listed · ${ev.content.length} characters · ${JSON.stringify(j.more)}`);
+  check('…and a small ledger is published whole, with no such note', small.entries.length === 20 && small.more === undefined); }
 await b.close(); say(bad ? `ledger_nostr: ${bad} check(s) failed` : 'ledger_nostr: every check passed'); process.exit(bad ? 1 : 0);

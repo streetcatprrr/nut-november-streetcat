@@ -101,7 +101,7 @@ const [f10] = await box10.flush({ timeout: 800 }); await new Promise(r => setTim
 check('the outbox: sent once and not confirmed, at the next try the relay is asked first, and not sent it again when it has it; the mute one is sent it again', f10.acked.length === 0 && g10.acked.includes(k10.url) && !g10.acked.includes(mute8.url) && k10.stats.received === 1 && mute8.stats.received - m10 === 2, `first ${f10.acked.length} acked · then ${g10.acked.length} · the late relay got it ${k10.stats.received} time(s), the mute one ${mute8.stats.received - m10}`);
 // 11) HIGH-WATER MARKS (review of 9 Nov: every check read nine days from every relay, photos too, ~1.5–1.8 MB a minute on a phone):
 // a relay that answered all it holds (EOSE) gets a mark per messaging key; the next read starts two days and ten minutes before it;
-// one that does not answer in time, or sends the limit, gets none; a wrap not expected yet comes back as deferred, and a floor makes
+// one that does not answer in time, or whose pages do not end, gets none; a wrap not expected yet comes back as deferred, and a floor makes
 // the next read start before it
 const mk1 = startRelay({ port: 7121 }), mk2 = startRelay({ port: 7122, delay: 2500 }); await Promise.all([mk1.ready, mk2.ready]); const mku = [mk1.url, mk2.url];
 const mkBox = R.outbox(store()), qm = await C.makeRequest({ campaign: camp, patient: 'MARKS', procedure: 'sterilisation', date: '2026-11-09', contributions: [{ release: 16, proofs: fakeProofs(camp, C.pubOf(newSk()), [16]) }] });
@@ -116,8 +116,17 @@ const fl = t0m - 4 * 86400; await R.receive([cl], { relays: [mk1.url], seen: new
 check('a floor (a wrap still to be taken) makes it start before that wrap', mk1.stats.reqs.at(-1)[0].since === fl - 600);
 const d1 = await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: () => null, marks: m1.marks });
 check('a wrap not expected yet (its campaign or request not here) comes back as deferred, with its date', d1.deferred.length === 1 && Math.abs(d1.deferred[0].created - t0m) <= 2 * 86400 + 5 && !d1.messages.length, JSON.stringify(d1.deferred.map(x => x.created - t0m)));
-const lim = await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: clinicExpects, marks: {}, limit: 1 });
-check('a relay that sends as many as the limit moves no mark (there may be more)', !(lim.marks || {})[mk1.url], JSON.stringify(lim.marks));
+// …three times in a session, and then it is left alone (adversarial run of 11 Nov: every opening is a decryption, and a flood of wraps
+// to a key made every check slower for as long as the relays kept them), until something new is here that it may belong to (retry())
+const dn = []; for (let i = 0; i < 3; i++) dn.push((await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: () => null, marks: m1.marks })).deferred.length); R.retry();
+const dr = (await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: () => null, marks: m1.marks })).deferred.length; R.retry();
+check('a wrap not expected three times is not opened a fourth; after retry() it is tried again', dn.join() === '1,1,0' && dr === 1, `${dn.join()} · then ${dr}`);
+// a relay that holds more than the limit (audit of 10 Nov: a flood of wraps to a key must not bury a real message): the older ones are
+// asked for page by page, every message comes, and the mark moves once the pages end
+const flood = []; for (let i = 0; i < 7; i++) { const q = await C.makeRequest({ campaign: camp, patient: 'FLOOD' + i, procedure: 'sterilisation', date: '2026-11-09', contributions: [{ release: 16, proofs: fakeProofs(camp, C.pubOf(newSk()), [16]) }] }); flood.push(q); await mkBox.add(q, sc, camp.clinic, { relays: [mk1.url] }); }
+await mkBox.flush({ timeout: 6000 }); const reqs0 = mk1.stats.reqs.length;
+const lim = await R.receive([cl], { relays: [mk1.url], seen: new Set(), expect: clinicExpects, marks: {}, limit: 3 }), gotAll = [qm, ...flood].filter(q => lim.messages.some(m => m.payload.id === q.id)).length;
+check('a relay that holds more than the limit is read page by page: every message comes, and the mark moves', gotAll === 8 && !!((lim.marks || {})[mk1.url] || {})[clPub] && mk1.stats.reqs.length - reqs0 >= 3, `${gotAll} of 8 · ${mk1.stats.reqs.length - reqs0} questions`);
 await Promise.all([mk1, mk2].map(r => r.close()));
 
 await Promise.all([late8, keep8, mute8, no8, k10].map(r => r.close()));

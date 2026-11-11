@@ -272,10 +272,11 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <input id="x-pw" type="password" autocomplete="new-password" placeholder="a password, 10 characters or more">
 <input id="x-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
 <div class="row2"><button class="sm" id="x-seal-save">save sealed backup</button><button class="sm" id="x-seal-open">restore a sealed backup</button></div><input type="file" id="x-seal-file" hidden><div class="out" id="x-seal-out"></div></details>
+<details class="more" id="x-pin"><summary id="x-pin-sum">PIN for the keys</summary><input id="x-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 6 digits or more"><input id="x-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="x-pin-set">set PIN</button><button class="sm" id="x-pin-lock" hidden>lock now</button><button class="sm" id="x-pin-off" hidden>remove PIN</button></div><div class="out" id="x-pin-out"></div></details>
 <div class="actions" id="x-ln-row" hidden><button class="go alt" id="x-ln-b" aria-expanded="false">Lightning address</button></div>
 <div id="x-ln-box" hidden><input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div></div>
 <p class="mut code center" id="x-ver"></p>
-<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. Back them up: export them and keep the text somewhere safe. Export all carries this actor's keys and everything this browser keeps with them (Rescue: Streetcat's keys, campaigns, donations, requests, partners, colonies, photos, and this browser's refund keys; Partner: the clinic keys and its requests, records and photos); Import all adds this actor's part to what the other browser has, and leaves out another actor's. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
+<details class="mut"><summary>About keys</summary><p>Keys live only in this browser. A PIN locks them on this phone: it is asked when the app opens, and it does not replace a backup. Back them up: export them and keep the text somewhere safe. Export all carries this actor's keys and everything this browser keeps with them (Rescue: Streetcat's keys, campaigns, donations, requests, partners, colonies, photos, and this browser's refund keys; Partner: the clinic keys and its requests, records and photos); Import all adds this actor's part to what the other browser has, and leaves out another actor's. A public key is what you publish; a private key is what signs. A new or imported key never deletes the one before. Keys are per browser and per address: another browser, a private tab or an app's built-in browser has its own.</p></details>
 </section>
 
 <section id="work">
@@ -312,6 +313,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <input id="cs-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
 <div class="row2"><button class="sm" id="cs-save">save backup</button><button class="sm" id="cs-restore">restore a backup</button></div><input type="file" id="cs-file" accept=".json,application/json" hidden>
 <div class="out" id="cs-out"></div>
+<details class="more" id="cs-pin"><summary id="cs-pin-sum">PIN for the keys</summary><input id="cs-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 6 digits or more"><input id="cs-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="cs-pin-set">set PIN</button><button class="sm" id="cs-pin-lock" hidden>lock now</button><button class="sm" id="cs-pin-off" hidden>remove PIN</button></div><div class="out" id="cs-pin-out"></div></details>
 <p class="center lnk"><a href="#" id="cs-offline">ready for offline</a></p>
 <p class="mut code center" id="cs-ver"></p>
 </section>
@@ -474,6 +476,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <script src="cashu-bundle.js"></script>
 <script src="core.js"></script>
 <script src="nostr-bundle.js"></script>
+<script src="vault.js"></script>
 <script src="relay.js"></script>
 <script src="qrcode.min.js"></script>
 <script src="catid.js"></script>

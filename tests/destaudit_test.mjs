@@ -61,7 +61,7 @@ const brief = x => JSON.stringify({ locked: x.locked, released: x.released, fees
   check('a copy of the witness on the second proof: its payment is counted once, and a rest under a nonce of the sender\'s own is found (40 paid, 24 locked)', res.ok && adds(x) && x.released === 40 && x.paid[A.pk] === 40 && x.locked === 24 && !x.refunded && !x.unproven && x.trace.some(t => t.depth === 1 && t.state === 'UNSPENT' && amt(t.proof.amount) === 8), brief(x)); }
 { const camp = campOf(far()), { don } = await give(camp, [32, 16, 8, 8]), ins = [don[0]], outs = [outOf(8, payTo(A.pk)), outOf(16, same(don[0].secret)), outOf(8, same(don[0].secret))];
   const res = await rawSwap(withWitness(ins, { signatures: signed(ins, outs, [S.sk, A.sk]), outputs: opened(outs) }), outs), x = await C.destTrace(w, don);
-  check('a client that leaves the inputs out of the witness: what it paid the partner is said as it is, not as a release, and its rest is still found', res.ok && adds(x) && x.released === 0 && x.loose[A.pk] === 8 && x.unproven === 8 && x.locked === 56 && x.trace.find(t => t.proof.secret === don[0].secret).how === 'unproven', brief(x)); }
+  check('a client that leaves the inputs out of the witness: the mint refuses it (since 11 Nov), and all of it is still locked', !res.ok && /must list the inputs/.test(res.detail || '') && adds(x) && x.released === 0 && x.unproven === 0 && x.locked === 64, (res.detail || 'ACCEPTED') + ' · ' + brief(x)); }
 { const camp = campOf(Math.floor(Date.now() / 1000) + 5), { don, D } = await give(camp, [32, 16, 8, 8]); await sleep(7000); const X = key();
   const o1 = [outOf(32, payTo(X.pk)), outOf(16, rnd())], i1 = [don[0], don[1]], r1 = await rawSwap(withWitness(i1, { signatures: signed(i1, o1, [D.sk]), outputs: opened(o1) }), o1), x1 = await C.destTrace(w, don);
   check('a donor who takes its money back and opens its outputs in the witness: taken back, not released, and nothing "paid"', r1.ok && adds(x1) && x1.released === 0 && x1.refunded === 48 && x1.locked === 16 && !Object.keys(x1.paid).length && !x1.unproven, brief(x1));
@@ -74,7 +74,7 @@ const brief = x => JSON.stringify({ locked: x.locked, released: x.released, fees
   const res = await rawSwap(withWitness(ins, { signatures: signed(ins, outs, [S.sk, A.sk, B.sk]), outputs: opened(outs), inputs: ys(ins) }), outs), x = await C.destTrace(w, don);
   check('two partners paid in one spend, both signed: proven, each with its sum', res.ok && adds(x) && x.paid[A.pk] === 16 && x.paid[B.pk] === 16 && x.locked === 32 && x.txs.length === 1, brief(x));
   const i2 = [don[1]], o2 = [outOf(16, payTo(A.pk))], r2 = await rawSwap(withWitness(i2, { signatures: signed(i2, o2, [S.sk, A.sk]), outputs: opened(o2), inputs: ys([don[1], don[3]]) }), o2), x2 = await C.destTrace(w, don);
-  check('a witness that names an input it did not have: not proven', r2.ok && adds(x2) && x2.released === 32 && x2.loose[A.pk] === 16 && x2.txs.length === 1, brief(x2)); }
+  check('a witness that names an input it did not have: the mint refuses it (since 11 Nov), and nothing more is released', !r2.ok && /must list the inputs/.test(r2.detail || '') && adds(x2) && x2.released === 32 && x2.unproven === 0 && x2.locked === 32 && x2.txs.length === 1, (r2.detail || 'ACCEPTED') + ' · ' + brief(x2)); }
 
 // ---------- 3. a lock that is not quite the campaign's ----------
 { const camp = campOf(far(), [B.pk]), flip = k => (k.startsWith('02') ? '03' : '02') + k.slice(2);

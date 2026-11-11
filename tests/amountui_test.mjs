@@ -27,7 +27,7 @@ const made = () => C.makeRequest({ campaign: camp, patient: 'MOCHI', procedure: 
 const honest = await made(), lie = await made(), old = await made();
 lie.contributions[0].proofs[0].amount = 64; lie.contributions[0].release = 64;  /* a changed Rescue app: the same proof, said to be 64 */
 for (const p of old.contributions[0].proofs) { delete p.C; delete p.dleq; }  /* what an older app sent */
-const open = async q => { await clinic.goto(BASE + 'index.html?role=clinic#q=' + await C.pack(q)); await waitText('#cr-dl', /MOCHI/);
+const open = async q => { await clinic.goto(BASE + 'index.html?role=clinic#q=' + await C.pack(await C.signRequest(q, sc)));  /* by link a request is Streetcat's only if it signed it */ await waitText('#cr-dl', /MOCHI/);
   for (let i = 0; i < 75; i++) { const done = await clinic.evaluate(id => { const r = JSON.parse(localStorage.getItem('vetlock.clinic.requests') || '[]').find(x => x.id === id) || {}; return !!r.amounts || !!(r.problems || []).length; }, q.id); if (done) break; await clinic.waitForTimeout(200); }  /* its amounts are checked apart */
   await clinic.waitForTimeout(400);
   return clinic.evaluate(id => { const e = document.getElementById('cr-warn'), r = JSON.parse(localStorage.getItem('vetlock.clinic.requests') || '[]').find(x => x.id === id) || {};
