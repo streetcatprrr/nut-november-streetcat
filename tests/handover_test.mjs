@@ -9,6 +9,7 @@ import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import fs from 'fs';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', TMP = process.env.TMPDIR || '/tmp', say = (...a) => console.log(...a);
 const SHOT = process.env.SHOT_DIR, shot = async (p, name) => { if (SHOT) { await p.waitForTimeout(1600); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };  /* after the header's flap */  /* SHOT_DIR=dir: the filled screens at 390 px @2x */
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -42,10 +43,10 @@ const lock = async n => { await donor.goto(link); await donor.reload(); await do
   const s = await waitText(donor, '#d-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return Number(s.match(/LOCKED ([\d ]+) sat/)[1].replace(/ /g, '')); };
 
 // the donor shows the donation as an animated QR
-const A = await lock(2100); await donor.click('#d-out a:has-text("hand it over in person")'); const fa = await frames(donor, 'dh-term');
+const A = await lock(2100); await viaMore(donor, '#d-out a:has-text("hand it over in person")'); await donor.click('#d-out a:has-text("hand it over in person")'); const fa = await frames(donor, 'dh-term');
 check('the donor\'s handover is an animated QR, in numbered parts', fa.length > 1 && fa.every((f, i) => f.startsWith(`SCQ:${i + 1}/${fa.length}:`)), fa.length + ' parts');
 await fits(donor, 'the donor\'s animated QR'); await shot(donor, 'h1-donor-handover-qr'); const part1 = await txt(donor, '#dh-part'); await donor.waitForTimeout(1000); const part2 = await txt(donor, '#dh-part');
-check('…which changes by itself', /^part \d+ of \d+/.test(part1) && part1 !== part2, part1 + ' → ' + part2);
+check('…which changes by itself', /^\d+\/\d+ · /.test(part1) && part1 !== part2, part1 + ' → ' + part2);
 
 // the QR the app draws decodes, with the app's own decoder (jsqr.min.js, from the app's folder)
 const dec = await donor.evaluate(async () => { const svg = document.querySelector('#dh-term .qr svg').cloneNode(true); svg.setAttribute('width', '600'); svg.setAttribute('height', '600');
@@ -75,7 +76,7 @@ await fits(donor, 'the donor\'s acknowledgment'); await shot(donor, 'h4-donor-ac
 // the same donation again; then one received offline
 await tab(vol, 'shand'); await vol.click('#v-scan'); await feed(vol, fa); await vol.waitForFunction(() => document.querySelectorAll('#v-checks li').length === 4, null, { timeout: 30000 });
 const again = await checks(vol); check('the same donation again: "Already received", and it cannot be accepted', again[2].text === 'Already received' && again[2].state === 'bad' && await vol.isDisabled('#v-accept'));
-const B = await lock(21); await donor.click('#d-out a:has-text("hand it over in person")'); const fb = await frames(donor, 'dh-term');
+const B = await lock(21); await viaMore(donor, '#d-out a:has-text("hand it over in person")'); await donor.click('#d-out a:has-text("hand it over in person")'); const fb = await frames(donor, 'dh-term');
 await vol._ctx.setOffline(true); await tab(vol, 'shand'); await vol.click('#v-scan'); await feed(vol, fb); await vol.waitForFunction(() => document.querySelectorAll('#v-checks li').length === 4, null, { timeout: 30000 });
 const off = await checks(vol); check('offline: the mint signature is still checked, the spending state is said not to be', off[0].state === 'ok' && off[3].state === 'warn' && off[3].text === 'Spending state not checked', off.map(x => x.text).join(' · '));
 await vol.click('#v-accept'); await waitText(vol, '#v-out', /RECEIVED|✗/); check('…and it is listed as received offline', /received offline/.test(await txt(vol, '#v-list')));

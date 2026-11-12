@@ -3,7 +3,7 @@
 // the app reads it as before. A key made afterwards is sealed as it is written. The same tab opened again asks nothing; another
 // tab shows "Keys locked" and nothing of the app runs behind it: a wrong PIN is refused in red, the right one starts the app with
 // its keys. "private" shows the key on the page after the PIN, never in a browser dialog. A long list of refund keys is sealed
-// in pieces and read back whole. Export all still carries the keys in the clear (it is the backup). A change of PIN cut short is
+// in pieces and read back whole. Export all asks the PIN, then carries the keys in the clear (it is the backup). A change of PIN cut short is
 // finished when the page opens again. The PIN removed, the keys are kept as before. A PIN forgotten: the keys can be erased, said
 // in red, and nothing else. The status page opens with the keys locked. Not covered: a phone's own storage limits.
 import { chromium } from 'playwright';
@@ -50,9 +50,12 @@ await p2.fill('#pin-ask-in', PIN); await p2.click('#pin-ask-go'); await p2.waitF
 check('"private" asks the PIN again, shows the key on the page and never in a browser dialog', w2 === '✗ Wrong PIN' && !shownEarly && shown === sk2 && dialogs.length === d0 && !(await p2.$('#pin-reveal')), `${dialogs.length - d0} dialogs`);
 await p2.click('#cs-show'); await p2.waitForSelector('#pin-ask'); await p2.click('#pin-ask-no'); await p2.waitForTimeout(200);
 check('…and walked away from, shows nothing', !(await p2.$('#pin-ask')) && !(await p2.$('#pin-reveal')));
-// Export all is the backup: the keys in the clear, as before
-await p2.evaluate(() => { window.__vetlock.setRole('clinic'); document.querySelector('nav button[data-t="keys"]').click(); }); await p2.waitForTimeout(300); await p2.click('#x-exp'); await p2.waitForFunction(() => document.getElementById('x-box').value.length > 10, null, { timeout: 15000 }).catch(() => {});
+// Export all is the backup: the keys in the clear, as before, after the PIN (review of 12 Nov: it asked nothing)
+await p2.evaluate(() => { window.__vetlock.setRole('clinic'); document.querySelector('nav button[data-t="keys"]').click(); }); await p2.waitForTimeout(300); await p2.click('#x-exp'); await p2.waitForSelector('#pin-ask'); await p2.click('#pin-ask-no'); await p2.waitForTimeout(300);
+const walked = await p2.evaluate(() => document.getElementById('x-box').value);
+await p2.click('#x-exp'); await p2.waitForSelector('#pin-ask'); await p2.fill('#pin-ask-in', PIN); await p2.click('#pin-ask-go'); await p2.waitForFunction(() => document.getElementById('x-box').value.length > 10, null, { timeout: 15000 }).catch(() => {});
 const exp = await p2.evaluate(() => { try { return JSON.parse(document.getElementById('x-box').value); } catch (_) { return null; } });
+check('Export all asks the PIN first (walked away from, nothing is exported)', walked === '', walked.slice(0, 20));
 check('Export all carries the keys in the clear, as before (it is the backup), and nothing of the PIN', !!exp && exp.clinic === sk2 && (exp.clinicOld || []).join() === sk1 && !JSON.stringify(exp).includes('pin1:') && !JSON.stringify(exp).includes('vetlock.pin'), exp ? Object.keys(exp).join(',') : 'no export');
 check('…and Keys shows the same PIN panel', (await txt(p2, '#x-pin-sum')) === 'PIN for the keys · on');
 

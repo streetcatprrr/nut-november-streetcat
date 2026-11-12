@@ -143,9 +143,16 @@ async function ledgerEvent(L, streetcatSk){ const c = C.campaignOf(L.campaign); 
   // A ledger too large for a relay is no longer refused whole (many small donations, which cost their sender nothing, stopped it from
   // being published at all; independent review, 11 Nov): what does not fit is left out, the smallest donations nothing was paid from
   // first, and the ledger says how many and how much (more). The file export still carries all of it.
+  // Each donation is taken in that order if it still fits, and one that does not is passed over, not the end of the list: one large
+  // token used to leave out every donation after it, small ones that would have fitted (review of 12 Nov). `used`: how many of
+  // those left out something was paid from, which a reader is told in red.
   if (content.length > LEDGER_MAX && Array.isArray(L.entries)) { const order = L.entries.map((e, i) => [e, i]).sort((a, b) => ((b[0].parts || []).length ? 1 : 0) - ((a[0].parts || []).length ? 1 : 0) || (Number(b[0].amount) || 0) - (Number(a[0].amount) || 0) || a[1] - b[1]).map(x => x[0]);
-    const made = n => { const keep = new Set(order.slice(0, n)), es = L.entries.filter(e => keep.has(e)), out = L.entries.filter(e => !keep.has(e)); return JSON.stringify({ ...L, entries: es, ...(Array.isArray(L.donations) ? { donations: es.flatMap(e => [e.token, ...(e.remainders || [])]) } : {}), more: { n: out.length, sat: out.reduce((a, e) => a + (Number(e.amount) || 0), 0) } }); };
-    let lo = 0, hi = order.length; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (made(mid).length <= LEDGER_MAX) lo = mid; else hi = mid - 1; } content = made(lo); }
+    const toks = Array.isArray(L.donations), made = keep => { const es = L.entries.filter(e => keep.has(e)), out = L.entries.filter(e => !keep.has(e)); return JSON.stringify({ ...L, entries: es, ...(toks ? { donations: es.flatMap(e => [e.token, ...(e.remainders || [])]) } : {}), more: { n: out.length, sat: out.reduce((a, e) => a + (Number(e.amount) || 0), 0), used: out.filter(e => (e.parts || []).length).length } }); };
+    const cost = e => JSON.stringify(e).length + 1 + (toks ? [e.token, ...(e.remainders || [])].reduce((s, t) => s + JSON.stringify(t).length + 1, 0) : 0);
+    let room = LEDGER_MAX - made(new Set()).length - 64; const keep = new Set(), added = [];  /* 64: the counts of what is left out grow by a few digits at most */
+    for (const e of order) { const k = cost(e); if (k <= room) { keep.add(e); added.push(e); room -= k; } }
+    content = made(keep); while (content.length > LEDGER_MAX && added.length) { keep.delete(added.pop()); content = made(keep); }
+    for (const e of order) { if (keep.has(e) || cost(e) > LEDGER_MAX - content.length + 16) continue; keep.add(e); const c2 = made(keep); if (c2.length <= LEDGER_MAX) content = c2; else keep.delete(e); } }  /* what the margin above left free: filled with what fits */
   if (content.length > LEDGER_MAX) throw new Error(`this ledger is ${Math.round(content.length / 1000)} kB, too large for a relay: publish its file instead`);
   return K.finalizeEvent({ kind: LEDGER_KIND, created_at: now(), tags: [['d', await C.campaignId(c)], ['t', 'streetcat-ledger']], content }, unhex(await C.derivedSk(C.TAG.ledger, streetcatSk))); }
 async function ledgerOk(ev, id){ try { if (!ev || ev.kind !== LEDGER_KIND || (ev.tags.find(t => t[0] === 'd') || [])[1] !== id || !K.verifyEvent(ev)) return null;

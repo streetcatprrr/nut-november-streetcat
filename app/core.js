@@ -242,17 +242,28 @@ const STMT = 'streetcat/clinic-certificate/v1\n', REPORT = 'streetcat/clinic-rep
 // never leaves the clinic's device, and anyone given it later can check it against the published declaration. Older declarations have none.
 const EVIDENCE = ['invoice', 'photo'];
 const evidenceOk = e => !!e && typeof e === 'object' && Object.keys(e).sort().join() === 'kind,sha256' && /^[0-9a-f]{64}$/.test(e.sha256) && EVIDENCE.includes(e.kind);
-const statementOf = (q, signed, evidence, photos) => ({ type: 'streetcat/clinic-certificate', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, patient: q.patient, procedure: q.procedure, date: q.date,
-  contributions: q.contributions.map(k => ({ ref: k.ref, release: Number(k.release), proofs: k.proofs.map(p => yOf(p.secret)) })), amount: requestAmount(q), clinic: askedOf(q), signed, ...(evidence ? { evidence: { sha256: evidence.sha256, kind: evidence.kind } } : {}), ...(photos && photos.length ? { photos: ansPhotos(photos) } : {}) });  /* clinic: the partner asked, the campaign's own unless its request names another of its list */
-async function certify(q, clinicSk, signed = new Date().toISOString(), evidence = null, photos = null){ const bad = requestProblems(q); if (bad.length) throw new Error('not a valid request: ' + bad.join('; '));
+// Who took a delivery in, as the partner writes it (optional): a short line of plain text, the partner's word, checked against nothing.
+// The declaration never holds it: Streetcat publishes declarations in the campaign's public ledger. It holds only the line's
+// fingerprint, salted, so that a list of names cannot find it there; the line and its salt travel with the answer, end to end
+// encrypted to Streetcat (relay.js) or handed over by link, file or QR. Streetcat's app shows the line only when it gives the
+// fingerprint the partner signed (checkAnswer: received 'ok'). One too long, empty or with control characters is not signed (certify).
+const RECV_MAX = 60, RECV = 'streetcat/received/v1\n', receivedByOk = s => typeof s === 'string' && s.length >= 1 && s.length <= RECV_MAX && s === s.trim() && !/[\u0000-\u001f\u007f\u2028\u2029]/.test(s)
+  && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);  /* half a character is not one: two lines would give one fingerprint (review of 12 Nov) */
+const receivedOk = x => !!x && typeof x === 'object' && !Array.isArray(x) && Object.keys(x).join() === 'sha256' && /^[0-9a-f]{64}$/.test(x.sha256);
+const receivedHash = (text, salt) => sha256hex(new TextEncoder().encode(RECV + salt + '\n' + text));
+const statementOf = (q, signed, evidence, photos, received) => ({ type: 'streetcat/clinic-certificate', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, patient: q.patient, procedure: q.procedure, date: q.date,
+  contributions: q.contributions.map(k => ({ ref: k.ref, release: Number(k.release), proofs: k.proofs.map(p => yOf(p.secret)) })), amount: requestAmount(q), clinic: askedOf(q), signed, ...(evidence ? { evidence: { sha256: evidence.sha256, kind: evidence.kind } } : {}), ...(photos && photos.length ? { photos: ansPhotos(photos) } : {}), ...(received ? { received: { sha256: received.sha256 } } : {}) });  /* clinic: the partner asked, the campaign's own unless its request names another of its list */
+async function certify(q, clinicSk, signed = new Date().toISOString(), evidence = null, photos = null, receivedBy = null){ const bad = requestProblems(q); if (bad.length) throw new Error('not a valid request: ' + bad.join('; '));
   if (pubOf(clinicSk) !== askedOf(q)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`); if (evidence && !evidenceOk(evidence)) throw new Error('the file\'s fingerprint is not a SHA-256 of an invoice or a photo');
   if (photos && photos.length && !ansPhotosOk(ansPhotos(photos))) throw new Error('the photos of the delivery are not valid');
-  const c = campaignOf(q.campaign), statement = statementOf(q, signed, evidence, photos), sig = cashu.schnorrSignMessage(STMT + canon(statement), await derivedSk(TAG.statement, clinicSk)); let sigs;
+  if (receivedBy != null && !receivedByOk(receivedBy)) throw new Error(`who received it: a line of 1 to ${RECV_MAX} characters`);
+  const salt = receivedBy != null ? hex(root.crypto.getRandomValues(new Uint8Array(16))) : '', received = receivedBy != null ? { sha256: await receivedHash(receivedBy, salt) } : null;
+  const c = campaignOf(q.campaign), statement = statementOf(q, signed, evidence, photos, received), sig = cashu.schnorrSignMessage(STMT + canon(statement), await derivedSk(TAG.statement, clinicSk)); let sigs;
   // a campaign that pays from the lock: each donation's transaction is built here, checked as the mint will check it (it pays this
   // partner what the request says, the rest stays under the same lock, nothing goes anywhere else), and signed whole (NUT-11 SIG_ALL)
   if (c.lock === 'dest') { sigs = []; for (const k of q.contributions) { const tx = await reqTx(q, k), no = destProblems(tx, destOf(c), { payee: askedOf(q), pay: k.release - tx.fee }); if (no.length) throw new Error(`not a valid request: ${k.ref || 'a donation'}: ${no.join('; ')}`); sigs.push(destSign(tx, clinicSk)); } }
   else sigs = q.contributions.flatMap(k => k.proofs.map(p => cashu.schnorrSignMessage(p.secret, clinicSk)));  // NUT-11 signs the proof's secret
-  return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'certified', statement, sig, sigs }; }
+  return { t: 'streetcat.answer', v: 1, id: q.id, kind: 'certified', statement, sig, sigs, ...(received ? { receivedBy: { text: receivedBy, salt } } : {}) }; }
 async function report(q, clinicSk, reason, note = '', signed = new Date().toISOString()){ if (pubOf(clinicSk) !== askedOf(q)) throw new Error(`this key is not ${q.campaign.name}'s clinic key`);
   if (!REASONS.includes(reason)) throw new Error('reason: ' + REASONS.join(', '));
   const statement = { type: 'streetcat/clinic-report', v: 1, campaign: campShort(campaignOf(q.campaign)), request: q.id, reason, note: String(note || '').slice(0, 500), clinic: askedOf(q), signed };
@@ -265,7 +276,7 @@ async function checkAnswer(q, a){ const v = { ok: false, kind: a && a.kind, proo
   if (a.kind === 'report') { const good = !!st && st.type === 'streetcat/clinic-report' && st.request === q.id && lc(st.clinic) === me && canon(st.campaign) === canon(campShort(c)) && verify(a.sig, REPORT + canon(st), spk);
     v.statement = good ? 'ok' : 'badsig'; v.ok = good; v.text = good ? `the ${who} reports a problem (${st.reason})${st.note ? ': ' + st.note : ''}` : `✗ a report that is not signed with ${c.name}'s ${who} key`; return v; }
   if (a.kind !== 'certified') { v.text = '✗ an answer of an unknown kind'; return v; }
-  const want = statementOf(q, st && st.signed, st && evidenceOk(st.evidence) ? st.evidence : null, st && ansPhotosOk(st.photos) ? st.photos : null),  /* its photos too: named, signed */ signedBy = !!st && verify(a.sig, STMT + canon(st), spk), same = !!st && canon(st) === canon(want);
+  const want = statementOf(q, st && st.signed, st && evidenceOk(st.evidence) ? st.evidence : null, st && ansPhotosOk(st.photos) ? st.photos : null, st && receivedOk(st.received) ? st.received : null),  /* its photos too, and the fingerprint of who received it: named, signed */ signedBy = !!st && verify(a.sig, STMT + canon(st), spk), same = !!st && canon(st) === canon(want);
   v.statement = !st ? 'missing' : !signedBy ? (lc(st.clinic) !== me ? 'otherkey' : 'badsig') : !same ? 'mismatch' : 'ok';
   const proofs = q.contributions.flatMap(k => k.proofs);
   // a campaign that pays from the lock: one signature per donation, on the whole transaction its request says (built here anew)
@@ -276,6 +287,11 @@ async function checkAnswer(q, a){ const v = { ok: false, kind: a && a.kind, proo
     : v.signed && v.signed < v.proofs ? `✗ Partly signed (${v.signed} of ${v.proofs}) — not certified`
     : v.other && !v.signed ? `✗ Signed with a key that is not ${c.name}'s ${who} key — not certified`
     : v.statement !== 'ok' ? `✗ its declaration ${({ missing: 'is missing', badsig: `is not signed with ${c.name}'s ${who} key`, otherkey: `names another ${who} key`, mismatch: 'does not match this request' })[v.statement]} — not certified` : '✗ not certified';
+  // who received it: read only when its line and salt give the fingerprint the declaration signed; otherwise not shown (the
+  // confirmation itself stands or falls on its own: a name is a note, not the work)
+  v.received = 'none'; v.receivedBy = null;
+  if ((st && st.received) || a.receivedBy) { const x = a.receivedBy, good = !!st && receivedOk(st.received) && !!x && typeof x === 'object' && receivedByOk(x.text) && /^[0-9a-f]{32}$/.test(String(x.salt)) && await receivedHash(x.text, x.salt) === st.received.sha256;
+    v.received = good ? 'ok' : !x ? 'missing' : 'mismatch'; if (good) v.receivedBy = x.text; }
   return v; }
 // the clinic's signatures by proof (Y), to put into the full proofs Streetcat kept (their witness), next to Streetcat's own
 const clinicSigsByY = (q, a) => { const m = new Map(); let i = 0; for (const k of q.contributions) for (const p of k.proofs) m.set(yOf(p.secret), a.sigs[i++]); return m; };
@@ -733,7 +749,7 @@ root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derive
   TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry, fetchT,
   makeRequest, signRequest, requestSig, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
-  ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE,
+  ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE, receivedByOk, receivedOk, RECV_MAX,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,
   STREETCAT_KEYS, published, RECEIPT, makeReceipt, receiptCheck, receiptPng, readReceipt, sealKey, openSealed, isPng, pngTexts, pngWithText, crc32, lnAddressUrl, lnAddressInvoice };
 })(typeof window !== 'undefined' ? window : globalThis);

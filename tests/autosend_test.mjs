@@ -46,7 +46,7 @@ const inRow = async () => { const out = []; for (const wd of [320, 390, 430]) { 
 const n1 = await lock(30); const t1 = await waitText(donor, '#d-out .send-sc', /sent to Streetcat ✓|not sent|no relay/, 20000);
 const step2 = await donor.$$eval('#d-out p.center', ps => ps.map(p => p.textContent).find(t => /^2 · /.test(t)) || '');
 check('1 · the donation is locked and goes to Streetcat with no tap: "sent to Streetcat ✓"', t1 === 'sent to Streetcat ✓', t1);
-check('…the screen says it goes by itself', step2 === '2 · The locked token goes to Streetcat by itself.', step2);
+check('…the screen says it goes by itself', step2 === '2 · It goes to Streetcat by itself.', step2);
 await shot(donor, 'as-1-sent');
 const o1 = await donations(donor); check('…the donor\'s outbox made it once', o1.length === 1 && o1[0].state === 'sent', JSON.stringify(o1.map(x => x.state)));
 const l1 = await waitLedger(rescue, 1); check('…and it is in Rescue\'s campaign', l1.length === 1 && l1[0].ref === o1[0].ref && l1[0].amount === n1, `${l1.length} in the ledger`);
@@ -55,6 +55,8 @@ const l1 = await waitLedger(rescue, 1); check('…and it is in Rescue\'s campaig
 await donor.evaluate(late => localStorage.setItem('vetlock.relays', late), LATE); await donor.reload();
 const n2 = await lock(40); const t2 = await waitText(donor, '#d-out .send-sc', /no relay took it yet|offline|sent to Streetcat ✓/, 30000); const s2 = await line();
 check('2 · no relay answers: the line says so, in red', /^no relay took it yet · trying again by itself$/.test(t2) && s2 && s2.red, JSON.stringify(s2));
+{ await donor.waitForTimeout(3500); const seen = await donor.evaluate(() => { const b = [...document.querySelectorAll('#d-out button')].find(x => /copy token/.test(x.textContent)); return !!b && !b.closest('.sheet') && !!b.offsetParent; });  /* review of 12 Nov: behind "···" it was out of sight */
+  check('…and the token\'s "copy token" comes out from behind "···", to give it by hand', seen); }
 await shot(donor, 'as-2-no-relay'); const w2 = await inRow(); check('…the red line fits the screen at 320, 390 and 430 px', !w2.length, w2.length ? 'runs off at ' + w2.join(', ') + ' px' : '');
 const o2 = (await donations(donor)).filter(x => x.ref !== o1[0].ref); check('…the donation waits in the outbox, still being sent', o2.length === 1 && o2[0].state === 'sending', JSON.stringify(o2.map(x => x.state)));
 

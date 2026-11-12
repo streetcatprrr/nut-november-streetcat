@@ -37,7 +37,7 @@ const L = await open(lie);
 check('a request that says a 1 024-sat proof is worth 64: the partner sees why, in red', /^✗ DON-[0-9A-F]+: an amount is false\. Report a problem\.$/m.test(L.warn) && L.red && L.amounts && L.amounts.wrong === 1, L.warn.slice(0, 140));
 check('…its box cannot be ticked', !L.box); await shot('a1-partner-amount-lie');
 await clinic.evaluate(() => { const b = document.getElementById('cr-ok'); b.disabled = false; b.checked = true; document.getElementById('cr-go').disabled = false; });  /* forced, as a changed page would */
-await clinic.click('#cr-go'); const out = await waitText('#cr-out', /cannot be confirmed|CONFIRMED/);
+await clinic.click('#cr-go'); const out = await waitText('#cr-out', /cannot be confirmed|✓ (delivery )?confirmed/);
 const after = await clinic.evaluate(id => (JSON.parse(localStorage.getItem('vetlock.clinic.requests') || '[]').find(x => x.id === id) || {}).state, lie.id);
 check('…and "Confirm" refuses it even with the box forced: nothing is signed', /^Not possible: this request cannot be confirmed: DON-[0-9A-F]+: an amount is false\. Report a problem\./.test(out) && after === 'review', out.slice(0, 120)); await shot('a2-partner-amount-forced');
 await tab('work'); await clinic.waitForTimeout(300); if (await clinic.$eval('#w-list', e => e.hidden)) await clinic.click('#w-pend'); await clinic.waitForTimeout(300);  /* Partner's home: a tap on "pending" shows them */
@@ -53,7 +53,7 @@ check('a request made by an older app (no DLEQ proof): refused in red, its amoun
 
 const H = await open(honest);
 check('an honest request: every amount checks against the mint\'s keys, nothing in red about it, and its box can be ticked', H.amounts && !H.amounts.problems.length && !/is false|amounts are false|can't be checked|not checked yet/.test(H.warn) && H.box, H.warn.slice(0, 120) || 'no warning');
-await clinic.check('#cr-ok'); await clinic.click('#cr-go'); const conf = await waitText('#cr-out', /CONFIRMED|Not possible|Failed/);
-check('…and it is confirmed', /CONFIRMED/.test(conf), conf.split('\n')[0]);
+await clinic.check('#cr-ok'); await clinic.click('#cr-go'); const conf = await waitText('#cr-out', /✓ (delivery )?confirmed|Not possible|Failed/);
+check('…and it is confirmed', /✓ (delivery )?confirmed/.test(conf), conf.split('\n')[0]);
 
 await b.close(); say(bad ? `amountui: ${bad} check(s) failed` : 'amountui: every check passed'); process.exit(bad ? 1 : 0);

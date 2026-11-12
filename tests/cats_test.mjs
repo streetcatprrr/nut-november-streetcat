@@ -7,6 +7,7 @@ import fs from 'fs';
 import { chromium } from 'playwright';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser, pin } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const APP = new URL('../app/', import.meta.url).pathname, BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
 const C = globalThis.scCore, say = (...a) => console.log(...a), now = () => Math.floor(Date.now() / 1000), today = new Date().toISOString().slice(0, 10);
@@ -60,8 +61,9 @@ say(`(the photos: ${Object.entries(photos).map(([k, v]) => `${k} ${Math.round(v.
 
 // the clinic: from the request, its cat's record
 await cl.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(q)); await cl.waitForSelector('#creq.on');
-check('the request names its cat\'s record, still to be made', /^MOCHI's record: photos, chip$/.test(await text(cl, '#cr-cat-a')) && await cl.isVisible('#cr-cat-a'));
-await cl.click('#cr-cat-a'); await cl.waitForSelector('#catnew.on');
+await viaMore(cl, '#cr-cat-a');
+check('the request names its cat\'s record, still to be made (behind its "···")', /^MOCHI's record: photos, chip$/.test(await text(cl, '#cr-cat-a')) && await cl.isVisible('#cr-cat-a'));
+await viaMore(cl, '#cr-cat-a'); await cl.click('#cr-cat-a'); await cl.waitForSelector('#catnew.on');
 check('…which opens with the cat, the procedure and the date of the request, in one line', await cl.inputValue('#cn-name') === 'MOCHI' && await cl.inputValue('#cn-proc') === 'sterilisation (spay)' && await cl.inputValue('#cn-date') === today && /^MOCHI\s*TNR MARINA · request R-/.test(await text(cl, '#cn-head'))
   && (await text(cl, '#cn-sum')) === `sterilisation (spay) · ${today} · edit` && !(await cl.isVisible('#cn-name')) && !(await cl.isVisible('#cn-proc')) && !(await cl.isVisible('#cn-coat')), await text(cl, '#cn-sum'));
 check('a photo is taken with the camera straight away, not chosen from the gallery', await cl.getAttribute('#cn-file', 'capture') === 'environment' && await cl.getAttribute('#cn-file', 'accept') === 'image/*');

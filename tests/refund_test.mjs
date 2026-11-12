@@ -41,7 +41,7 @@ const A = await lock(21), B = await lock(13), D = await lock(2100), E = await lo
 // a browser with no key reads a receipt: before the deadline
 const viewer = await page(); await tab(viewer, 'refund'); const open = async (p, r) => { await p.evaluate(() => { document.getElementById('r-out').textContent = ''; }); await p.fill('#r-receipt', r); return waitText(p, '#r-info', /Checked with the mint[\s\S]*(Refund|Released|refunded|Nothing|unavailable)/, 30000); };
 let s = await open(viewer, A.receipt); check('before the deadline: "Refund not available yet", with when it opens in UTC and local time', /Refund not available yet/.test(s) && /It opens \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC \((\d{1,2} [A-Z][a-z]{2}, )?\d{2}:\d{2} CET in Madrid\)/.test(s), (s.match(/It opens [^.]*/) || [''])[0]);
-check('…and the estimate of what can come back, before any invoice', /you receive at most about \d+ sat by Lightning, or 21 sat as ecash/.test(s) || /you receive at most about \d+ sat by Lightning, or \d+ sat as ecash/.test(s)); await shot(viewer, 'q1-refund-not-yet');
+check('…and the estimate of what can come back, before any invoice', /≈ \d+ sat by Lightning · \d+ sat as ecash/.test(s)); await shot(viewer, 'q1-refund-not-yet');
 s = await go(viewer, /Not yet|REFUNDED|Failed/); check('…and taking it back is refused until then, saying when it opens in UTC and local time', /^Not yet: the deadline has not passed\. The refund opens \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC \((\d{1,2} [A-Z][a-z]{2}, )?\d{2}:\d{2} CET in Madrid\)/.test(s), s.split(';')[0]);
 
 // Streetcat and the clinic release B whole, and 1 500 sat of D (the rest goes back under the lock), as the app does

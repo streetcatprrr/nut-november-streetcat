@@ -5,6 +5,7 @@
 import { chromium } from 'playwright';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
 const relays = [startRelay({ port: 7381 }), startRelay({ port: 7382 })]; await Promise.all(relays.map(r => r.ready)); const RELAYS = relays.map(r => r.url).join(',');
@@ -64,7 +65,7 @@ check('a donation shown: the arrow goes back to Donate as it starts, for a new d
 const give = async () => { await donor.fill('#d-amt', '8'); await donor.dispatchEvent('#d-amt', 'input'); await donor.click('#d-ln'); return waitText(donor, '#d-out', /LOCKED 8 sat/, 30000); };
 await give(); await donor.evaluate(() => history.back()); await waitFor(donor, () => !document.getElementById('donate').classList.contains('done')); const l5b = await look(donor);
 check('…the phone\'s back does the same, and the app stays on Donate', plain(l5b), JSON.stringify(l5b));
-await give(); await donor.click('#d-again'); await waitFor(donor, () => !document.getElementById('donate').classList.contains('done')); const l5c = await look(donor);
+await give(); await viaMore(donor, '#d-again'); await donor.click('#d-again'); await waitFor(donor, () => !document.getElementById('donate').classList.contains('done')); const l5c = await look(donor);
 check('…and so does "donate again"', plain(l5c), JSON.stringify(l5c));
 await give(); await donor.click('#hd-roles button[data-r="donor"]'); await waitFor(donor, () => !document.getElementById('donate').classList.contains('done')); const l5d = await look(donor);
 check('…and the role in the header (Donor), as it goes back to a role\'s first screen', plain(l5d), JSON.stringify(l5d));

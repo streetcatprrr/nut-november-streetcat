@@ -126,8 +126,8 @@ await sc.click('#hd-back'); await sc.waitForSelector('#snew.on'); await waitText
 await sc.fill('#sn-cost', '50000'); const short = await waitText(sc, '#sn-cover', /✗/, 10000);
 check('more than the pot holds: said in red, and it cannot be sent', /^✗ 42 000 of 50 000 sat in COMIDA MARINA: choose another pot, or wait for donations$/.test(short) && await red(sc, '#sn-cover') && await sc.$eval('#sn-go', b => b.disabled), short);
 await sc.fill('#sn-cost', '18000'); await waitText(sc, '#sn-cover', /✓/, 10000); await sc.click('#sn-go');
-const steps = await waitText(sc, '#sq-steps', /sent · \d of 2/, 30000), dl = await txt(sc, '#sq-dl');
-check('sent to the shop by relay; the request says what and for which colony, and names the shop', /sent · 2 of 2/.test(steps) && /received by Pienso Sur/.test(steps) && /answered by Pienso Sur/.test(steps) && dl.startsWith('Forcolony MarinaWhat20 kg dry feed') && (await txt(sc, '#sq-go')) === 'Release, once Pienso Sur confirms' && (await txt(sc, '#sq-qra')) === 'Pienso Sur offline? Show it as QR', `${dl.slice(0, 50)} · ${await txt(sc, '#sq-go')}`);
+const steps = await waitText(sc, '#sq-steps', /sent · \d\/2 relays/, 30000), dl = await txt(sc, '#sq-dl');
+check('sent to the shop by relay; the request says what and for which colony, and names the shop', /sent · 2\/2 relays/.test(steps) && /received by Pienso Sur/.test(steps) && /answered by Pienso Sur/.test(steps) && dl.startsWith('Forcolony MarinaWhat20 kg dry feed') && (await txt(sc, '#sq-go')) === 'Release, once Pienso Sur confirms' && (await txt(sc, '#sq-qra')) === 'Pienso Sur offline? Show it as QR', `${dl.slice(0, 50)} · ${await txt(sc, '#sq-go')}`);
 await tab(sc, 'home'); const food = (await sc.$$eval('#h-kinds button.tile', bs => bs.map(b => [...b.querySelectorAll('.sub2')].map(s => s.textContent).join(' | '))))[2];
 check('Home counts it: the food pots, the request, and what is left to spend', food === '2 pots · 1 request | 29 000 sat to spend', food);
 await sc.locator('#h-kinds button.tile', { hasText: 'Food' }).click(); L = await lines(sc, '#kd-reqs');

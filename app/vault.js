@@ -20,33 +20,51 @@
   const meta = () => { try { const m = JSON.parse(raw(META) || 'null'); return m && m.v === 1 && /^[0-9a-f]{32}$/.test(m.salt) && Number.isInteger(m.iter) && typeof m.check === 'string' ? m : null; } catch (_) { return null; } };
   const fits = (m, K) => { try { return dec(m.check, K) === 'vetlock'; } catch (_) { return false; } };
   const derive = async (pin, salt, iter) => new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unhex(salt), iterations: iter }, await crypto.subtle.importKey('raw', new TextEncoder().encode(String(pin)), 'PBKDF2', false, ['deriveBits']), 256));
+  // a short sum of a value (cyrb53): enough to tell whether a slot still holds the value a change was planned from
+  const sum = s => { let a = 0xdeadbeef, b = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a = Math.imul(a ^ c, 2654435761); b = Math.imul(b ^ c, 1597334677); }
+    a = Math.imul(a ^ (a >>> 16), 2246822507) ^ Math.imul(b ^ (b >>> 13), 3266489909); b = Math.imul(b ^ (b >>> 16), 2246822507) ^ Math.imul(a ^ (a >>> 13), 3266489909); return (4294967296 * (2097151 & b) + (a >>> 0)).toString(36); };
   // A change of PIN state is written down whole first (NEXT) and then carried out, so that one cut short is finished the next
   // time the page opens: the keys are never left half under one key and half under another. With a PIN coming, its record goes
-  // first (a value not yet sealed is read as it is); with a PIN going, last.
+  // first (a value not yet sealed is read as it is); with a PIN going, last. Each slot is carried out only while it still holds
+  // the value the change was planned from: one written again since (a key saved after a change that could not finish, the
+  // storage being full) is newer, and stays (review of 12 Nov: the old plan was put back over it, and the new key was lost).
   const finish = () => { let n; try { n = JSON.parse(raw(NEXT) || 'null'); } catch (_) { n = null; } if (!n || typeof n.slots !== 'object') return true;
     if (n.meta && !put(META, JSON.stringify(n.meta))) return false;
-    for (const k of SLOTS) if (k in n.slots && !put(k, n.slots[k])) return false;
+    for (const k of SLOTS) { if (!(k in n.slots)) continue; const s = n.slots[k], [v, from] = Array.isArray(s) ? s : [s, null], cur = raw(k);
+      if (from != null && (cur == null || sum(cur) !== from)) continue;
+      if (!put(k, v)) return false; }
     if (!n.meta && !put(META, null)) return false; return put(NEXT, null); };
-  let K = null; const seen = new Map();
-  const load = () => { finish(); seen.clear(); K = null; const m = meta(); if (!m) return; try { const h = sessionStorage.getItem(SESSION); if (h && /^[0-9a-f]{64}$/.test(h) && fits(m, unhex(h))) K = unhex(h); } catch (_) {} };
+  let K = null, KM = null, again = false; const seen = new Map();
+  const useKey = k => { K = k; KM = k ? raw(META) : null; seen.clear(); };
+  // a key not sealed beside a PIN (a value written in the clear while a change was being carried out) is sealed once the key is open
+  const sealAll = () => { if (!K) return; for (const s of SLOTS) { const v = raw(s); if (v != null && !v.startsWith(PRE)) put(s, enc(v, K)); } };
+  // Another tab may change the PIN, or set one: the key this tab holds then opens nothing, and what it sealed with it nobody could
+  // ever read again. So the key is checked against the record whenever the record has changed: one that no longer fits is dropped,
+  // nothing is read or written with it, and the page opens again, asking for the PIN (review of 12 Nov: a tab left open after a
+  // change of PIN wrote the refund keys under the old one, and they were lost)
+  const reopen = () => { if (again) return; again = true; setTimeout(() => { try { location.reload(); } catch (_) {} }, 0); };
+  const keyOk = () => { if (!K) return false; const r = raw(META); if (r === KM) return true; const m = meta(); if (m && fits(m, K)) { KM = r; return true; }
+    useKey(null); try { sessionStorage.removeItem(SESSION); } catch (_) {} if (m) reopen(); return false; };
+  const load = () => { finish(); useKey(null); const m = meta(); if (!m) return; try { const h = sessionStorage.getItem(SESSION); if (h && /^[0-9a-f]{64}$/.test(h) && fits(m, unhex(h))) { useKey(unhex(h)); sealAll(); } } catch (_) {} };
   load();
-  const on = () => !!meta(), locked = () => on() && !K;
-  const read = k => { const v = raw(k); if (v == null || !v.startsWith(PRE)) return v; if (!K) return null; const was = seen.get(k); if (was && was[0] === v) return was[1];
+  const on = () => !!meta(), locked = () => on() && !keyOk();
+  try { addEventListener('storage', e => { if ((e.key === META || e.key === null) && on() && !keyOk() && typeof document !== 'undefined' && !document.getElementById('pin-gate')) reopen(); }); } catch (_) {}  /* a PIN set in another tab locks this one at once */
+  const read = k => { const v = raw(k); if (v == null || !v.startsWith(PRE)) return v; if (!keyOk()) return null; const was = seen.get(k); if (was && was[0] === v) return was[1];
     try { const p = dec(v, K); seen.set(k, [v, p]); return p; } catch (_) { return null; } };
-  // a key is not written in the clear beside a PIN, and not at all while locked
-  const write = (k, v) => { v = String(v); if (!SLOTS.includes(k) || !on()) return put(k, v); return K ? put(k, enc(v, K)) : false; };
+  // a key is not written in the clear beside a PIN, and not at all while locked, or with a key that no longer fits
+  const write = (k, v) => { v = String(v); if (!SLOTS.includes(k) || !on()) return put(k, v); return keyOk() ? put(k, enc(v, K)) : false; };
   const check = async pin => { const m = meta(); if (!m) return false; const k = await derive(pin, m.salt, m.iter); return fits(m, k) ? k : false; };
-  const unlock = async pin => { const k = await check(pin); if (!k) return false; try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} K = k; seen.clear(); return true; };
+  const unlock = async pin => { const k = await check(pin); if (!k) return false; try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} useKey(k); sealAll(); return true; };
   const set = async pin => { pin = String(pin); if (on()) throw new Error('a PIN is set already: remove it first'); if (pin.length < MIN) throw new Error(`a PIN has ${MIN} characters or more`);
     const salt = hex(crypto.getRandomValues(new Uint8Array(16))), k = await derive(pin, salt, ITER), slots = {};
-    for (const s of SLOTS) { const v = raw(s); if (v != null && !v.startsWith(PRE)) slots[s] = enc(v, k); }
+    for (const s of SLOTS) { const v = raw(s); if (v != null && !v.startsWith(PRE)) slots[s] = [enc(v, k), sum(v)]; }
     if (!put(NEXT, JSON.stringify({ meta: { v: 1, kdf: 'PBKDF2-SHA256', iter: ITER, salt, check: enc('vetlock', k) }, slots }))) { put(NEXT, null); throw new Error('this phone could not write it down (its storage is full or blocked), so nothing changed'); }
-    try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} const done = finish(); load(); if (!K) K = k; if (!done) throw new Error('this phone has no room to finish: it is finished the next time the app opens'); return true; };
+    try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} const done = finish(); load(); if (!K && meta()) useKey(k); if (!done) throw new Error('this phone has no room to finish: it is finished the next time the app opens'); return true; };
   const clear = async pin => { const k = await check(pin); if (!k) return false; const slots = {};
-    for (const s of SLOTS) { const v = raw(s); if (v != null && v.startsWith(PRE)) slots[s] = dec(v, k); }
+    for (const s of SLOTS) { const v = raw(s); if (v != null && v.startsWith(PRE)) slots[s] = [dec(v, k), sum(v)]; }
     if (!put(NEXT, JSON.stringify({ meta: null, slots }))) { put(NEXT, null); throw new Error('this phone could not write it down (its storage is full or blocked), so nothing changed'); }
     finish(); try { sessionStorage.removeItem(SESSION); } catch (_) {} load(); return true; };
-  const lock = () => { try { sessionStorage.removeItem(SESSION); } catch (_) {} K = null; seen.clear(); };
+  const lock = () => { try { sessionStorage.removeItem(SESSION); } catch (_) {} useKey(null); };
   const erase = () => { for (const k of [...SLOTS, NEXT, META]) put(k, null); lock(); };
 
   // ----- the few screens of its own: they must work before the app has started -----

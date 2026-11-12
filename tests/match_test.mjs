@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 const SHOT = process.env.SHOT_DIR, shot = async (p, name) => { if (SHOT) { await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(1600); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };  /* SHOT_DIR=dir: the screens at 390 px @2x, from the top */
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -82,7 +83,7 @@ const reqPicsAt = async id => { for (let i = 0; i < 30; i++) { if (await clinic.
   await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); } return false; };
 const SAMEQ = 'Nothing points to another cat.', OTHERQ = '✗ It may be another cat.';  /* short, in green or in red */
 for (const c of CATS) { const looks = c.name === 'MOCHI' || c.name === 'TEO'; if (looks) await reqPicsAt(c.id);
-  await tab(clinic, 'work'); await showW(clinic, 'w-pend'); await clinic.locator('#w-list .item', { hasText: new RegExp('^' + c.name + ' ') }).click(); await clinic.waitForSelector('#creq.on'); await clinic.click('#cr-cat-a'); await clinic.waitForSelector('#catnew.on');
+  await tab(clinic, 'work'); await showW(clinic, 'w-pend'); await clinic.locator('#w-list .item', { hasText: new RegExp('^' + c.name + ' ') }).click(); await clinic.waitForSelector('#creq.on'); await viaMore(clinic, '#cr-cat-a'); await clinic.click('#cr-cat-a'); await clinic.waitForSelector('#catnew.on');
   await shoot(clinic, '#cn-shots', c.rec, c.views);
   if (c.name === 'MOCHI') { await clinic.waitForFunction(() => document.querySelectorAll('#cn-req-pics img[src]').length === 3, null, { timeout: 15000 }).catch(() => {}); const offer = await txt(clinic, '#cn-like-st');
     check("the clinic's Check the cat: Streetcat's photos at once, under the clinic's own, and the recognition offered, not fetched", (await clinic.$$eval('#cn-req-pics img[src]', x => x.length)) === 3 && offer === "Its photos can be compared with Streetcat's, here on this phone. The cat recognition comes once: 121 MB." && !clinic._asked.some(engine), offer);

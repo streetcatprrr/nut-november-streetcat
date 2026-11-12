@@ -4,7 +4,7 @@
 <style>
 @font-face{font-family:"Departure Mono";src:url("fonts/DepartureMono-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
 /* wallet-grade: one column, one thing per screen, an 8px rhythm, four type sizes (12 · 14 · 22 · 64), no boxes inside boxes */
-:root{--bg:#111;--fg:#efede6;--mute:#8d8a81;--line:rgba(239,237,230,.2);--line2:rgba(239,237,230,.45);--ok:#8fd4a4;--bad:#ff4d4d;--btc:#f7931a;--mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace;--kl:.8;--u:8px;--code:13px;--code-lh:20px}
+:root{--bg:#111;--fg:#efede6;--mute:#a8a59c;--line:rgba(239,237,230,.2);--line2:rgba(239,237,230,.45);--ok:#8fd4a4;--bad:#ff4d4d;--btc:#f7931a;--mono:"Departure Mono",ui-monospace,Menlo,Consolas,monospace;--kl:.8;--u:8px;--code:13px;--code-lh:20px}
 /* every code on these pages (keys, tokens, invoices, receipts, ledgers, the terminal) is set at this one size */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--fg);font:400 14px/22px var(--mono);-webkit-font-smoothing:antialiased;height:100%}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}  /* the browser scales the page as a whole (fit.js), never its text alone */
@@ -39,8 +39,8 @@ textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{ma
 #d-reqs .rold button.req{padding:0 0 10px;border:0}
 #d-reqs .rold button.req .title{font-size:var(--code);line-height:var(--code-lh);color:oklch(.8 .16 calc(var(--h,345) * 1deg))}
 #d-reqs .rold button.req .sub2,#d-reqs .rold button.req .cat{overflow-wrap:break-word;line-break:auto}
-#d-reqs .rold button.req .sub2{font-size:11px;line-height:16px;color:oklch(.88 .15 95deg)}
-#d-reqs .rold button.req .cat{font-size:11px;line-height:16px;color:oklch(.7 .14 68deg)}
+#d-reqs .rold button.req .sub2{font-size:12px;line-height:16px;color:oklch(.88 .15 95deg)}
+#d-reqs .rold button.req .cat{font-size:12px;line-height:16px;color:oklch(.7 .14 68deg)}
 /* what Streetcat pays for: the four kinds two by two, each in its colour; the lists (pots, requests, colonies, partners)
    as the donor's list; "Choose …" as one wide button that takes the colour of what was chosen. In grey, what cannot be chosen, and why. */
 #h-kinds{margin-top:calc(var(--u)*1)}.plist{margin-bottom:calc(var(--u)*2)}.plist>.mut{margin-bottom:4px}.plist>.empty{padding:calc(var(--u)*1.5) 0}
@@ -50,7 +50,7 @@ textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{ma
 .ptypes{display:flex;flex-wrap:wrap;gap:8px;margin:0}.ptypes button.sm{width:auto;padding:0 14px;margin:0;height:44px}.ptypes.grid{display:grid;grid-template-columns:1fr 1fr}.ptypes.grid button.sm{width:100%;padding:0 8px}
 .ptypes button.sm[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}.ptypes button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}.ptypes button.sm.on[style]{background:oklch(.82 .16 calc(var(--h)*1deg));color:var(--bg);border-color:transparent}
 .ptiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}.ptiles button.tile{display:block;margin:0;padding:12px;min-height:96px;border:1px solid var(--line);border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
-.ptiles button.tile .title{font-size:15px;line-height:20px;letter-spacing:.06em;color:oklch(.82 .16 calc(var(--h)*1deg));overflow-wrap:anywhere}.ptiles button.tile .sub2{font-size:11px;line-height:16px;color:var(--mute);margin-top:4px}
+.ptiles button.tile .title{font-size:14px;line-height:20px;letter-spacing:.06em;color:oklch(.82 .16 calc(var(--h)*1deg));overflow-wrap:anywhere}.ptiles button.tile .sub2{font-size:12px;line-height:16px;color:var(--mute);margin-top:4px}
 .pchoose button.sm{display:flex;width:100%;height:56px;margin:0;letter-spacing:.08em}.pchoose input.sm{display:flex;align-items:center;justify-content:center;width:100%;height:56px;margin:0;padding:0 14px;border:1px solid var(--line2);background:none;color:var(--fg);font:inherit;font-size:13px;letter-spacing:.08em;text-transform:uppercase;text-align:center;border-radius:0;-webkit-appearance:none;appearance:none}.pchoose input.sm::-webkit-date-and-time-value{text-align:center}.pchoose input.sm::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6}.pchoose button.sm.set{border-color:currentColor}.pchoose button.sm.set[style]{color:oklch(.82 .16 calc(var(--h)*1deg))}
 #sn-keys,#k-keys{margin-top:calc(var(--u)*2)}#sn-keys .kline small{margin-bottom:2px}#sn-cover{margin-top:calc(var(--u)*1)}#sn-cover:empty{display:none}#sn-sum{margin:calc(var(--u)*1) 0 calc(var(--u)*2)}#kd-head{margin-bottom:calc(var(--u)*1)}#d-kinds{margin-bottom:calc(var(--u)*2)}#pp-new{margin-bottom:calc(var(--u)*2)}#pp-new>label:first-child{margin-top:calc(var(--u)*2)}#sn-catbox>label:first-child{margin-top:calc(var(--u)*2)}
 .paste-over{position:fixed;z-index:60;pointer-events:none;box-sizing:border-box;background:var(--bg);border:1px solid var(--fg);overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;color:oklch(.8 .16 calc(var(--h) * 1deg))}
@@ -63,6 +63,8 @@ button.go.big{margin-top:auto}
 /* hold to confirm: a button that moves
    money or signs fills from the left, in the colour of whose screen it is, while it is held; full, it blinks twice and acts (index.js) */
 body{--hold:oklch(.8 .16 55deg)}body[data-role="streetcat"]{--hold:oklch(.8 .16 150deg)}body[data-role="clinic"]{--hold:oklch(.8 .16 250deg)}
+/* the ground takes a shade of the role's colour: Rescue green, a partner blue; the donor keeps the plain one, the page everything starts from */
+body[data-role="streetcat"]{--bg:oklch(.175 .03 150deg)}body[data-role="clinic"]{--bg:oklch(.175 .03 250deg)}
 button.go.hold{position:relative;isolation:isolate;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 button.go.hold::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--hold);transform:scaleX(0);transform-origin:left center;transition:transform .25s ease-out}
 button.go.hold.holding::before{transform:scaleX(1);transition:transform var(--hold-ms,2000ms) linear}
@@ -77,7 +79,7 @@ button.sm.done,.acts button.sm.done{background:var(--fg);color:var(--bg);border-
 .lock{display:grid;grid-template-columns:14px 1fr 14px 1fr 14px;align-items:center;margin:calc(var(--u)*2) 0 0}
 .lock i{width:14px;height:14px;border:2px solid var(--fg);background:transparent;transition:background .4s}.lock i.on{background:var(--fg)}.lock i.ok{background:var(--ok);border-color:var(--ok)}
 .lock b{height:2px;background:var(--line)}.lock b.on{background:var(--fg)}
-.lock span{font-size:11px;line-height:16px;color:var(--mute);margin-top:6px;white-space:nowrap;grid-row:2}.lock span.on{color:var(--fg)}
+.lock span{font-size:12px;line-height:16px;color:var(--mute);margin-top:6px;white-space:nowrap;grid-row:2}.lock span.on{color:var(--fg)}
 .lock span:nth-of-type(1){grid-column:1/3}.lock span:nth-of-type(2){grid-column:2/5;text-align:center}.lock span:nth-of-type(3){grid-column:4/6;text-align:right}
 .tcard{border:1px solid var(--line2);padding:16px;margin-top:calc(var(--u)*2)}.tcard .title{margin-bottom:2px}.tcard .amt2{font-size:22px;line-height:28px;margin-top:var(--u)}
 .tcard .who2{font-size:var(--code);line-height:var(--code-lh);white-space:pre-line;color:var(--mute);margin-top:var(--u)}
@@ -113,7 +115,7 @@ details.more{margin-top:var(--u);text-align:center}details.more summary{font-siz
 .stat{display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}.stat b{display:block;font-size:22px;line-height:28px;font-weight:400}.stat span{font-size:12px;color:var(--mute)}
 .wtabs>div{cursor:pointer;border-bottom:2px solid transparent;padding-bottom:4px;-webkit-tap-highlight-color:transparent;user-select:none}.wtabs>div.on{border-bottom-color:oklch(.8 .16 250deg)}.wtabs>div.on span{color:oklch(.8 .16 250deg)}  /* the partner's two numbers: a tap shows their requests (its colour, as the header's) */
 #x-ln-box{margin-top:var(--u)}  /* Keys, as Rescue: the Lightning address under its long button */
-.list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:16px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
+.list{border-top:1px solid var(--line);flex:1}.item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}.item .nm{font-size:14px;line-height:22px}.item .sub2{font-size:12px;color:var(--mute)}.item .arr{color:var(--mute)}
 .empty{color:var(--mute);padding:calc(var(--u)*3) 0}
 .actions{display:grid;gap:var(--u);margin-top:calc(var(--u)*2)}.actions button.go{margin:0}.actions button.go.alt{background:transparent;color:var(--fg)}
 #d-links{margin-top:var(--u)}  /* Donate: the other two ways under Pay with Lightning, as big as it */
@@ -132,17 +134,56 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 .term .hero{margin:0}.term .lock{margin-top:calc(var(--u)*2)}.term .qr{width:auto;height:100%;max-height:100%;aspect-ratio:1;margin:0 auto;padding:6px}.term .tcard{border:0;padding:0;margin:0}
 .term [data-empty]:empty::before{content:attr(data-empty);display:block;text-align:center;color:var(--mute);font-size:12px}
 .term-text{position:absolute;inset:0;background:var(--bg);overflow:hidden;font-size:var(--code);line-height:var(--code-lh);white-space:pre-wrap;overflow-wrap:anywhere;line-break:anywhere;color:oklch(.8 .16 calc(var(--h) * 1deg));cursor:pointer;z-index:1}
-.term-text small{position:absolute;right:10px;bottom:6px;font-size:11px;color:var(--mute)}
+.term-text small{position:absolute;right:10px;bottom:6px;font-size:12px;color:var(--mute)}
 .term-text>span{display:block;position:absolute;inset:0;padding:14px 14px 26px;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
-.term-text.keys{overflow:auto;cursor:default;padding:14px 14px 26px}.kline{margin-bottom:8px}.kline small{position:static;display:block;font-size:11px;color:var(--mute)}.kline span{color:oklch(.8 .16 calc(var(--h) * 1deg));word-break:break-all;font-size:var(--code);line-height:var(--code-lh)}
+.term-text.keys{overflow:auto;cursor:default;padding:14px 14px 26px}.kline{margin-bottom:8px}.kline small{position:static;display:block;font-size:12px;color:var(--mute)}.kline span{color:oklch(.8 .16 calc(var(--h) * 1deg));word-break:break-all;font-size:var(--code);line-height:var(--code-lh)}
 #d-out .term{margin-top:0}#donate.done .term{height:auto;min-height:0;padding:10px 14px}#donate.done .hero .fiat{min-height:0;margin-top:0}#donate.done .term .lock{margin-top:var(--u)}#donate.done .state{margin-top:var(--u)}#donate.done details.more{display:none}
 .pay>.term{height:auto;min-height:0;flex:1;margin-bottom:var(--u)}
+#cr-fund{display:none}#cr-act{position:relative}#cr-act.done #cr-prob{visibility:hidden}#cr-act.done label.chk{opacity:.85}#cr-slot{position:absolute;left:0;right:0;bottom:0}#cr-slot p{margin:0}#cr-act.done button.sm{opacity:.4;pointer-events:none}#cr-act.done .shot{pointer-events:none}#creq #cr-shots-st{margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.term.fill .row2,.term.fill .row1{flex:none;display:flex;gap:16px;margin:6px 0 0}.term.fill button.sm{height:auto;min-height:0;width:auto;border:0;padding:0;margin:0;text-decoration:underline;text-underline-offset:3px;color:var(--mute);font-size:12px;letter-spacing:.04em;line-height:18px}
+.out.fillbox{flex:1;display:flex;flex-direction:column;margin-top:var(--u)}.term.fill{flex:1;height:auto;min-height:150px;margin-top:0}.out.fillbox{margin-bottom:16px}.term.fill .ticker{flex:none}.out.fillbox button.go{margin-top:var(--u)}
+.life{display:grid;grid-template-columns:repeat(4,minmax(min-content,1fr));gap:4px;margin:16px 0 0}  /* a stretch grows to its word rather than cut it */
+.life span{border-top:4px solid var(--line);padding-top:8px;font-size:12px;line-height:16px;letter-spacing:0;text-transform:uppercase;color:var(--mute);white-space:nowrap;overflow:hidden;text-align:left}
+.life span.on{border-color:oklch(.8 .14 calc(var(--h)*1deg));color:oklch(.8 .14 calc(var(--h)*1deg))}.life span.now{border-color:var(--fg);color:var(--fg)}
+@media (max-width:359px){.life{gap:2px}.life span{letter-spacing:-.04em}}  /* the four words in 12 px on the narrowest phones */
+/* the donor keeps the plain ground: the page everything starts from */body[data-role="streetcat"]{--bg:oklch(.175 .03 150deg)}body[data-role="clinic"]{--bg:oklch(.175 .03 250deg)}
+#creq .term.fill{min-height:96px}#creq .morebtn,#sreq .morebtn{height:32px}#sreq #sq-out{display:block!important;min-height:44px;margin:0!important;padding:0!important}#cr-life:empty,#sq-life:empty{display:none}#cr-life .life,#sq-life .life{margin-top:var(--u)}
+
+.more-w{margin:0;flex:none;text-align:center}.morebtn{background:none;border:0;color:var(--mute);font:400 14px/22px var(--mono);letter-spacing:.3em;min-width:88px;height:40px;cursor:pointer}
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.66);display:none;align-items:flex-end}.sheet.open{display:flex}
+.sh-box{width:100%;background:color-mix(in oklab,var(--bg),#fff 6%);border-top:1px solid var(--line2);padding:8px 20px 24px;display:flex;flex-direction:column;animation:shup .22s ease-out}
+@keyframes shup{from{transform:translateY(40%);opacity:.4}}
+.sh-bar{display:flex;justify-content:space-between;align-items:center;height:44px;font-size:12px;letter-spacing:.12em;color:var(--mute)}.sh-x{background:none;border:0;color:var(--mute);font:inherit;width:44px;height:44px;text-align:right;cursor:pointer}
+.sh-box>p,.sh-box>details,.sh-box>div:not(.sh-bar){margin:0!important;padding:14px 0;border-top:1px solid var(--line);text-align:left}
+.sh-box a{color:var(--fg)!important;text-decoration:none!important;border:0!important}
+/* one type scale, lighter greys, room to tap; the amount, whose turn it is, and the campaign in the header */
+:root{--mute:#a8a59c}
+#cr-life .life,#sq-life .life{margin:8px 0 16px}
+dl{font-size:14px;line-height:22px;gap:2px 16px;margin:0 0 8px}
+.amt{margin:0 0 4px;display:flex;align-items:baseline;gap:0}.amt .n{font-size:22px;line-height:32px;color:oklch(.86 .15 98deg)}.amt .u{font-size:14px;color:oklch(.86 .15 98deg);margin-left:8px}.amt .f{font-size:12px;color:var(--mute);margin-left:16px}.amt .f:empty{display:none}
+.nowline{font-size:14px;line-height:24px;margin:0}.nowline.now{color:var(--fg)}.nowline.ok{color:var(--ok)}.nowline.bad{color:var(--bad)}.nowline.wait{color:var(--mute)}.nowline:empty,.amt:empty{display:none}
+#creq .camp,#sreq .camp{margin:0}section:not(#catnew):not(#cat):not(#cats) .camp .title{display:none}#creq .camp .mut,#sreq .camp .mut{font-size:12px;line-height:16px}
+details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px;line-height:32px;border:0;text-decoration:underline;text-underline-offset:4px}details.tech[open] summary{margin:0}details.tech dl{font-size:12px;line-height:18px}
+#hd-camp{flex:1;text-align:center;font:400 14px/22px var(--mono);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}#d-campinfo>.title.whole{display:block!important}.sc-roles{flex:none}
+.morebtn{height:44px!important}#creq .lnk a,#sreq .lnk a,#cr-prob summary{display:inline-block;min-height:32px;line-height:32px}
+.term.fill .tl,.term .tl{font-size:13px}
+#sreq #sq-term{height:auto!important;min-height:120px;flex:1 1 120px}#sreq.on{display:flex;flex-direction:column}
+#creq .out.fillbox{min-height:96px}#creq .term.fill{flex:1 1 0;min-height:0;overflow-y:auto;justify-content:flex-start}#creq .term.fill>:first-child{margin-top:auto}#creq .term.fill>:last-child{margin-bottom:auto}.term.fill .hlinks{flex:none;display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:4px}.term.fill .hlinks>div{display:contents}
+#cr-shots-box:not(.sub){display:none}#cr-shots-err:empty{display:none}
+#cr-shots-box.sub #cr-shots-st{display:none}.sub-ord .what{font-size:14px;line-height:22px}.sub-ord .mut{font-size:12px;line-height:18px}.sub-ord{margin:0 0 8px}
+.shots.hints p{font-size:12px;line-height:16px;margin:0;text-align:center}#cr-shots-box label[for="cr-recv"]{margin-top:8px}#cr-shots-box .out.fillbox{margin:8px 0}
+#cr-shots-box.sub{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--bg);padding:20px;display:flex;flex-direction:column;gap:8px;overflow:auto}#cr-shots-box.sub #cr-shots-done{margin-top:auto}
+#cr-shots-open{display:flex;align-items:center;justify-content:center;gap:8px;width:100%}#cr-shots-open .mini{width:24px;height:24px;object-fit:cover;border:1px solid var(--line2);position:static}
+#cr-act.done #cr-shots-open{opacity:1!important;pointer-events:auto!important}
+.who i{font-style:normal;color:oklch(calc(var(--kl,.8) + var(--dl,0)) .16 calc(var(--h,0) * 1deg))}
 .cur{display:inline-block;width:1ch;height:1.05em;margin-left:1px;vertical-align:-.12em;background:currentColor}.cur.think{animation:cur-blink .9s steps(1,end) infinite}@keyframes cur-blink{50%{opacity:0}}  /* the terminal's cursor */
 /* the work screens (requests, answers, hand-overs, the card): the same column, rows and buttons as the rest */
 .lnk a{color:var(--mute);text-decoration:none;border-bottom:1px solid var(--line);white-space:nowrap}
+/* a small link is as easy to hit as a button: its touch area reaches past its letters, and nothing on the page moves for it */
+.lnk a,details.more summary{position:relative}.lnk a::after,details.more summary::after{content:"";position:absolute;inset:-8px}
 #scamp .list,#sn-dons,#v-list,#w-list{flex:0}#w-list{margin-bottom:var(--u)}
 .grp{font-size:12px;line-height:18px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase;padding:14px 0 6px;border-bottom:1px solid var(--line)}
-.item .st{font-size:11px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;color:var(--mute);text-align:right}.item .st.ok{color:var(--ok)}.item .st.bad{color:var(--bad)}.item .st.wait{color:var(--fg)}.item>div:first-child{min-width:0}
+.item .st{font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;color:var(--mute);text-align:right}.item .st.ok{color:var(--ok)}.item .st.bad{color:var(--bad)}.item .st.wait{color:var(--fg)}.item>div:first-child{min-width:0}
 .chk{display:flex;gap:12px;align-items:flex-start;margin:calc(var(--u)*2) 0 0;font-size:12px;line-height:18px;cursor:pointer;color:var(--fg)}.chk input{width:22px;height:22px;min-height:0;padding:0;flex:none;accent-color:var(--fg);margin-top:-2px}
 .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:var(--u) 0}.row3 button.sm{margin:0;padding:0 4px;height:44px}.row3 button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 #cr-prob input{margin-top:var(--u)}
@@ -154,29 +195,29 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 #d-campinfo .sig{font-size:var(--code);line-height:20px;margin-top:6px}#d-campinfo .sig.ok{color:var(--ok)}#d-campinfo .sig.bad{color:var(--bad)}#d-campinfo .sig.mut{color:var(--mute)}
 #donate.sigbad #d-ln,#donate.sigbad #d-toecash,#donate.sigbad~#decash #d-go,#donate.sigbad~#decash .row2{opacity:.35;pointer-events:none}  /* a broken or unpublished link: no way to pay */
 .rcpt .rc-st{margin:6px 0}#donate.done .rcpt details.more{display:block}.rcpt details input{display:block;width:100%;box-sizing:border-box;margin-top:8px;text-align:left}.rcpt details .mut{margin-top:6px}.rcpt .rc-st.ok{color:var(--ok)}.rcpt .rc-st.bad{color:var(--bad)}.rcpt .rc-conf .chk{margin-top:6px}
-#r-gap{flex:0 0 calc(var(--u)*2)}#r-info .panel{border-top:1px solid var(--line);padding:8px 0 4px}#r-info .panel b{display:block;font-weight:normal;color:var(--fg);letter-spacing:.08em;text-transform:uppercase;font-size:11px}#r-info .rstate{color:var(--fg);margin-top:8px}#r-info .rstate.ok{color:var(--ok)}#r-info .rstate.bad{color:var(--bad)}
+#r-gap{flex:0 0 calc(var(--u)*2)}#r-info .panel{border-top:1px solid var(--line);padding:8px 0 4px}#r-info .panel b{display:block;font-weight:normal;color:var(--fg);letter-spacing:.08em;text-transform:uppercase;font-size:12px}#r-info .rstate{color:var(--fg);margin-top:8px}#r-info .rstate.ok{color:var(--ok)}#r-info .rstate.bad{color:var(--bad)}
 /* the cat's record: four photos taken with the cat asleep, then what the clinic knows of it; the list of cats and one cat */
 .shots{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--u)}.shots.three{grid-template-columns:repeat(3,1fr)}.shots.two{grid-template-columns:repeat(2,1fr)}#cr-shots-box{margin-top:calc(var(--u)*1)}#cr-shots-st{margin-top:var(--u)}
-.shot{position:relative;aspect-ratio:1;min-width:0;border:1px dashed var(--line2);border-radius:0;background:transparent;color:var(--mute);font:400 10px/13px var(--mono);letter-spacing:0;text-transform:uppercase;cursor:pointer;padding:0 0 6px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
+.shot{position:relative;aspect-ratio:1;min-width:0;border:1px dashed var(--line2);border-radius:0;background:transparent;color:var(--mute);font:400 12px/14px var(--mono);letter-spacing:0;text-transform:uppercase;cursor:pointer;padding:0 0 6px;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
 .shot::before{content:"+";position:absolute;left:0;right:0;top:calc(50% - 19px);text-align:center;font-size:22px;line-height:24px;color:var(--fg)}
 .shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.shot span{position:relative;text-align:center;line-height:13px;padding:0 2px}  /* "left side" goes on two lines where the tiles are narrow */
 #cn-out:not(:empty){margin-bottom:calc(var(--u)*2)}#cn-sum{margin:0 0 calc(var(--u)*2)}#cn-more{margin-top:calc(var(--u)*2)}
 /* "Already in the records?": the three records that look most like the new cat, as tiles with the photo that looks most like it */
-#cn-like{margin:calc(var(--u)*2) 0}.alike{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u)}.alike button{display:block;min-width:0;padding:0;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}.alike img,.alike .none{display:block;width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--line2);box-sizing:border-box}.alike .none{border-style:dashed}.alike .nm{font-size:12px;line-height:16px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alike .sub2{font-size:11px;line-height:15px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cn-like{margin:calc(var(--u)*2) 0}.alike{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u)}.alike button{display:block;min-width:0;padding:0;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}.alike img,.alike .none{display:block;width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--line2);box-sizing:border-box}.alike .none{border-style:dashed}.alike .nm{font-size:12px;line-height:16px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alike .sub2{font-size:12px;line-height:15px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .shot.has{border:1px solid var(--fg)}.shot.has::before{content:none}.shot.has span{background:var(--bg);color:var(--fg);padding:1px 4px}.shot.busy::before{content:"…"}
 .pick{margin:0}.pick button.sm{margin:0;height:44px}.pick button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 #ca-q{margin-bottom:calc(var(--u)*2)}input[type=search]{-webkit-appearance:none;appearance:none}input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .item .cat{display:flex;align-items:center;gap:12px;min-width:0}.item .cat>div{min-width:0}.item .cat .sub2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .th{width:48px;height:48px;flex:none;object-fit:cover;border:1px solid var(--line2);background:var(--bg);display:block}.th.none{border-style:dashed}
 .pics{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u);margin:calc(var(--u)*2) 0}.pics:empty{display:none}#sq-match-st{margin-top:0}#sq-match-st:empty{display:none}#sq-match-get{margin:8px 0 0}
-.pics button{position:relative;display:block;padding:0;border:1px solid var(--line2);border-radius:0;background:var(--bg);color:var(--fg);font:400 11px/14px var(--mono);cursor:pointer;aspect-ratio:1;overflow:hidden;min-width:0}.pics button.big{grid-column:1/-1;aspect-ratio:4/3;cursor:default}
-.pics img{display:block;width:100%;height:100%;object-fit:cover}.pics .lbl{position:absolute;left:6px;bottom:6px;font-size:11px;line-height:14px;letter-spacing:.06em;text-transform:uppercase;background:var(--bg);color:var(--fg);padding:1px 4px}
-.pics .none{border-style:dashed;cursor:default}.pics .none .wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute);text-align:center;padding:0 6px}
+.pics button{position:relative;display:block;padding:0;border:1px solid var(--line2);border-radius:0;background:var(--bg);color:var(--fg);font:400 12px/14px var(--mono);cursor:pointer;aspect-ratio:1;overflow:hidden;min-width:0}.pics button.big{grid-column:1/-1;aspect-ratio:4/3;cursor:default}
+.pics img{display:block;width:100%;height:100%;object-fit:cover}.pics .lbl{position:absolute;left:6px;bottom:6px;font-size:12px;line-height:14px;letter-spacing:.06em;text-transform:uppercase;background:var(--bg);color:var(--fg);padding:1px 4px}
+.pics .none{border-style:dashed;cursor:default}.pics .none .wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--mute);text-align:center;padding:0 6px}
 [hidden]{display:none!important}
 /* errors, warnings and odd states: the app's bad colour, whatever they sit in (index.js BAD_TEXT) */
 .bad,.tl.bad,.item .st.bad,.lnk a.bad{color:var(--bad)}button.sm.bad,.acts a.sm.bad{color:var(--bad);border-color:var(--bad)}
 </style></head><body>
-<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Partner</button></div><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
+<header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Partner</button></div><span id="hd-camp"></span><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
 <main>
 <div class="card" id="recovered" hidden></div>
 <nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button><button data-t="skind" data-role="streetcat">Kind</button><button data-t="spick" data-role="streetcat">Choose</button></nav>
@@ -289,20 +330,25 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 
 <section id="creq">
 <div id="cr-head" class="camp"></div>
+<div class="amt" id="cr-amt"></div>
+<div class="nowline" id="cr-now"></div>
+<div id="cr-life"></div>
 <dl id="cr-dl"></dl>
 <div id="cr-pics-box" hidden><label>Photos from Streetcat</label><div class="pics" id="cr-pics"></div><p class="mut" id="cr-pics-st"></p></div>
-<div id="cr-gives" class="mut code"></div><div id="cr-fund" class="code"></div>
+<details class="more tech" id="cr-tech"><summary>Details</summary><dl id="cr-dl2"></dl><div id="cr-gives" class="mut code"></div></details><div id="cr-fund" class="code"></div>
 <div class="out" id="cr-warn"></div>
+<div class="out" id="cr-out"></div>
 <div id="cr-act">
 <label class="chk"><input type="checkbox" id="cr-ok"><span id="cr-ok-t">I confirm this procedure was done on this cat, on this date.</span></label>
-<div id="cr-shots-box" hidden><label id="cr-shots-l">Photos of the delivery</label><div class="shots two" id="cr-shots"><button type="button" class="shot" data-slot="note"><span>delivery note</span></button><button type="button" class="shot" data-slot="goods"><span>the goods</span></button></div><input type="file" id="cr-shot-file" accept="image/*" capture="environment" hidden><p class="mut" id="cr-shots-st"></p></div>
+<div class="row1" id="cr-shots-open-w" hidden><button type="button" class="sm" id="cr-shots-open"></button></div>
+<div id="cr-shots-box" hidden><label id="cr-shots-l">Photos of the delivery</label><div class="shots two" id="cr-shots"><button type="button" class="shot" data-slot="note"><span>delivery note</span></button><button type="button" class="shot" data-slot="goods"><span>the goods</span></button></div><input type="file" id="cr-shot-file" accept="image/*" capture="environment" hidden><p class="mut" id="cr-shots-st"></p><label for="cr-recv">Received by (optional, only Streetcat sees it)</label><input id="cr-recv" maxlength="60" placeholder="who took it in" autocomplete="off"></div>
 <div class="row2" id="cr-evrow"><button class="sm" id="cr-inv">add the invoice</button><button class="sm" id="cr-photo">add a photo</button></div><input type="file" id="cr-file" hidden>
 <div class="mut code" id="cr-ev"></div>
 <button class="go" id="cr-go" disabled>Confirm procedure</button>
 <details class="more" id="cr-prob"><summary>Report a problem</summary><div class="row3" id="cr-why"><button class="sm" data-r="postponed">postponed</button><button class="sm" data-r="wrong-data">wrong data</button><button class="sm" data-r="other">other</button></div><input id="cr-note" placeholder="what happened (optional)" maxlength="300"><button class="go" id="cr-report" disabled>Send the report</button></details>
-</div>
-<div class="out" id="cr-out"></div>
+<div id="cr-slot"></div></div>
 <p class="center lnk" id="cr-cat" hidden><a href="#" id="cr-cat-a">the cat's record: photos, chip</a></p>
+<p class="more-w" id="cr-more-w"><button type="button" class="morebtn" id="cr-more" aria-label="More">···</button></p>
 </section>
 
 <section id="csettings">
@@ -390,6 +436,9 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 
 <section id="sreq">
 <div id="sq-head" class="camp"></div>
+<div class="amt" id="sq-amt"></div>
+<div class="nowline" id="sq-now"></div>
+<div id="sq-life"></div>
 <p class="mut code" id="sq-from"></p>
 <dl id="sq-dl"></dl>
 <label id="sq-pics-l" hidden>When caught · your photos</label>
@@ -397,13 +446,14 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="sq-ans" hidden><label id="sq-ans-l"></label><div class="pics" id="sq-ans-pics"></div><p class="mut" id="sq-ans-st"></p></div>
 <div id="sq-rec" hidden><label id="sq-rec-l"></label><div class="pics" id="sq-rec-pics"></div><p class="mut" id="sq-match-st"></p><p id="sq-match-get" hidden><button type="button" class="sm" id="sq-match-go">compare them</button></p><p class="center lnk"><a href="#" id="sq-rec-a"></a></p></div>
 <div class="term" id="sq-term"><div class="ticker" id="sq-steps"></div></div>
-<div id="sq-state" class="mut code"></div>
+<details class="more tech" id="sq-tech"><summary>Details</summary><div id="sq-state" class="mut code"></div></details>
 <p class="center lnk" id="sq-rep-w"><a href="#" id="sq-rep">Repeat request</a></p>
 <p class="center lnk" id="sq-qrl" hidden style="margin-bottom:var(--u)"><a href="#" id="sq-qra">Clinic offline? Show it as QR</a></p>
 <div id="sq-send"><p class="mut" id="sq-send-st"></p><div class="row2"><button class="sm" id="sq-link">copy link for the clinic</button><button class="sm" id="sq-file">save as file</button></div>
 <div class="row2" style="margin-top:var(--u)"><button class="sm" id="sq-qr">show as QR</button><button class="sm" id="sq-resend">send again</button></div></div>
 <div class="out" id="sq-out"></div>
 <button class="go big" id="sq-go" disabled>Release</button>
+<p class="more-w" id="sq-more-w"><button type="button" class="morebtn" id="sq-more" aria-label="More">···</button></p>
 </section>
 
 <section id="shand">
@@ -421,7 +471,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 <div id="dh-head" class="camp"></div>
 <div class="term scan" id="dh-term"></div>
 <p class="center" id="dh-part"></p>
-<p class="center">The volunteer scans it. It holds the locked donation, never your refund key: nobody can spend it until the clinic and Streetcat sign.</p>
+<p class="center">The volunteer scans it. Your refund key stays here.</p>
 <div class="row2"><button class="sm" id="dh-file">save as file</button><button class="sm" id="dh-scan">scan their acknowledgment</button></div><input type="file" id="dh-ackfile" hidden>
 <div class="out" id="dh-out"></div>
 </section>

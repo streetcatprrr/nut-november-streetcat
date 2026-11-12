@@ -48,26 +48,35 @@ await tab(sc, 'home'); await sc.locator('#h-kinds button.tile', { hasText: 'Food
 await sc.click('#sc-check'); await waitText(sc, '#sc-net', /checked/, 30000);
 check('the donation reaches Rescue, in the pot', /LOCKED/.test(locked) && (await sc.$$eval('#sc-dons .item', xs => xs.length)) === 1);
 await sc.click('#sc-new'); await sc.waitForSelector('#snew.on'); await sc.fill('#sn-proc', '20 kg dry feed'); await sc.fill('#sn-cost', '18000'); await waitText(sc, '#sn-cover', /✓|✗/, 30000);
-await sc.click('#sn-go'); const sent = await waitText(sc, '#sq-steps', /sent · \d of 2/, 30000);
-check('the request goes to the shop: 20 kg dry feed for colony Marina, 18 000 sat', /sent · 2 of 2/.test(sent) && /^Forcolony MarinaWhat20 kg dry feed/.test(await txt(sc, '#sq-dl')), (await txt(sc, '#sq-dl')).slice(0, 60));
+await sc.click('#sn-go'); const sent = await waitText(sc, '#sq-steps', /sent · \d\/2 relays/, 30000);
+check('the request goes to the shop: 20 kg dry feed for colony Marina, 18 000 sat', /sent · 2\/2 relays/.test(sent) && /^Forcolony MarinaWhat20 kg dry feed/.test(await txt(sc, '#sq-dl')) && /^18.000 sat$/.test(await txt(sc, '#sq-amt')), `${sent.slice(0, 60)} | ${await txt(sc, '#sq-amt')}`);
 
 // THE SHOP: the request, in its words
 await tab(shop, 'work'); await shop.click('#w-check'); await showW(shop, 'w-pend'); await waitText(shop, '#w-list', /20 kg dry feed/, 30000); await shop.click('#w-list .item'); await shop.waitForSelector('#creq.on');
 const dl = await txt(shop, '#cr-dl');
-check('the shop sees what to deliver and for which colony, not a cat and a procedure', /^Forcolony MarinaWhat20 kg dry feedDate\d{4}-\d{2}-\d{2}Releases18 000 sat/.test(dl), dl.slice(0, 70));
-check('…a box to say it was delivered, and the photos it takes: the delivery note and the goods; no invoice\'s fingerprint', (await txt(shop, '#cr-ok-t')) === 'I confirm this was delivered as it says, on this date.' && await shop.isVisible('#cr-shots') && (await shop.$$eval('#cr-shots .shot span', ss => ss.map(s => s.textContent).join())) === 'delivery note,the goods' && await shop.isHidden('#cr-evrow') && await shop.isHidden('#cr-ev') && (await txt(shop, '#cr-shots-l')) === 'Photos of the delivery');
+check('the shop sees what to deliver and for which colony, not a cat and a procedure, and what it gets', /^Forcolony MarinaWhat20 kg dry feedDate\d{4}-\d{2}-\d{2}/.test(dl) && /^18.000 sat$/.test(await txt(shop, '#cr-amt')), `${dl.slice(0, 70)} | ${await txt(shop, '#cr-amt')}`);
+check('…a box to say it was delivered, and one button for the photos it takes (none yet); no invoice\'s fingerprint', (await txt(shop, '#cr-ok-t')) === 'I confirm this was delivered as it says, on this date.' && await shop.isVisible('#cr-shots-open') && (await txt(shop, '#cr-shots-open')) === 'Photos of the delivery · 0 of 2' && await shop.isHidden('#cr-shots') && await shop.isHidden('#cr-evrow') && await shop.isHidden('#cr-ev'), await txt(shop, '#cr-shots-open'));
 check('…and "Confirm delivery"', (await txt(shop, '#cr-go')) === 'Confirm delivery');
 await fits(shop, 'the shop\'s request'); await shot(shop, 'dv-1-shop-request');
 await shop.check('#cr-ok'); await shop.click('#cr-go'); const noPhoto = await waitText(shop, '#cr-out', /✗|Failed/, 10000);
 check('without a photo it does not confirm: it says so, in red', /^Failed: add a photo first: delivery note, or the goods$/.test(noPhoto) && await red(shop, '#cr-out') && !(await shop.evaluate(() => window.__vetlock.creqs()[0].answer)), noPhoto);
+await shop.click('#cr-shots-open'); await shop.waitForSelector('#cr-shots-box.sub');
+check('…the photos have a screen of their own: the delivery note and the goods, what each must show, and what was ordered', await shop.isVisible('#cr-shots') && (await shop.$$eval('#cr-shots .shot span', ss => ss.map(s => s.textContent).join())) === 'delivery note,the goods' && (await txt(shop, '#cr-shots-l')) === 'Photos of the delivery' && /20 kg dry feed/.test(await txt(shop, '#cr-shots-box .sub-ord')) && /date · shop · quantity/.test(await txt(shop, '#cr-shots-box .hints')), await txt(shop, '#cr-shots-box .sub-ord'));
 await snap(shop, 'note'); await snap(shop, 'goods');
 check('…the two photos show where they were taken, made small here', (await shop.$$eval('#cr-shots .shot img', is => is.length)) === 2 && /^2 of 2 · \d+ kB/.test(await txt(shop, '#cr-shots-st')), await txt(shop, '#cr-shots-st'));
 await fits(shop, 'the shop\'s request with its photos'); await shot(shop, 'dv-2-shop-photos');
-await shop.click('#cr-go'); const conf = await waitText(shop, '#cr-out', /DELIVERY CONFIRMED[\s\S]*✓ sent to Streetcat/, 30000);
+// who took it in: optional, typed by the shop; it stays through a redraw of the screen, as the photos do
+await shop.fill('#cr-recv', 'Ana, at the colony'); await shop.evaluate(() => window.__vetlock.openTab('creq')); await shop.waitForTimeout(400);
+check('who received it can be written (optional; only Streetcat sees it), and stays through a redraw, with the photos', /only Streetcat sees it/.test(await txt(shop, 'label[for="cr-recv"]')) && await shop.isVisible('#cr-recv') && (await shop.inputValue('#cr-recv')) === 'Ana, at the colony' && (await shop.$$eval('#cr-shots .shot img', is => is.length)) === 2 && (await shop.getAttribute('#cr-recv', 'maxlength')) === '60', await shop.inputValue('#cr-recv'));
+await shop.click('#cr-shots-done'); await shop.waitForFunction(() => !document.querySelector('#cr-shots-box').classList.contains('sub'));
+check('…and back on the request, the button says how many photos it has', /^✓ 2 photos/.test(await txt(shop, '#cr-shots-open')) && (await shop.$$eval('#cr-shots-open img.mini', is => is.length)) === 2, await txt(shop, '#cr-shots-open'));
+await shop.check('#cr-ok');
+await shop.click('#cr-go'); const conf = await waitText(shop, '#cr-out', /✓ (confirmed|delivered)[\s\S]*✓ sent to Streetcat/, 30000);
 const a = await shop.evaluate(() => window.__vetlock.creqs()[0].answer);
-check('confirmed: its two photos are named in the signed confirmation, by fingerprint', /^DELIVERY CONFIRMED/.test(conf) && a && a.kind === 'certified' && (a.statement.photos || []).map(p => p.slot).join() === 'note,goods' && a.statement.photos.every(p => /^[0-9a-f]{64}$/.test(p.sha256)), conf.split('\n').slice(0, 2).join(' / '));
+check('confirmed: its two photos are named in the signed confirmation, by fingerprint', /^✓ delivery confirmed/.test(conf) && a && a.kind === 'certified' && (a.statement.photos || []).map(p => p.slot).join() === 'note,goods' && a.statement.photos.every(p => /^[0-9a-f]{64}$/.test(p.sha256)), conf.split('\n').slice(0, 2).join(' / '));
 const photosSent = await waitText(shop, '#cr-out', /with 2 photos, named in it · ✓ sent/, 60000);
 check('…and they go to Streetcat by relay', /✓ sent/.test(photosSent), photosSent.split('\n')[1]);
+check('…and who received it goes with it, as written, while the signed declaration holds only its fingerprint', a.receivedBy && a.receivedBy.text === 'Ana, at the colony' && /^[0-9a-f]{64}$/.test(a.statement.received.sha256) && !JSON.stringify(a.statement).includes('Ana'), JSON.stringify(a.receivedBy && a.receivedBy.text));
 await shot(shop, 'dv-3-shop-confirmed');
 
 // RESCUE: the confirmation checks out, the photos come, and the request is released
@@ -77,6 +86,8 @@ for (let i = 0; i < 6 && (await sc.$$eval('#sq-ans-pics img', is => is.length)) 
 const steps = await txt(sc, '#sq-steps'), ansL = await txt(sc, '#sq-ans-l'), nimg = await sc.$$eval('#sq-ans-pics img', is => is.length);
 check('Rescue checks the shop\'s confirmation: signed with its key, naming exactly this request', /✓ certified/.test(steps) && /answered|certified/.test(steps), steps.split('\n').slice(3, 5).join(' / '));
 check('…and shows its photos under the request: the delivery note and the goods, from Pienso Sur', ansL === 'Photos of the delivery · from Pienso Sur' && nimg === 2 && /named in its signed confirmation/.test(await txt(sc, '#sq-ans-st')), `${ansL} · ${nimg} photos`);
+const ledger = await sc.evaluate(() => { const r = window.__vetlock.sreqs().find(x => x.answer); return JSON.stringify(window.__vetlock.ledgerFor(r.q.campaign)); });
+check('…and who received it, read from the line the shop signed the fingerprint of; the ledger Rescue publishes holds the fingerprint, not the name', /Received byAna, at the colony/.test(await txt(sc, '#sq-dl')) && !ledger.includes('Ana') && ledger.includes(a.statement.received.sha256), (await txt(sc, '#sq-dl')).slice(-60));
 await fits(sc, 'the request with the shop\'s photos'); await shot(sc, 'dv-4-rescue');
 const here = await sc.evaluate(async hs => { const out = []; for (const h of hs) out.push(await window.__vetlock.photoHere(h)); return out; }, a.statement.photos.map(p => p.sha256));
 check('…each photo here is the one named (its SHA-256 checked when it came)', here.every(Boolean), here.join(' · '));

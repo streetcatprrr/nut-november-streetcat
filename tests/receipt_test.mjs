@@ -28,7 +28,7 @@ const sc = newSk(), cl = newSk(), camp = await C.signCampaign({ name: 'MOCHI', o
 const donor = await page(), lock = async n => { await tab(donor, 'donate'); await donor.evaluate(() => { const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-camp', JSON.stringify(camp));
   await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); const s = await waitText(donor, '#d-out', /LOCKED|Failed/); return s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop(); };
 const tokA = await lock(21), skA = await donor.evaluate(t => JSON.parse(localStorage.getItem('vetlock.donor.keys')).find(k => k.lockedToken === t).sk, tokA);
-check('the locked screen offers the private receipt, and shows no private key', /Save your private receipt/.test(await txt(donor, '#d-out')) && !(await donor.evaluate(sk => document.body.innerText.includes(sk), skA)) && /not saved yet/.test(await txt(donor, '#d-out .rc-st')));
+check('the locked screen offers the private receipt, says to keep it private, and shows no private key', /Save your private receipt: with it you take these sats back after .*\. Keep it to yourself\./.test(await txt(donor, '#d-out')) && !(await donor.evaluate(sk => document.body.innerText.includes(sk), skA)) && /not saved yet/.test(await txt(donor, '#d-out .rc-st')));
 await shot(donor, 'p1-donor-receipt-to-save');
 // 1) download requested
 const [dl] = await Promise.all([donor.waitForEvent('download'), donor.click('#d-out .rcpt button:has-text("save private receipt")')]); const file = `${TMP}/receipt-A.png`; await dl.saveAs(file); const png = fs.readFileSync(file);
@@ -74,7 +74,7 @@ let info = await openFile(fresh, png, 'receipt.png'); await fresh.waitForTimeout
 check('the receipt opens where the key never was: what it says…', /Saved in the receipt/.test(info) && /MOCHI · 21 sat · DON-[0-9A-F]{8}/.test(info) && /receipt version 1 · check ✓/.test(info) && /refund key 0[23][0-9a-f]{8}… · the one in the lock ✓/.test(info));
 check('…the refund date in UTC and in local time', /refund opens \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC \((\d{1,2} [A-Z][a-z]{2}, )?\d{2}:\d{2} CET in Madrid\)/.test(info), (info.match(/refund opens [^\n]*/) || [''])[0]);
 check('…and, apart, what the mint says', /Checked with the mint · /.test(info) && /mint signature ✓ on every proof \(DLEQ\)/.test(info) && /21 sat still locked/.test(info) && /Refund not available yet/.test(info) && /It opens /.test(info));
-check('…with what can come back at most, before any invoice', /you receive at most about \d+ sat by Lightning, or \d+ sat as ecash/.test(info)); await shot(fresh, 'p3-recovery-not-yet');
+check('…with what can come back at most, before any invoice', /≈ \d+ sat by Lightning · \d+ sat as ecash/.test(info)); await shot(fresh, 'p3-recovery-not-yet');
 info = await openFile(fresh, pngP, 'receipt.png'); check('a password-protected receipt asks for its password', !(await fresh.isHidden('#r-pw')));
 await fresh.fill('#r-pass', 'not the password'); await fresh.click('#r-unlock'); check('…a wrong one does not open it', /wrong password, or the receipt is damaged/.test(await waitText(fresh, '#r-out', /wrong|unlocked/)));
 await fresh.evaluate(() => { document.getElementById('r-out').textContent = ''; }); await fresh.fill('#r-pass', PW); await fresh.click('#r-unlock'); check('…the right one does', /^unlocked/.test(await waitText(fresh, '#r-out', /unlocked|wrong/)) && await fresh.isHidden('#r-pw'));

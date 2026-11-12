@@ -60,7 +60,7 @@ await tab(rescue, 'home'); await front(rescue); for (let i = 0; i < 60; i++) { a
 // a request of `sat`, confirmed by the partner; Rescue releases it when told
 const ask = async (cat, sat) => { await tab(rescue, 'home'); await rescue.waitForTimeout(300); await rescue.locator('#h-kinds button.tile', { hasText: 'Sterilisation' }).click(); await rescue.waitForSelector('#skind.on'); await rescue.click('#kd-req'); await rescue.waitForSelector('#snew.on');
   await rescue.fill('#sn-cat', cat); await rescue.fill('#sn-proc', 'Spay'); await rescue.fill('#sn-cost', String(sat)); await waitText(rescue, '#sn-cover', /✓/, 30000); const chips = await rescue.isVisible('#sn-pars'); await rescue.click('#sn-go'); await rescue.waitForSelector('#sreq.on', { timeout: 30000 });
-  const id = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2 of 2/, 30000);
+  const id = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2\/2 relays/, 30000);
   await tab(partner, 'work'); await partner.waitForTimeout(1500); await front(partner); await partner.waitForFunction(id => window.__vetlock.creqs().some(r => r.id === id), id, { timeout: 20000 }).catch(() => {});
   await openIn(partner, id, '#w-pend'); await partner.waitForFunction(() => !document.getElementById('cr-ok').disabled, null, { timeout: 30000 }).catch(() => {}); await partner.check('#cr-ok'); await partner.click('#cr-go');
   return { id, chips, conf: await waitText(partner, '#cr-out', /received by Streetcat|✗|Failed|Not possible/, 30000) }; };
@@ -69,19 +69,19 @@ const release = async id => { await rescue.waitForTimeout(1500); await tab(rescu
 
 // 600 SAT: confirmed, released, and sent on to the address by the partner's app itself
 const r1 = await ask('Luna', 600);
-check('with one partner the request form shows no choice of partner; confirmed and not yet released, the partner\'s screen says when it is paid', !r1.chips && /CONFIRMED/.test(r1.conf) && /· paid by the mint once Streetcat releases/.test(r1.conf) && (await payOf(partner, r1.id)) === null, r1.conf.split('\n').slice(0, 2).join(' / '));
+check('with one partner the request form shows no choice of partner; confirmed and not yet released, the partner\'s screen says when it is paid', !r1.chips && /✓ (delivery )?confirmed/.test(r1.conf) && /· the mint pays on release/.test(r1.conf) && (await payOf(partner, r1.id)) === null, r1.conf.split('\n').slice(0, 2).join(' / '));
 const rel1 = await release(r1.id), pay1 = await waitPay(partner, r1.id, 'paid'), got1 = await arrived();
-check('Rescue releases: "paid 600 sat to the clinic by the mint"', /✓ paid 600 sat to the clinic by the mint/.test(rel1), rel1.split('\n').find(l => /paid|✗/.test(l)) || rel1.slice(-80));
+check('Rescue releases: "paid 600 sat to the clinic by the mint"', /✓ paid 600 sat to the clinic/.test(rel1), rel1.split('\n').find(l => /paid|✗/.test(l)) || rel1.slice(-80));
 check('the partner\'s app, in front again, finds its payment at the mint and sends it to its address: 597 sat arrive (the invoice is 3 short), 3 stay', !!pay1 && pay1.state === 'paid' && pay1.amount === 600 && pay1.sent === 597 && pay1.change === 3 && pay1.to === ADDR && got1 === 597, JSON.stringify(pay1) + ` · ${got1} sat arrived`);
 await openIn(partner, r1.id, '#w-dn'); const out1 = await txt(partner, '#cr-out'); await showSet(partner, '#w-dn'); const st1 = await partner.$$eval('#w-list .item .st', xs => xs.map(x => x.textContent));
-check('its request says so, and its list says "paid"', out1.includes(`✓ 597 sat sent to ${ADDR} · 3 sat kept here for the next payment`) && st1.join() === 'paid', out1.split('\n').find(l => /sent to|✗/.test(l)) + ' · ' + st1.join());
+check('its request says so, and its list says "paid"', out1.includes('✓ paid 597 sat by the mint') && out1.includes(`→ ${ADDR}`) && out1.includes('· 3 sat kept here for the next payment') && st1.join() === 'paid', out1.split('\n').find(l => /sent to|✗/.test(l)) + ' · ' + st1.join());
 await tab(partner, 'csettings'); const kept1 = await txt(partner, '#cs-kept'), tok1 = await partner.evaluate(() => window.__vetlock.cChange().map(x => x.token));
 check('its settings show the 3 sat kept as ecash, to be copied or to go with the next payment', /^3 sat kept here as ecash: it goes with the next payment/.test(kept1) && tok1.length === 1, kept1);
 
 // WITH NO ADDRESS the next payment waits at the mint, said in red; the address set again, it goes by itself
 const cleared = await setAddr(partner, ''), r2 = await ask('Nube', 300), rel2 = await release(r2.id), pay2 = await waitPay(partner, r2.id, 'atmint');
 await openIn(partner, r2.id, '#w-dn'); const out2 = await txt(partner, '#cr-out'), got2 = await arrived();
-check('with no address set, a payment waits at the mint: "✗ 300 sat paid by the mint: set a Lightning address in settings to receive them"', cleared === '' && /✓ paid 300 sat/.test(rel2) && !!pay2 && pay2.state === 'atmint' && pay2.amount === 300 && out2.includes('✗ 300 sat paid by the mint: set a Lightning address in settings to receive them') && got2 === 597, out2.split('\n').find(l => /paid by the mint|sent to/.test(l)) || out2.slice(0, 80));
+check('with no address set, a payment waits at the mint: "✗ 300 sat paid by the mint: set a Lightning address in settings to receive them"', cleared === '' && /✓ paid 300 sat/.test(rel2) && !!pay2 && pay2.state === 'atmint' && pay2.amount === 300 && out2.includes('✗ 300 sat paid by the mint · set a Lightning address in settings') && got2 === 597, out2.split('\n').find(l => /paid by the mint|sent to/.test(l)) || out2.slice(0, 80));
 const again = await setAddr(partner, ADDR), pay3 = await waitPay(partner, r2.id, 'paid'), got3 = await arrived(), tok3 = await partner.evaluate(() => window.__vetlock.cChange().map(x => x.token));
 check('the address set again, it goes by itself, the 3 sat kept before with it: 300 more arrive, and 3 stay anew', again === '' && !!pay3 && pay3.state === 'paid' && pay3.sent === 300 && pay3.change === 3 && got3 === 897 && tok3.length === 1 && tok3[0] !== tok1[0], JSON.stringify(pay3) + ` · ${got3} sat arrived in all`);
 const before = LN.quotes.length; await partner.evaluate(() => window.__vetlock.cCollectAll()); await front(partner); await partner.waitForTimeout(2500); const got4 = await arrived(), recs = await partner.evaluate(() => window.__vetlock.cPayouts().map(m => m.state + ' ' + m.amount));

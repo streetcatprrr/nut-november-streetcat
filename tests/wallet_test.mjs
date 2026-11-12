@@ -32,7 +32,7 @@ const sc = await page(); await tab(sc, 'release'); await sc.click('#s-new'); awa
 await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill('#k-c', clinicPk); await sc.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await sc.click('#k-go'); await waitText(sc, '#k-out', /is ready|cannot/); await sc.waitForTimeout(900);
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0], camp = JSON.parse(Buffer.from(link.split('#c=')[1], 'base64url').toString());
 const donor = await page(); await donor.goto(link); await donor.reload(); await donor.waitForTimeout(1500);
-const openRequest = async amount => { await donor.evaluate(() => { const v = window.__vetlock; if (!document.getElementById('donate').classList.contains('on')) v.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); if (amount != null) await donor.fill('#d-amt', String(amount)); await donor.evaluate(() => { document.getElementById('dw-state').textContent = ''; window.__vetlock.openTab('decash'); });  /* "Pay with ecash": the request is made as the screen opens */
+const openRequest = async amount => { await donor.evaluate(() => { const v = window.__vetlock; if (!document.getElementById('donate').classList.contains('on')) v.openTab('donate'); const a = document.getElementById('d-again'); if (a) a.click(); }); if (amount != null) await donor.fill('#d-amt', String(amount)); await donor.evaluate(() => { document.getElementById('dw-state').textContent = ''; window.__vetlock.openTab('decash'); });  /* "Pay with ecash": the request is made as the screen opens */
   await waitText(donor, '#dw-state', /waiting for the payment|Failed|✗/); await donor.click('#dw-copy'); await donor.waitForTimeout(200); const creq = await donor.evaluate(() => navigator.clipboard.readText()); donor._creq = creq; return cashu.PaymentRequest.fromEncodedRequest(creq); };
 
 // the request: plain, the campaign's mint, a Nostr transport to a key of this donation
@@ -80,7 +80,7 @@ if (other) { await openRequest(2); await donor.fill('#d-token', other); await do
 
 // the amount chosen is said on both ways to pay, and the request carries it as chosen, even when "Pay with ecash" is tapped while the
 // amount still flips
-{ await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); await donor.fill('#d-amt', ''); await donor.dispatchEvent('#d-amt', 'input');
+{ await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-amt', ''); await donor.dispatchEvent('#d-amt', 'input');
   const none = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);
   await donor.click('button[data-amt="210"]'); const set = await donor.evaluate(() => [document.getElementById('d-ln').textContent.trim(), document.getElementById('d-toecash').textContent.trim()]);
   check('the amount chosen is said on both ways to pay; none chosen, neither says one', set.join(' | ') === 'Pay 210 sat with Lightning | Pay 210 sat with ecash' && none.join(' | ') === 'Pay with Lightning | Pay with ecash', `${none.join(' | ')} → ${set.join(' | ')}`);
@@ -92,7 +92,7 @@ if (other) { await openRequest(2); await donor.fill('#d-token', other); await do
 
 // "copy invoice" still draws its frame: one function draws both since 9 Nov (the invoice is kept unpaid on screen here)
 { await donor.route('**/v1/mint/quote/bolt11/*', async r => { if (r.request().method() !== 'GET') return r.continue(); const res = await r.fetch(); const j = await res.json(); j.state = 'UNPAID'; return r.fulfill({ response: res, json: j }); });
-  await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a && a.offsetParent) a.click(); }); await donor.fill('#d-amt', '21'); await donor.click('#d-ln');
+  await donor.evaluate(() => { window.__vetlock.openTab('donate'); const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-amt', '21'); await donor.click('#d-ln');
   await donor.waitForSelector('#d-out .qr svg', { timeout: 20000 }); await donor.click('#d-out button:has-text("copy invoice")'); await donor.waitForTimeout(1400); const f = await frameOf('#d-out');
   check('…and "copy invoice" draws it around the Lightning invoice, as before', !!f && f.on && f.bg === 'rgb(247, 147, 26)' && f.live, JSON.stringify(f)); }
 await b.close(); await Promise.all(relays.map(r => r.close()));

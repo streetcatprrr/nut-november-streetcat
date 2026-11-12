@@ -45,15 +45,15 @@ check('the donation reaches Rescue\'s app by relay (30 sat, less a mint\'s fee i
 await rescue.click('#kd-req'); await rescue.waitForSelector('#snew.on'); await rescue.fill('#sn-cat', 'Crypto');
 const [fc] = await Promise.all([rescue.waitForEvent('filechooser'), rescue.click('#sn-shots .shot[data-slot="face"]')]); await fc.setFiles({ name: 'IMG_face.JPG', mimeType: 'image/jpeg', buffer: await jpeg(rescue) }); await rescue.waitForSelector('#sn-shots .shot[data-slot="face"].has', { timeout: 30000 });
 await rescue.fill('#sn-proc', 'Spay'); await rescue.fill('#sn-cost', '21'); await waitText(rescue, '#sn-cover', /✓|✗/, 30000); await rescue.click('#sn-go'); await rescue.waitForSelector('#sreq.on', { timeout: 30000 });
-const qid = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2 of 2/, 30000);
+const qid = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2\/2 relays/, 30000);
 // THE PARTNER'S APP, in front again: the request is there at once, no button touched; listed with its face and its code
 await tab(partner, 'work'); await partner.waitForTimeout(2000); await front(partner);
 const came = await partner.waitForFunction(id => window.__vetlock.creqs().some(r => r.id === id), qid, { timeout: 15000 }).then(() => true).catch(() => false);
 check('the partner\'s app, back in front, has the request at once (no "Check for requests")', came);
 await partner.waitForTimeout(600); await showW(partner, 'w-pend'); const item = await partner.$$eval('#w-list .item', its => its.map(it => ({ nm: (it.querySelector('.nm') || {}).textContent, sub: (it.querySelector('.sub2') || {}).textContent, img: !!it.querySelector('img') })));
 check('…listed by its code first, the one Rescue shows; no photo in the list', item.length === 1 && item[0].nm === 'Crypto · Spay' && item[0].sub === `${qid} · 21 sat · TNR SOL` && !item[0].img, JSON.stringify(item));
-await partner.click('#w-list .item'); await partner.waitForSelector('#creq.on'); await partner.check('#cr-ok'); await partner.click('#cr-go'); const conf = await waitText(partner, '#cr-out', /CONFIRMED|✗/, 30000);
-check('…confirmed there', /CONFIRMED/.test(conf), conf.split('\n')[0]);
+await partner.click('#w-list .item'); await partner.waitForSelector('#creq.on'); await partner.check('#cr-ok'); await partner.click('#cr-go'); const conf = await waitText(partner, '#cr-out', /✓ (delivery )?confirmed|✗/, 30000);
+check('…confirmed there', /✓ (delivery )?confirmed/.test(conf), conf.split('\n')[0]);
 // RESCUE'S APP, in front again: Home lists what is to release, first; a tap opens it, and it is released
 await rescue.waitForTimeout(1500); await tab(rescue, 'home'); await front(rescue);
 const ready = await rescue.waitForSelector('#h-kinds button.req.torel', { timeout: 20000 }).then(() => true).catch(() => false);

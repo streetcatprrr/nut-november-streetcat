@@ -34,14 +34,14 @@ check('the stranger\'s request is one the protocol itself finds valid (core.js):
 
 // ---------- the Partner's app ----------
 await open(clinic, await C.linkFor(BASE + 'index.html?role=clinic', qEvil));
-let warn = await waitText(clinic, '#cr-warn', /published key|✗/), from = (await clinic.$$eval('#cr-dl dd', ds => ds.map(d => ({ t: d.textContent, bad: d.classList.contains('bad') })))).find(d => /Streetcat/.test(d.t)) || {};
+let warn = await waitText(clinic, '#cr-warn', /published key|✗/), from = (await clinic.$$eval('#cr-dl dd, #cr-dl2 dd', ds => ds.map(d => ({ t: d.textContent, bad: d.classList.contains('bad') })))).find(d => /Streetcat/.test(d.t)) || {};
 check('a request from another key, opened by link: it says in red that it is not from Streetcat\'s published key', /not from Streetcat's published key: do not confirm it/.test(warn) && await clinic.$eval('#cr-warn', e => e.classList.contains('bad')), warn.split('\n')[0]);
 check('…"From" no longer calls that key Streetcat', /^✗ not Streetcat · 0[23][0-9a-f]{8}…$/.test(from.t || '') && from.bad === true, from.t);
 check('…its box cannot be ticked, and it cannot be confirmed', await clinic.$eval('#cr-ok', e => e.disabled) && await clinic.$eval('#cr-go', e => e.disabled));
 check('…and no "received" goes back to whoever sent it', (await clinic.evaluate(() => window.__vetlock.outbox().length)) === 0);
 check('…in the list it is "not valid", in red', await (async () => { await clinic.evaluate(() => window.__vetlock.openTab('work')); await clinic.click('#w-pend'); return /✗ not valid/.test(await waitText(clinic, '#w-list', /MOCHI[\s\S]*→/)); })());  /* the list types itself in at a tap: read once its line is whole (its arrow is the last thing typed), not at the first word (10 Nov: read at "MOCHI ·", it failed one run in two) */
 await open(clinic, await C.linkFor(BASE + 'index.html?role=clinic', qGood));
-from = (await clinic.$$eval('#cr-dl dd', ds => ds.map(d => d.textContent))).find(t => /Streetcat/.test(t)) || '';
+from = (await clinic.$$eval('#cr-dl dd, #cr-dl2 dd', ds => ds.map(d => d.textContent))).find(t => /Streetcat/.test(t)) || '';
 const okNow = await (async () => { for (let i = 0; i < 100; i++) { if (!(await clinic.$eval('#cr-ok', e => e.disabled))) return true; await clinic.waitForTimeout(200); } return false; })();  /* once its amounts are checked with the mint */
 check('the same request from Streetcat\'s key: "From Streetcat …", and it can be confirmed', /^Streetcat 0[23][0-9a-f]{8}…$/.test(from) && okNow, from + ' · ' + (await txt(clinic, '#cr-warn')).split('\n')[0]);
 

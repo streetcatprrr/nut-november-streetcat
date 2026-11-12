@@ -40,7 +40,7 @@ const damaged = JSON.parse(raw); damaged.data = damaged.data.slice(0, -8) + 'AAA
 check('a damaged file is refused and nothing changes', /nothing was changed/.test(dmg) && (await txt(B, '#cs-pk')) === pk2);
 
 // the cat recognition, when a file cannot come: said in red, the button stays; the next tap goes on from what was kept
-const items = p => p.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + x.querySelector('span').firstChild.textContent));
+const items = p => p.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + [...x.querySelector('span').childNodes].filter(n => n.nodeName !== 'SMALL').map(n => n.textContent).join('')));
 const getAi = async p => { await p.evaluate(() => { const b = document.getElementById('co-ai'); window.__aiSeen = []; new MutationObserver(rs => { for (const r of rs) for (const n of r.addedNodes) window.__aiSeen.push(n.textContent); }).observe(b, { childList: true }); });
   await p.click('#co-ai'); await p.waitForFunction(() => !document.getElementById('co-ai').disabled, null, { timeout: 120000 }); await p.waitForTimeout(800);  /* the list is worked out again */
   return (await p.evaluate(() => window.__aiSeen)).map(s => +((s.match(/^Getting it: (\d+) of 121 MB$/) || [])[1])).filter(n => !isNaN(n)); };  /* every step the button showed, in MB */
@@ -52,11 +52,11 @@ check('…and the next tap goes on from what was kept, to saved', (await items(A
 
 // Ready for offline: a phone that saves the app (service worker allowed)
 const O = await page('allow'); await tab(O, 'coffline'); await O.waitForSelector('#co-list li');
-const first = await O.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + x.querySelector('span').firstChild.textContent));
+const first = await O.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + [...x.querySelector('span').childNodes].filter(n => n.nodeName !== 'SMALL').map(n => n.textContent).join('')));
 check('first, it says what is missing: the key', first.some(x => x === 'bad No clinic key on this phone') && /^Not ready for offline use · \d+ to fix$/.test(await txt(O, '#co-sum')), first.join(' | '));
 await O.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && r.active); }, null, { timeout: 30000 }); await O.reload(); await O.waitForTimeout(800);
 await tab(O, 'csettings'); await O.click('#cs-new'); await O.waitForTimeout(700); await tab(O, 'coffline'); await O.click('#co-again'); await O.waitForTimeout(600);
-const after = await O.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + x.querySelector('span').firstChild.textContent)), sum = await txt(O, '#co-sum');
+const after = await O.$$eval('#co-list li', xs => xs.map(x => x.className + ' ' + [...x.querySelector('span').childNodes].filter(n => n.nodeName !== 'SMALL').map(n => n.textContent).join(''))), sum = await txt(O, '#co-sum');
 await shot(O, 's2-clinic-ready-offline'); check('with the app saved and the key there: ready', after[0] === 'ok The app is saved on this phone' && after.some(x => x === 'ok This phone holds the clinic key') && sum === 'Ready for offline use ✓', sum + ' · ' + after.join(' | '));
 check('…and not installed is a warning, with the reason', after.some(x => x === 'warn Not installed on the home screen'));
 await tab(O, 'work'); const wt = await O.waitForFunction(() => document.getElementById('w-offline').title === 'ready for offline', null, { timeout: 8000 }).then(() => 'ready for offline', () => O.$eval('#w-offline', e => e.title));  /* it is worked out again each time the screen opens */

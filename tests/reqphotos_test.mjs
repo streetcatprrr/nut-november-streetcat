@@ -10,6 +10,7 @@ import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
 import fs from 'fs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 const SHOT = process.env.SHOT_DIR, shot = async (p, name) => { if (SHOT) { await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(1600); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };  /* SHOT_DIR=dir: the screens at 390 px @2x, from the top (scrolled, the sticky header would be drawn halfway down) */
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -62,7 +63,7 @@ check('…taken, each shows in its place, and still no line under them', (await 
 await fits(sc, 'the new request with photos'); await shot(sc, 'q1-new-request-photos');
 await sc.click('#sn-go'); const sent = await waitText(sc, '#sq-steps', /its 3 photos sent/, 60000);
 const q1 = await sc.evaluate(() => window.__vetlock.sreqs().find(r => r.q.patient === 'MOCHI').q);
-check('the request names them by SHA-256 (face, sides), and they go to the clinic by relay, in parts', (q1.photos || []).map(p => p.slot).join() === 'face,left,right' && q1.photos.every(p => /^[0-9a-f]{64}$/.test(p.sha256)) && /its 3 photos sent/.test(sent), sent.split('\n').slice(0, 3).join(' | '));
+check('the request names them by SHA-256 (face, sides), and they go to the clinic by relay, in parts', (q1.photos || []).map(p => p.slot).join() === 'face,left,right' && q1.photos.every(p => /^[0-9a-f]{64}$/.test(p.sha256)) && /✓ 3 photos sent/.test(sent), sent.split('\n').slice(0, 3).join(' | '));
 check('…and Streetcat\'s request shows them', (await imgs(sc, '#sq-pics')) === 3); await fits(sc, 'Streetcat\'s request with photos'); await shot(sc, 'q2-streetcat-request-photos');
 
 // 2) the clinic: the request and its photos, whole
@@ -79,10 +80,10 @@ check('a tap shows a photo big, first; a second tap, small again', big && small)
 await clinic._ctx.setOffline(true);
 await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForSelector('#sn-use-' + smallRef, { timeout: 30000 });
 await sc.fill('#sn-cat', 'TEO'); await sc.fill('#sn-proc', 'castration'); await shoot(sc, 4); await sc.fill('#sn-use-' + smallRef, '100'); await sc.click('#sn-go'); await waitText(sc, '#sq-steps', /its 3 photos sent/, 60000);
-await sc.click('#sq-qra'); await sc.waitForSelector('#sq-term .qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term'));  /* sent by relay: its small "Clinic offline? Show it as QR" */
+await viaMore(sc, '#sq-qra'); await sc.click('#sq-qra'); await sc.waitForSelector('#sq-term .qr'); const fq = await sc.evaluate(() => window.__vetlock.frames('sq-term'));  /* sent by relay: its small "Clinic offline? Show it as QR" */
 await tab(clinic, 'work'); await clinic.click('#w-open'); await clinic.click('#w-scan'); for (const f of fq.slice().reverse()) { await clinic.evaluate(t => window.__vetlock.scanFeed(t), f); await clinic.waitForTimeout(30); }
 const dl2 = await waitText(clinic, '#cr-dl', /TEO/); await clinic.waitForTimeout(400);
-check('in person, by QR, the request comes without its photos: "on their way"', /in person, by QR/.test(dl2) && (await txt(clinic, '#cr-pics-st')) === '3 of 3 on their way: they come by relay, with a connection.' && (await imgs(clinic, '#cr-pics')) === 0, await txt(clinic, '#cr-pics-st'));
+check('in person, by QR, the request comes without its photos: "on their way"', /in person, by QR/.test(dl2 + ' ' + await txt(clinic, '#cr-dl2')) && (await txt(clinic, '#cr-pics-st')) === '3 of 3 on their way: they come by relay, with a connection.' && (await imgs(clinic, '#cr-pics')) === 0, await txt(clinic, '#cr-pics-st'));
 await shot(clinic, 'q4-clinic-qr-photos-on-their-way'); await clinic.check('#cr-ok');
 await clinic._ctx.setOffline(false); await clinic.evaluate(() => window.__vetlock.tick());
 const came = await clinic.waitForFunction(() => document.querySelectorAll('#cr-pics img[src]').length === 3, null, { timeout: 30000 }).then(() => true, () => false);

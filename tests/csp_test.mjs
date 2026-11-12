@@ -11,6 +11,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { pinBrowser, rewrite } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const APP = new URL('../app/', import.meta.url).pathname, PORT = 8090, BASE = `http://127.0.0.1:${PORT}/`, MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
 const V = JSON.parse(fs.readFileSync(APP + 'vercel.json', 'utf8')), H = Object.fromEntries(((V.headers || []).find(h => h.source === '/(.*)') || { headers: [] }).headers.map(h => [h.key, h.value]));
@@ -59,7 +60,7 @@ await tab(sc, 'campaign'); await sc.reload(); await tab(sc, 'campaign'); await s
 const link = (await txt(sc, '#k-out')).match(/http\S+#c=\S+/)[0], donor = await page(); await donor.goto(link); await donor.reload(); await donor.waitForTimeout(1500);
 await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(21)); await donor.click('#d-go'); const locked = await waitText(donor, '#d-out', /LOCKED|Failed/);
 /* the "Pay with ecash" screen above also drew its payment request (QR, Nostr key) under the policy */
-await donor.click('#d-out a:has-text("share a card")'); await donor.waitForSelector('#dk-img img', { timeout: 20000 }); await tab(donor, 'shand'); await donor.click('#v-scan'); await donor.waitForTimeout(1500); await donor.evaluate(() => window.__vetlock.scanEnd());
+await viaMore(donor, '#d-out a:has-text("share a card")'); await donor.click('#d-out a:has-text("share a card")'); await donor.waitForSelector('#dk-img img', { timeout: 20000 }); await tab(donor, 'shand'); await donor.click('#v-scan'); await donor.waitForTimeout(1500); await donor.evaluate(() => window.__vetlock.scanEnd());
 const jsqr = await donor.evaluate(() => typeof window.jsQR === 'function'), sw = await donor.evaluate(async () => { for (let i = 0; i < 30; i++) { const r = await navigator.serviceWorker.getRegistration(); if (r && r.active) return true; await new Promise(x => setTimeout(x, 200)); } return false; });
 const dv = await violations(donor);  /* once: it empties what the console said, so a second call would hide it */
 check('a donation is locked, its card drawn, the scanner loaded and the app saved offline, with no violation', /LOCKED 21 sat/.test(locked) && jsqr && sw && !dv.length, dv.join(' | ') || `${(locked.match(/LOCKED \d+ sat|Failed.*/) || ['not locked'])[0]} · scanner ${jsqr} · service worker ${sw}`);

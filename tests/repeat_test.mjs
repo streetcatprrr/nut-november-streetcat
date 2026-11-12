@@ -9,6 +9,7 @@ import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
 import { pinBrowser } from './pin.mjs';
+const viaMore = async (p, sel) => { const id = await p.$eval(sel, e => (e.closest('.sheet') || {}).id || '').catch(() => ''); if (id && !(await p.isVisible(sel))) { await p.click(`[data-sheet="${id}"]`); await p.waitForSelector(`#${id}.open`); } };  // a control behind "···": tapped open first, as a person does
 const BASE = process.env.BASE || 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 const SHOT = process.env.SHOT_DIR, shot = async (p, name) => { if (SHOT) { await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(1600); await p.screenshot({ path: `${SHOT}/${name}.png`, fullPage: true }); } };  /* SHOT_DIR=dir: p1–p4 at 390 px @2x */
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -46,15 +47,15 @@ await sc.fill('#sn-cat', 'MOCHI'); await sc.fill('#sn-proc', 'sterilisation (spa
 await sc.waitForFunction(() => window.__vetlock.sreqs().some(r => r.q.patient === 'MOCHI'), null, { timeout: 30000 }); const id1 = (await sreqs()).find(r => r.q.patient === 'MOCHI').id;
 const showW = async (p, id) => { await p.evaluate(id => { const b = document.getElementById(id); if (b && !b.classList.contains('on')) b.click(); }, id); await p.waitForFunction(() => !document.querySelector('#w-list [style*="max-height"]'), null, { timeout: 15000 }).catch(() => {}); };
 await tab(clinic, 'work'); await clinic.click('#w-check'); await waitText(clinic, '#w-n', /^1$/, 60000); await showW(clinic, 'w-pend');
-await clinic.locator('#w-list .item', { hasText: /^MOCHI / }).click(); await clinic.waitForSelector('#creq.on'); await clinic.check('#cr-ok'); await clinic.click('#cr-go'); await waitText(clinic, '#cr-out', /CONFIRMED/);
+await clinic.locator('#w-list .item', { hasText: /^MOCHI / }).click(); await clinic.waitForSelector('#creq.on'); await clinic.check('#cr-ok'); await clinic.click('#cr-go'); await waitText(clinic, '#cr-out', /✓ (delivery )?confirmed/);
 for (let i = 0; i < 60 && (await sreqs()).find(r => r.id === id1).state !== 'certified'; i++) { await sc.evaluate(() => window.__vetlock.scCheck()).catch(() => {}); await sc.waitForTimeout(1000); }
 await tab(sc, 'sreq'); await sc.click('#sq-go'); const rel = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
 const old0 = (await sreqs()).find(r => r.id === id1);
 check('a request (MOCHI, 50 sat), confirmed by the partner and released', /^RELEASED/.test(rel) && old0.state === 'released', rel.split('\n')[0].slice(0, 80));
 
 // Repeat request
-check('the request offers "Repeat request", small, under its steps', (await txt(sc, '#sq-rep')) === 'Repeat request' && await sc.isVisible('#sq-rep'));
-await sc.click('#sq-rep'); await sc.waitForSelector('#snew.on'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length >= 1, null, { timeout: 30000 }).catch(() => {});
+check('the request offers "Repeat request", behind its "···"', (await txt(sc, '#sq-rep')) === 'Repeat request' && await sc.isVisible('#sq-more'));
+await viaMore(sc, '#sq-rep'); await sc.click('#sq-rep'); await sc.waitForSelector('#snew.on'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length >= 1, null, { timeout: 30000 }).catch(() => {});
 const from = await txt(sc, '#sn-from');
 check('Repeat request opens New request, saying where it comes from', new RegExp(`^A new request, from ${id1} \\(${D}\\)\\. Check every line before sending\\.$`).test(from), from);
 check('…with its pot and what it is', /PLAYA REPITE/.test(await txt(sc, '#sn-pot')) && (await value('#sn-proc')) === 'sterilisation (spay)', await txt(sc, '#sn-pot'));
@@ -90,7 +91,7 @@ await sc.click('#sn-del'); await sc.waitForSelector('#skind.on'); check('…and 
 
 // the pot closed since: said, and a campaign offered
 await sc.clock.setFixedTime(new Date((DL + 3600) * 1000)); await sc.evaluate(id => { window.__vetlock.openSreq ? window.__vetlock.openSreq(id) : null; }, id1);
-await tab(sc, 'home'); await tab(sc, 'sreq'); await sc.click('#sq-rep'); await sc.waitForSelector('#snew.on'); await sc.waitForTimeout(400);
+await tab(sc, 'home'); await tab(sc, 'sreq'); await viaMore(sc, '#sq-rep'); await sc.click('#sq-rep'); await sc.waitForSelector('#snew.on'); await sc.waitForTimeout(400);
 const fr = await sc.$$eval('#sn-from > div', ds => ds.map(d => ({ t: d.textContent, cls: d.className })));
 check('with its pot closed: "✗ … closed on …. Choose another pot.", in red, and "Make a campaign"', fr.some(l => new RegExp(`^✗ PLAYA REPITE closed on ${D}\\. Choose another pot\\.$`).test(l.t) && /bad/.test(l.cls)) && fr.some(l => /^No open pot for sterilisation · Make a campaign$/.test(l.t)), JSON.stringify(fr));
 
