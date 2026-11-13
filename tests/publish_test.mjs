@@ -16,14 +16,18 @@ const tab = (p, t) => p.evaluate(t => window.__vetlock.openTab(t), t), out = asy
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return out(p, id); };
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(sc, 'release'); await sc.click('#s-new'); await sc.waitForTimeout(1500);
 await tab(sc, 'campaign'); await sc.reload(); await tab(sc, 'campaign'); await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill('#k-c', clinicPk);
 await sc.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await sc.click('#k-go'); await waitOut(sc, 'k-out', /is ready|cannot|pick another/); await sc.waitForTimeout(1500);
 const link = (await out(sc, 'k-out')).match(/http\S+#c=\S+/)[0];
 const give = async n => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); return lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/)); };
 const A = await give(21), B = await give(8);
-await tab(clinic, 'certify'); await clinic.fill('#c-token', A); await waitOut(clinic, 'c-info', /names/); await clinic.click('#c-go'); const cert = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/));
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const cert = await certifyIn(clinic, A);
 await tab(sc, 'release'); await sc.fill('#s-token', B); await waitOut(sc, 's-info', /signed|certified/);  // B arrives uncertified: it is a donation of the campaign all the same
 await sc.fill('#s-token', ''); await sc.fill('#s-token', cert); await waitOut(sc, 's-info', /certified/); await sc.click('#s-go'); say('release:', (await waitOut(sc, 's-out', /RELEASED|Not possible|refused/)).split('\n')[0]);
 

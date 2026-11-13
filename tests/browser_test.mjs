@@ -10,7 +10,7 @@ const out = async (p, id) => (await p.textContent('#' + id)).trim();
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return await out(p, id); };
 
 // keys
-await tab(pages.clinic, 'certify'); await pages.clinic.click('#c-new'); await pages.clinic.waitForTimeout(1500); const clinicPk = (await pages.clinic.textContent('#c-pk')).trim();
+await tab(pages.clinic, 'csettings'); await pages.clinic.click('#cs-new'); await pages.clinic.waitForTimeout(1500); const clinicPk = await pages.clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(pages.streetcat, 'release'); await pages.streetcat.click('#s-new'); await pages.streetcat.waitForTimeout(1500); const scPk = (await pages.streetcat.textContent('#s-pk')).trim();
 console.log('clinic pk', clinicPk.slice(0, 12), 'streetcat pk', scPk.slice(0, 12));
 
@@ -26,9 +26,11 @@ const dout = await waitOut(pages.donor, 'd-out', /LOCKED|Failed/); console.log('
 const lockedToken = dout.match(/cashuB[A-Za-z0-9_\-=]+/g).pop(), receipt = JSON.stringify(await pages.donor.evaluate(t => window.__vetlock.receiptOf(t), lockedToken));  // the receipt, as its file carries it
 
 // certify
-await tab(pages.clinic, 'certify'); await pages.clinic.fill('#c-token', lockedToken); await pages.clinic.waitForTimeout(1500); console.log('clinic sees:', (await out(pages.clinic, 'c-info')).split('\n').pop());
-await pages.clinic.fill('#c-memo', 'MOCHI sterilised, invoice TEST-1'); await pages.clinic.click('#c-go');
-const cout = await waitOut(pages.clinic, 'c-out', /CERTIFIED|Failed/); console.log('certify:', cout.split('\n')[0]); const certified = cout.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const certified = await certifyIn(pages.clinic, lockedToken, 'MOCHI sterilised, invoice TEST-1'); console.log('certify:', certified ? 'CERTIFIED' : 'Failed');
 
 // release: first try the LOCKED (uncertified) token -> mint must refuse; then the certified one
 await tab(pages.streetcat, 'release'); await pages.streetcat.fill('#s-token', lockedToken); await pages.streetcat.click('#s-go');

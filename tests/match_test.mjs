@@ -7,7 +7,9 @@
 // "coat" (rings of other colours): no warning, which is the limit the app states ("two cats of one coat can look alike to it"). A record
 // with one photo of the face or sides: too few to compare. The result is kept with the request: after a reload it is there without the
 // recognition. A record signed with another clinic key is not taken as the request's. The record opens from the request, and ← comes
-// back. Every screen fits the phone at 320, 375, 390 and 430 px.
+// back. No cat (13 Nov): the drawings stand for cats here (pin.mjs), and photos said to show none are not compared: which side, in red,
+// never in green, on Streetcat's side and the clinic's, kept with the request; a record with none is left out of the clinic's "Already
+// in the records?"; nothing is blocked. Every screen fits the phone at 320, 375, 390 and 430 px.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
@@ -62,8 +64,8 @@ for (let i = 0; i < 4; i++) { await donor.goto(link); await donor.reload(); awai
   await waitText(donor, '#d-out', /LOCKED|Failed/); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); }
 await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'donations and requests' }).click(); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /donation|checked/);
 /* all four in the campaign before the requests: one check can come before the last donation is on the relays (it goes by itself as it locks, 8 Nov) */
-const inLedger = () => sc.evaluate(() => Object.values(JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}')).reduce((n, L) => n + Object.keys((L && L.entries) || {}).length, 0));
-/* up to 90 s (30 s was too short once in a loaded battery, 9 Nov 03:40: the run crashed later, picking a donation that had not come yet);
+const inLedger = () => sc.evaluate(async () => Object.values(await window.__vetlock.ledgerAll()).reduce((n, L) => n + Object.keys((L && L.entries) || {}).length, 0));
+/* up to 90 s (30 s was too short once in a loaded battery, 9 Nov: the run crashed later, picking a donation that had not come yet);
    if they never all come, it is said here, as a failed check, not as a timeout further on */
 for (let i = 0; i < 90 && await inLedger() < 4; i++) { await sc.evaluate(() => window.__vetlock.scCheck()).catch(() => {}); await sc.waitForTimeout(1000); }
 { const n = await inLedger(); if (n < 4) { check('the four donations reach Rescue\'s campaign by relay, as they lock', false, `${n} of 4 after 90 s`); await b.close(); for (const r of relays) r.close && r.close(); process.exit(1); } }
@@ -72,7 +74,7 @@ for (let i = 0; i < 90 && await inLedger() < 4; i++) { await sc.evaluate(() => w
 const CAT = { face: 0, left: 1, right: 2 }, VET = { face: 3, left: 4, right: 5 };
 const CATS = [{ name: 'MOCHI', kind: 2, rec: 2, views: VET }, { name: 'TEO', kind: 0, rec: 2, views: VET }, { name: 'LUNA', kind: 0, rec: 1, views: VET }, { name: 'PIP', kind: 2, rec: 2, views: { face: 3 } }];
 for (const c of CATS) { await tab(sc, 'scamp'); await sc.click('#sc-new'); await sc.waitForFunction(() => document.querySelectorAll('#sn-dons input').length >= 1, null, { timeout: 30000 });
-  await sc.fill('#sn-cat', c.name); await sc.fill('#sn-proc', 'sterilisation (spay)'); await sc.locator('#sn-dons .item', { hasText: /(^|\D)[1-9][\d ]* sat available/ }).first().locator('button', { hasText: 'all' }).click();
+  await sc.fill('#sn-cat', c.name); await sc.fill('#sn-proc', 'sterilisation (spay)'); await sc.locator('#sn-dons .item', { has: sc.locator('.sub2', { hasText: /^[1-9][\d ]* sat available/ }) }).first().locator('button', { hasText: 'all' }).click();  /* by the amount's own line: read whole, a row's text runs its DON- code into it, and one ending in 0 (DON-…E0, then 100 sat) matched nothing */
   await shoot(sc, '#sn-shots', c.kind, CAT); await sc.click('#sn-go');
   await sc.waitForFunction(n => window.__vetlock.sreqs().some(r => r.q.patient === n), c.name, { timeout: 30000 }); c.id = await sc.evaluate(n => window.__vetlock.sreqs().find(r => r.q.patient === n).id, c.name);
   await sc.waitForFunction(id => (document.querySelector('#sq-head .mut') || {}).textContent === 'request ' + id && /photos sent/.test(document.getElementById('sq-steps').textContent), c.id, { timeout: 60000 }); }
@@ -147,6 +149,38 @@ await sc.evaluate(async id => { const C = window.scCore, r = window.__vetlock.sr
   const all = JSON.parse(localStorage.getItem('vetlock.sc.cats') || '[]'); all.push({ id: rec.id, rec, from: rec.statement.clinic, at: new Date().toISOString(), via: 'file' }); localStorage.setItem('vetlock.sc.cats', JSON.stringify(all)); }, A.id);
 await openReq('MOCHI');
 check('a record signed with another clinic key, naming the request, is not taken as its record', (await txt(sc, '#sq-rec-l')) === 'At the clinic, asleep · MOCHI\'s record' && SAME.test(await line(sc)), await txt(sc, '#sq-rec-l'));
+
+// 9) no cat (13 Nov): photos said to show none (by SHA-256, here, where the drawings stand for cats: pin.mjs) are not compared; it says
+// which side, in red, never in green, and the request's line says so too; kept with the request
+const NOC = { mine: '✗ No cat in your photos: they cannot be compared.', theirs: '✗ No cat in the record\'s photos: they cannot be compared.', both: '✗ No cat in the photos: they cannot be compared.' };
+const noCat = (p, shas) => p.evaluate(s => localStorage.setItem('test.nocat', JSON.stringify(s)), shas);
+const forget = id => sc.evaluate(id => { const a = JSON.parse(localStorage.getItem('vetlock.sc.requests') || '[]'); for (const r of a) if (r.id === id) delete r.match; localStorage.setItem('vetlock.sc.requests', JSON.stringify(a)); }, id);
+const [reqB, recB] = await sc.evaluate(([id, rid]) => { const V = window.__vetlock; return [V.sreqs().find(x => x.id === id).q.photos.map(p => p.sha256), V.scats().find(x => x.id === rid).rec.statement.photos.map(p => p.sha256)]; }, [B.id, B.rec_id]);
+for (const [which, shas, what] of [['mine', reqB, 'the request\'s photos'], ['both', [...reqB, ...recB], 'either side'], ['theirs', recB, 'the record\'s photos']]) {
+  await noCat(sc, shas); await forget(B.id); await openReq('TEO'); if (await sc.isVisible('#sq-match-go')) await sc.click('#sq-match-go');
+  const r9 = await until(sc, /^Nothing points|^✗/, 120000), tl9 = await recTl(sc);
+  check(`no cat in ${what}: not compared, «${NOC[which]}», in red, never in green, and the request's line says so`, r9.s === NOC[which] && await red(sc, '#sq-match-st') && !(await green(sc, '#sq-match-st')) && tl9.t === '✗ its record from the clinic: no cat to compare' && tl9.bad, `${r9.s} | ${tl9.t}`);
+  if (which === 'mine') { await fits(sc, 'no cat'); await shot(sc, 'm9-no-cat'); } }
+await sc.reload(); await sc.waitForTimeout(800); await openReq('TEO'); await sc.waitForTimeout(600);
+check('…kept with the request: after a reload it is there, without the recognition', (await line(sc)) === NOC.theirs && !(await sc.evaluate(() => CATID.loaded())), await line(sc));
+await noCat(sc, []); await forget(B.id); await openReq('TEO'); if (await sc.isVisible('#sq-match-go')) await sc.click('#sq-match-go'); const r9b = await until(sc, /^Nothing points|^✗/, 120000);
+check('…and with a cat on both sides again, compared again: another cat', OTHER.test(r9b.s), r9b.s);
+
+// 10) the clinic's Check the cat with no cat: TEO's request opened again for a new record. Streetcat's photos with none: said so, in
+// red, and the records still compared, one with no cat in its photos left out; then none in the clinic's own photos either: nothing
+// compared, each photo's tile says so, and the record can still be signed
+const reqT = await clinic.evaluate(id => window.__vetlock.creqs().find(x => x.id === id).q.photos.map(p => p.sha256), B.id);
+const recL = await clinic.evaluate(id => window.__vetlock.ccats().find(x => x.id === id).rec.statement.photos.map(p => p.sha256), C2.rec_id);  /* LUNA's: drawn unlike the new photos (MOCHI's and TEO's records are the same drawings, the same SHA-256) */
+await noCat(clinic, [...reqT, ...recL]); await clinic.evaluate(id => window.__vetlock.openCatnew(id), B.id); await clinic.waitForSelector('#catnew.on'); await shoot(clinic, '#cn-shots', B.rec, B.views);
+const s10 = await waitText(clinic, '#cn-req-st', /✗|Nothing/, 120000); await clinic.waitForFunction(() => document.getElementById('cn-like-st').dataset.state === 'done', null, { timeout: 120000 }).catch(() => {});
+const T10 = await clinic.$$eval('#cn-like-list .nm', e => e.map(x => x.textContent));
+check("the clinic's Check the cat, Streetcat's photos with no cat: «✗ No cat in Streetcat's photos: they cannot be compared.», in red", s10 === "✗ No cat in Streetcat's photos: they cannot be compared." && await clinic.$$eval('#cn-req-st .bad', e => e.length > 0), s10);
+check('…the records still compared, and one with no cat in its photos left out', T10.length === 3 && !T10.includes('LUNA'), T10.join(' · '));
+const mine10 = await clinic.evaluate(() => Object.values(window.__vetlock.cnShots()).map(p => p.sha256));
+await noCat(clinic, [...reqT, ...recL, ...mine10]); await clinic.evaluate(() => window.__vetlock.likeCheck());
+const s11 = await waitText(clinic, '#cn-req-st', /your photos/, 120000), marks = await clinic.$$eval('#cn-shots .shot', bs => bs.map(b => b.querySelector('span').textContent).join(','));
+check("…none in its own either: «" + NOC.mine + "», each photo's tile says ✗ no cat, nothing compared, and the record can still be signed", s11 === NOC.mine && marks === '✗ no cat,✗ no cat,✗ no cat,nose' && await clinic.$eval('#cn-recs', e => e.hidden) && await clinic.isEnabled('#cn-go'), `${s11} | ${marks}`);
+await fits(clinic, "the clinic's Check the cat with no cat"); await shot(clinic, 'm10-clinic-no-cat'); await noCat(clinic, []);
 
 check('every screen fits the phone at 320, 375, 390 and 430 px', FITBAD.length === 0, FITBAD.join(' | ') || `${FIT.length} screens`);
 await b.close(); for (const r of relays) r.close && r.close(); say(bad ? `match: ${bad} check(s) failed` : 'match: every check passed'); process.exit(bad ? 1 : 0);

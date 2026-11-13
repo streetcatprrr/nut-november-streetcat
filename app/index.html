@@ -31,7 +31,7 @@ label{display:block;font-size:12px;line-height:18px;color:var(--mute);margin:cal
 .mut{color:var(--mute);font-size:12px;line-height:18px;white-space:pre-wrap}
 .title{font-size:22px;line-height:28px;letter-spacing:.06em;text-transform:uppercase}
 code{font-family:inherit;font-size:var(--code);line-height:var(--code-lh);word-break:break-all}
-.code,.mut.code,#c-info,#s-info,#r-info{font-size:var(--code);line-height:var(--code-lh)}
+.code,.mut.code,#s-info,#r-info{font-size:var(--code);line-height:var(--code-lh)}
 input,textarea{width:100%;background:transparent;color:var(--fg);border:1px solid var(--line2);border-radius:0;padding:12px;font:400 16px/22px var(--mono);outline:none;min-height:48px}
 textarea,#k-mint,#k-c{font-size:var(--code);line-height:var(--code-lh)}#k-sum{margin:calc(var(--u)*1.5) 0 calc(var(--u)*2)}#k-keys{margin-bottom:calc(var(--u)*2)}#k-keys .kline small{margin-bottom:2px}#k-keys .kline span.bad{color:var(--bad)}
 #d-reqs button.req .cat{font-size:12px;line-height:18px;color:var(--fg);padding-left:1.5ch;text-indent:-1.5ch}
@@ -204,7 +204,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 #cn-out:not(:empty){margin-bottom:calc(var(--u)*2)}#cn-sum{margin:0 0 calc(var(--u)*2)}#cn-more{margin-top:calc(var(--u)*2)}
 /* "Already in the records?": the three records that look most like the new cat, as tiles with the photo that looks most like it */
 #cn-like{margin:calc(var(--u)*2) 0}.alike{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--u)}.alike button{display:block;min-width:0;padding:0;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer}.alike img,.alike .none{display:block;width:100%;aspect-ratio:1;object-fit:cover;border:1px solid var(--line2);box-sizing:border-box}.alike .none{border-style:dashed}.alike .nm{font-size:12px;line-height:16px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.alike .sub2{font-size:12px;line-height:15px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.shot.has{border:1px solid var(--fg)}.shot.has::before{content:none}.shot.has span{background:var(--bg);color:var(--fg);padding:1px 4px}.shot.busy::before{content:"…"}
+.shot.has{border:1px solid var(--fg)}.shot.has::before{content:none}.shot.has span{background:var(--bg);color:var(--fg);padding:1px 4px}.shot.busy::before{content:"…"}.shot.has.nocat span{color:var(--bad)}
 .pick{margin:0}.pick button.sm{margin:0;height:44px}.pick button.sm.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 #ca-q{margin-bottom:calc(var(--u)*2)}input[type=search]{-webkit-appearance:none;appearance:none}input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none}
 .item .cat{display:flex;align-items:center;gap:12px;min-width:0}.item .cat>div{min-width:0}.item .cat .sub2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -220,7 +220,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <header class="sc-header"><button class="back" id="hd-back" hidden aria-label="back">←</button><div class="sc-roles" id="hd-roles" role="group" aria-label="who you are"><button data-r="donor">Donor</button><button data-r="streetcat">Rescue</button><button data-r="clinic">Partner</button></div><span id="hd-camp"></span><a href="status.html" class="sc-st" id="hd-status" aria-label="Status" title="Status"><svg viewBox="0 0 12 12" width="22" height="22" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><rect x="2" y="0" width="4" height="1"/><rect x="1" y="1" width="1" height="1"/><rect x="6" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="7" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="5" y="3" width="1" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="1" height="1"/><rect x="2" y="4" width="1" height="1"/><rect x="4" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="0" y="5" width="1" height="1"/><rect x="3" y="5" width="1" height="1"/><rect x="7" y="5" width="1" height="1"/><rect x="1" y="6" width="1" height="1"/><rect x="6" y="6" width="1" height="1"/><rect x="2" y="7" width="4" height="1"/><rect x="7" y="7" width="1" height="1"/><rect x="7" y="8" width="2" height="1"/><rect x="8" y="9" width="2" height="1"/><rect x="9" y="10" width="2" height="1"/></svg></a></header>
 <main>
 <div class="card" id="recovered" hidden></div>
-<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="certify" data-role="clinic">Certify</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button><button data-t="skind" data-role="streetcat">Kind</button><button data-t="spick" data-role="streetcat">Choose</button></nav>
+<nav hidden><button data-t="donate" data-role="donor" class="on">Donate</button><button data-t="refund" data-role="donor">Take my sats back</button><button data-t="dhand" data-role="donor">Hand over</button><button data-t="dcard" data-role="donor">Card</button><button data-t="decash" data-role="donor">Pay with ecash</button><button data-t="work" data-role="clinic">Requests</button><button data-t="creq" data-role="clinic">Request</button><button data-t="csettings" data-role="clinic">Settings</button><button data-t="coffline" data-role="clinic">Ready for offline</button><button data-t="home" data-role="streetcat">Home</button><button data-t="scamp" data-role="streetcat">Campaign</button><button data-t="snew" data-role="streetcat">New request</button><button data-t="sreq" data-role="streetcat">Request</button><button data-t="shand" data-role="streetcat">In person</button><button data-t="release" data-role="streetcat">Release</button><button data-t="campaign" data-role="streetcat">New campaign</button><button data-t="catnew" data-role="clinic">New cat record</button><button data-t="cats" data-role="clinic streetcat">Cats</button><button data-t="cat" data-role="clinic streetcat">Cat</button><button data-t="keys" data-role="clinic streetcat">Keys</button><button data-t="skind" data-role="streetcat">Kind</button><button data-t="spick" data-role="streetcat">Choose</button></nav>
 
 <section id="donate" class="on">
 <div class="ptypes grid" id="d-kinds" hidden></div><div id="d-reqs" class="camp" hidden></div>
@@ -259,16 +259,6 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <div class="row1" id="r-checkrow" hidden><button class="sm" id="r-check">check now</button></div>
 <div id="r-gap"></div>
 <button class="go big" id="r-go">Take my sats back</button>
-</section>
-
-<section id="certify">
-<div class="keyrow"><span class="mut">Your key</span><code id="c-pk">—</code><span id="c-pk-old" class="mut"></span><span class="keyops"><button class="sm" id="c-copy">copy</button><button class="sm" id="c-new">new</button><button class="sm" id="c-show">private</button></span></div>
-<div class="term" id="c-term"><textarea id="c-token" placeholder="paste the token Streetcat sent you"></textarea><div id="c-card"></div></div>
-<div id="c-info" class="mut"></div>
-<label>Note</label><input id="c-memo" placeholder="MOCHI sterilised, invoice 2026-118">
-<div class="out" id="c-out"></div>
-<button class="go big" id="c-go">Certify</button>
-<p class="center lnk" id="c-again" hidden><a href="#">certify another token</a></p>
 </section>
 
 <section id="release">
@@ -313,7 +303,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <input id="x-pw" type="password" autocomplete="new-password" placeholder="a password, 10 characters or more">
 <input id="x-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
 <div class="row2"><button class="sm" id="x-seal-save">save sealed backup</button><button class="sm" id="x-seal-open">restore a sealed backup</button></div><input type="file" id="x-seal-file" hidden><div class="out" id="x-seal-out"></div></details>
-<details class="more" id="x-pin"><summary id="x-pin-sum">PIN for the keys</summary><input id="x-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 6 digits or more"><input id="x-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="x-pin-set">set PIN</button><button class="sm" id="x-pin-lock" hidden>lock now</button><button class="sm" id="x-pin-off" hidden>remove PIN</button></div><div class="out" id="x-pin-out"></div></details>
+<details class="more" id="x-pin"><summary id="x-pin-sum">PIN for the keys</summary><input id="x-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 8 digits or more"><input id="x-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="x-pin-set">set PIN</button><button class="sm" id="x-pin-lock" hidden>lock now</button><button class="sm" id="x-pin-off" hidden>remove PIN</button></div><div class="out" id="x-pin-out"></div></details>
 <div class="actions" id="x-ln-row" hidden><button class="go alt" id="x-ln-b" aria-expanded="false">Lightning address</button></div>
 <div id="x-ln-box" hidden><input id="h-ln" aria-label="the Lightning address what is released goes to" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off" placeholder="a Lightning address: name@wallet…"><div class="out" id="h-ln-st"></div></div>
 <p class="mut code center" id="x-ver"></p>
@@ -324,7 +314,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <div class="stat wtabs"><div id="w-pend" role="button" tabindex="0" aria-pressed="false"><b id="w-n">0</b><span>pending</span></div><div id="w-dn" role="button" tabindex="0" aria-pressed="false"><b id="w-done">0</b><span>done</span></div></div>
 <div id="w-net" class="mut"></div>
 <div class="list" id="w-list" hidden></div>
-<div class="actions" id="w-acts"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button><button class="go alt" id="w-certify">Certify a token</button><button class="go alt" id="w-offline">Offline setup</button><button class="go alt" id="w-cats">Cat records</button><button class="go alt" id="w-settings">Settings</button></div>
+<div class="actions" id="w-acts"><button class="go" id="w-check">Check for requests</button><button class="go alt" id="w-open">Open a request</button><button class="go alt" id="w-offline">Offline setup</button><button class="go alt" id="w-cats">Cat records</button><button class="go alt" id="w-settings">Settings</button></div>
 <div id="w-paste" hidden><label>A request from Streetcat: its link, or its file</label><textarea id="w-text" placeholder="https://…#q=…"></textarea><div class="row2"><button class="sm" id="w-read">open it</button><button class="sm" id="w-pick">choose a file</button></div><div class="row1"><button class="sm" id="w-scan">scan Streetcat's QR</button></div><input type="file" id="w-file" hidden><div class="out" id="w-out"></div></div>
 </section>
 
@@ -359,7 +349,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <input id="cs-pw2" type="password" autocomplete="new-password" placeholder="the same password again" style="margin-top:var(--u)">
 <div class="row2"><button class="sm" id="cs-save">save backup</button><button class="sm" id="cs-restore">restore a backup</button></div><input type="file" id="cs-file" accept=".json,application/json" hidden>
 <div class="out" id="cs-out"></div>
-<details class="more" id="cs-pin"><summary id="cs-pin-sum">PIN for the keys</summary><input id="cs-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 6 digits or more"><input id="cs-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="cs-pin-set">set PIN</button><button class="sm" id="cs-pin-lock" hidden>lock now</button><button class="sm" id="cs-pin-off" hidden>remove PIN</button></div><div class="out" id="cs-pin-out"></div></details>
+<details class="more" id="cs-pin"><summary id="cs-pin-sum">PIN for the keys</summary><input id="cs-pin-a" type="password" inputmode="numeric" autocomplete="off" placeholder="a PIN, 8 digits or more"><input id="cs-pin-b" type="password" inputmode="numeric" autocomplete="off" placeholder="the same PIN again" style="margin-top:var(--u)"><div class="row2"><button class="sm" id="cs-pin-set">set PIN</button><button class="sm" id="cs-pin-lock" hidden>lock now</button><button class="sm" id="cs-pin-off" hidden>remove PIN</button></div><div class="out" id="cs-pin-out"></div></details>
 <p class="center lnk"><a href="#" id="cs-offline">ready for offline</a></p>
 <p class="mut code center" id="cs-ver"></p>
 </section>
@@ -497,7 +487,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <label for="cn-chip">Microchip</label><input id="cn-chip" inputmode="numeric" maxlength="19" placeholder="15 digits" autocomplete="off">
 <label>Sex</label><div class="row2 pick" id="cn-sex"><button type="button" class="sm" data-v="female">female</button><button type="button" class="sm" data-v="male">male</button></div>
 <label>Ear tip</label><div class="row3 pick" id="cn-ear"><button type="button" class="sm" data-v="left">left</button><button type="button" class="sm" data-v="right">right</button><button type="button" class="sm" data-v="none">none</button></div>
-<label for="cn-colony">Colony</label><input id="cn-colony" maxlength="60" placeholder="the marina" autocomplete="off">
+<label for="cn-colony">Colony</label><input id="cn-colony" maxlength="60" placeholder="Choose colony" autocomplete="off">
 <details class="more" id="cn-more"><summary>coat and notes</summary><label for="cn-coat">Coat</label><input id="cn-coat" maxlength="80" placeholder="black and white, white chest" autocomplete="off"><label for="cn-notes">Notes</label><input id="cn-notes" maxlength="300" placeholder="weight 3.2 kg" autocomplete="off"></details>
 
 <div class="out" id="cn-out"></div>

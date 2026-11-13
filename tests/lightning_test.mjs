@@ -20,7 +20,7 @@ const again = p => p.evaluate(() => { const a = document.getElementById('d-again
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 const lockOf = token => { const s = JSON.parse(w.decodeToken(token).proofs[0].secret)[1]; const t = Object.fromEntries(s.tags.map(x => [x[0], x.slice(1)])); return { keys: [s.data, ...(t.pubkeys || [])], nsigs: Number(t.n_sigs[0]), refund: t.refund, locktime: Number(t.locktime[0]) }; };
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');  // the key flips in
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 
 // Streetcat makes the campaign; the page reads the mint first
@@ -57,13 +57,17 @@ await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.f
 say('link with a bad deadline:', (await waitOut(donor, 'd-out', /LOCKED|Failed/)).split('\n')[0].slice(0, 100) + '…');
 
 // 3) clinic certifies, Streetcat releases the first one; the mint's answer to the release is lost once
-await tab(clinic, 'certify'); await clinic.fill('#c-token', tok1); await clinic.click('#c-go'); const cert = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/));
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const cert = await certifyIn(clinic, tok1);
 let lostSwap = 0; await streetcat.route('**/v1/swap', async r => { if (lostSwap++ === 0) { await r.fetch(); return r.abort(); } return r.continue(); });
 await tab(streetcat, 'release'); await streetcat.fill('#s-token', cert); await streetcat.click('#s-go'); say('release, answer lost:', (await waitOut(streetcat, 's-out', /RELEASED|refused/)).split('\n')[0], '| kept in the browser:', (await streetcat.evaluate(() => window.__vetlock.releasedList().length)));
 await streetcat.unroute('**/v1/swap');
 
 // 3b) the release of the 8-sat donation: the answer is lost AND the mint cannot be asked again right now; reopening the page finishes it
-await tab(clinic, 'certify'); await clinic.fill('#c-token', lastToken(l2)); await clinic.click('#c-go'); const cert2 = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/));
+const cert2 = await certifyIn(clinic, lastToken(l2));
 let lostSwap2 = 0; await streetcat.route('**/v1/swap', async r => { if (lostSwap2++ === 0) { await r.fetch(); return r.abort(); } return r.continue(); }); await streetcat.route('**/v1/restore', r => r.abort());
 await tab(streetcat, 'release'); await streetcat.fill('#s-token', cert2); await streetcat.click('#s-go'); say('release, answer lost, no restore yet:', (await waitOut(streetcat, 's-out', /RELEASED|refused|Interrupted/)).split('\n')[0].slice(0, 110) + '…', '| unfinished:', await streetcat.evaluate(() => window.__vetlock.flights().length));
 await streetcat.unroute('**/v1/swap'); await streetcat.unroute('**/v1/restore'); await streetcat.reload();

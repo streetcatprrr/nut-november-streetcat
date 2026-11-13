@@ -26,7 +26,7 @@ const tab = (p, t) => p.evaluate(t => window.__vetlock.openTab(t), t), txt = asy
 const waitText = async (p, s, re, ms = 30000) => { const t0 = Date.now(); let x = ''; while (Date.now() - t0 < ms) { x = await txt(p, s).catch(() => ''); if (re.test(x)) return x; await p.waitForTimeout(150); } return x; };
 const front = p => p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 // what Rescue's ledger holds: the amount of each donation, by its reference
-const ledger = p => p.evaluate(() => { const all = JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}'); return Object.values(all).flatMap(L => Object.entries((L && L.entries) || {}).map(([ref, e]) => ({ ref, amount: Number(e.amount) }))); });
+const ledger = p => p.evaluate(async () => { const all = await window.__vetlock.ledgerAll();  /* in IndexedDB since 12 Nov */ return Object.values(all).flatMap(L => Object.entries((L && L.entries) || {}).map(([ref, e]) => ({ ref, amount: Number(e.amount) }))); });
 const waitLedger = async (p, n, ms = 30000) => { const t0 = Date.now(); let l = []; while (Date.now() - t0 < ms) { await front(p); await p.waitForTimeout(1200); l = await ledger(p); if (l.length >= n) return l; } return l; };
 // a check of Rescue's inbox, as each minute's or a return to the app makes one, and the line it shows (with its red parts)
 const scNet = async p => { await p.evaluate(() => window.__vetlock.tick()); await p.waitForTimeout(400); return p.$eval('#sc-net', e => ({ text: e.textContent, red: [...e.querySelectorAll('.bad')].map(x => x.textContent) })); };
@@ -61,11 +61,11 @@ const outA = await rescue.evaluate(() => (localStorage.getItem('vetlock.outbox')
 check('…the donation is in the campaign: the outbox let go of its copies at the first check', lA.length === 1 && lA[0].ref === dA.ref && lA[0].amount === dA.amount && outA < 5000, `${lA.length} in the ledger · outbox now ${outA} characters`);
 
 // B. Rescue's storage full of something it cannot let go of: said in red at each check, asked for again, and in once there is room
-const freeB0 = await room(rescue); await rescue.evaluate(n => localStorage.setItem('zz.filler', 'f'.repeat(n)), freeB0 - 3000);
+const freeB0 = await room(rescue); await rescue.evaluate(n => { localStorage.setItem('zz.filler', 'f'.repeat(n)); window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }; }, freeB0 - 3000);  /* the ledger is in IndexedDB: full too */
 const dB = await donate(40); await tab(rescue, 'home'); let lineB = { text: '', red: [] }; for (let i = 0; i < 10 && !lineB.red.length; i++) lineB = await scNet(rescue);
 check('B · no room to save it: the check says so, in red', lineB.red.some(x => x === `✗ a donation of ${dB.amount} sat to ROOM TEST could not be taken yet: this phone has no room left to save it: the app's storage is full. It is asked for again at the next check.`) && (await ledger(rescue)).length === 1, JSON.stringify(lineB.red));
 const lineB2 = await scNet(rescue); check('…and again at the next check, not once and gone', lineB2.red.some(x => x.startsWith(`✗ a donation of ${dB.amount} sat`)), JSON.stringify(lineB2.red));
-await rescue.evaluate(() => localStorage.removeItem('zz.filler')); const lB = await waitLedger(rescue, 2); const lineB3 = await scNet(rescue);
+await rescue.evaluate(() => { localStorage.removeItem('zz.filler'); IDBObjectStore.prototype.put = window.__put; }); const lB = await waitLedger(rescue, 2); const lineB3 = await scNet(rescue);
 check('…room again: it is in the campaign, and the red line is gone', lB.length === 2 && lB.some(x => x.ref === dB.ref && x.amount === dB.amount) && !lineB3.red.length, `${lB.length} in the ledger · ${JSON.stringify(lineB3.red)}`);
 
 // C. a donation the app read before and lost (marked read, not in the ledger, as the version before left it): read again, once

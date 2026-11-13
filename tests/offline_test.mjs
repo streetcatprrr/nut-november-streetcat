@@ -1,6 +1,6 @@
-// Certifying without coverage (app/index.html in Chromium, local Nutshell mint, fake money): the clinic opens the app once with a
+// Signing without coverage (app/index.html in Chromium, local Nutshell mint, fake money): the clinic opens the app once with a
 // connection, then loses it. The app must still open (service worker), with its font, read a donation (the mint's keys kept from
-// last time) and certify it; once back online, Streetcat releases what the clinic signed offline. The cat recognition, got ahead of
+// last time) and sign it (as "Certify a token" did, removed on 12 Nov: done here in the page); once back online, Streetcat releases what the clinic signed offline. The cat recognition, got ahead of
 // time in Offline setup, must work offline too, with the numbers Streetcat's phone gives; a donor's phone must keep none of it.
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
@@ -22,7 +22,7 @@ const out = async (p, id) => (await p.textContent('#' + id)).trim();
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return out(p, id); };
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 const camp = await streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: Math.floor(Date.now() / 1000) + 30 * 86400 });  /* signed by Streetcat: an unsigned link takes no donation */
 await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(21)); await donor.click('#d-go');
@@ -31,8 +31,7 @@ const tok = lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/));
 // online, once: the service worker installs, and reading the donation keeps the mint's keys
 say('service worker ready:', await clinic.evaluate(() => navigator.serviceWorker.ready.then(r => !!r.active)));
 await clinic.reload(); say('page controlled by it:', await clinic.evaluate(() => !!navigator.serviceWorker.controller));
-await tab(clinic, 'certify'); await clinic.fill('#c-token', tok); say('read online:', (await waitOut(clinic, 'c-info', /names|cannot/)).split('\n').pop());
-await clinic.fill('#c-token', '');
+say('read online:', await clinic.evaluate(async t => { const { dec } = await window.__vetlock.decodeTok(t); return `${dec.proofs.length} proofs`; }, tok));
 // the cat recognition (catid.js), got ahead of time in Offline setup, on wifi, without starting it; the numbers to expect for a photo
 // drawn here are worked out on Streetcat's phone. A donor's phone, which never asked for it, keeps none of its 121 MB.
 const on = await streetcat.evaluate(async () => { const cv = new OffscreenCanvas(320, 240), cx = cv.getContext('2d'); cx.fillStyle = '#d28a3c'; cx.fillRect(0, 0, 320, 240); cx.fillStyle = '#222'; cx.beginPath(); cx.arc(160, 120, 70, 0, 7); cx.fill();
@@ -44,10 +43,13 @@ say('Offline setup gets the cat recognition ahead of time:', !before && got && a
 // no connection: the clinic's server is off and the browser is offline
 server.kill(); await new Promise(r => setTimeout(r, 300)); await ctx.clinic.setOffline(true);
 await clinic.reload();
-const shell = await clinic.evaluate(async () => { await document.fonts.ready; return { app: !!document.getElementById('c-go'), font: document.fonts.check('14px "Departure Mono"'), online: navigator.onLine }; });
+const shell = await clinic.evaluate(async () => { await document.fonts.ready; return { app: !!document.getElementById('w-check'), font: document.fonts.check('14px "Departure Mono"'), online: navigator.onLine }; });
 say('offline, the app opens:', shell.app, '| with its font:', shell.font, '| navigator.onLine:', shell.online);
-await tab(clinic, 'certify'); await clinic.fill('#c-token', tok); say('offline, reads the donation:', (await waitOut(clinic, 'c-info', /names|cannot/)).split('\n').pop());
-await clinic.click('#c-go'); const c = await waitOut(clinic, 'c-out', /CERTIFIED|Failed/); say('offline, certifies:', c.split('\n')[0], '|', /without a connection/.test(c) ? 'says it was signed without a connection' : 'NO OFFLINE NOTE');
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const c = await certifyIn(clinic, tok); say('offline, reads the donation and signs it:', c ? 'CERTIFIED' : 'Failed');
 const st = await clinic.evaluate(async m => ({ status: await fetch('status.html').then(x => x.ok).catch(() => false), mint: await fetch(m + '/v1/info').then(() => 'reached').catch(() => 'unreachable') }), MINT);
 say('offline, the status page is there too:', st.status, '| the mint is', st.mint);
 const off = await clinic.evaluate(async ([bytes, e]) => { const here = await CATID.here(); await CATID.load(); const v = await CATID.compute(new Uint8Array(bytes)); let d = 0; for (let i = 0; i < e.length; i++) d = Math.max(d, Math.abs(e[i] - v.e[i])); return { here, d }; }, [on.bytes, on.e]).catch(x => ({ err: x.message.split('\n')[0] }));

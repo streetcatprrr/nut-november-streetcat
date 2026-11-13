@@ -1,9 +1,9 @@
 // Release only what the clinic really certified (app/index.html in Chromium, local Nutshell mint, fake money):
 // a token with one proof unsigned, or signed with another key, is refused before anything is sent to the mint; a part the donor
-// already took back is left out of the release; a clinic can still certify after the deadline (with a warning); and the status
-// page counts each proof once, however many ledger entries list it. Once certified or released, the button says so and cannot be
-// pressed again, the phone buzzes, and the same token pasted
-// again says at once that it was released, before anyone presses anything.
+// already took back is left out of the release, also when the clinic signs after the deadline; and the status page counts each
+// proof once, however many ledger entries list it. Once released, the button says so and cannot be pressed again, the phone buzzes,
+// and the same token pasted again says at once that it was released, before anyone presses anything. (The clinic's signature is
+// made in the page: its "Certify a token" screen is gone, review of 12 Nov.)
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken, schnorrSignMessage, createRandomSecretKey } from '@cashu/cashu-ts';
 import { pinBrowser } from './pin.mjs';
@@ -27,12 +27,16 @@ const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while 
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 let swaps = 0; await streetcat.route('**/v1/swap', r => { swaps++; return r.continue(); });
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 const signed = c => streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), c);  /* an unsigned link takes no donation */
 const donate = async (camp, n) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(await signed(camp))); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
   const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return lastToken(s); };
-const certify = async tok => { await tab(clinic, 'certify'); await clinic.fill('#c-token', ''); await clinic.fill('#c-token', tok); await waitOut(clinic, 'c-info', /names|no clinic key/); const info = await out(clinic, 'c-info'); await clinic.click('#c-go'); const o = await waitOut(clinic, 'c-out', /CERTIFIED|Failed/); return { info, out: o, token: /CERTIFIED/.test(o) ? lastToken(o) : null }; };
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const certify = async tok => { const token = await certifyIn(clinic, tok); return { info: token ? 'signed with the key it names' : 'no clinic key here for it', out: token ? 'CERTIFIED' : 'Failed', token }; };
 const release = async tok => { await tab(streetcat, 'release'); await streetcat.fill('#s-token', ''); await streetcat.fill('#s-token', tok); const info = await waitOut(streetcat, 's-info', /certified|signed|Signed/); const before = swaps; await streetcat.click('#s-go'); const o = await waitOut(streetcat, 's-out', /RELEASED|Not possible|refused|Interrupted/); return { info: info.split('\n')[0], out: o.split('\n')[0], swaps: swaps - before }; };
 
 const mochi = { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 30 * 86400 };
@@ -53,16 +57,15 @@ const r2 = await release(wrong); say('signed with another key:', r2.info, '|', r
 
 // 3) the real certified token
 const r3 = await release(certA); say('certified by the clinic:', r3.info, '|', r3.out);
-say('after certifying, the clinic\'s button:', await btnState(clinic, 'c-go'), '| buzzed:', (await buzzes(clinic)) > 0);
 say('after releasing, Streetcat\'s button:', await btnState(streetcat, 's-go'), '| buzzed:', (await buzzes(streetcat)) > 0);
 await streetcat.click('#s-again a'); await streetcat.waitForTimeout(300); say('"release another token":', await btnState(streetcat, 's-go'), '| box empty:', (await streetcat.inputValue('#s-token')) === '');
 { const before = swaps; await streetcat.fill('#s-token', certA); const again = await waitOut(streetcat, 's-out', /Already released|Nothing left|Not possible/); say('the same token pasted again:', again.split(':')[0], '|', await btnState(streetcat, 's-go'), '| swaps sent:', swaps - before); }
 
-// 4) past TEO's deadline the donor takes part of B back; the clinic still certifies B (with a warning); the release leaves that part out
+// 4) past TEO's deadline the donor takes part of B back; the clinic still signs B; the release leaves that part out
 await donor.waitForTimeout(Math.max(0, teo.deadline - now() + 1) * 1000);
 const part = getEncodedToken({ mint: MINT, proofs: [decB.proofs[0]], memo: decB.memo });
 await tab(donor, 'refund'); await donor.fill('#r-receipt', part); await donor.click('#r-go'); say('donor takes back', amt(decB.proofs[0].amount), 'sat of B:', (await waitOut(donor, 'r-out', /REFUNDED|refused|Not yet/)).split('\n')[0]);
-const cB = await certify(B); say('clinic, past the deadline:', cB.info.split('\n')[0].slice(0, 70) + '…', '|', cB.out.split('\n').slice(0, 2).join(' / ').slice(0, 110) + '…');
+const cB = await certify(B); say('clinic, past the deadline:', cB.out);
 const r4 = await release(cB.token); say('release B:', r4.out);
 
 // 5) the status page counts a proof once: a part of A listed first, then A, then its certified copy (the same proofs)

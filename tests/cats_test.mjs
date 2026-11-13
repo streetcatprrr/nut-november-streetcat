@@ -79,7 +79,7 @@ await cl.fill('#cn-chip', '941 000 027 761 304'); await cl.click('#cn-go');
 const sent = await waitText(cl, '#cn-out', /Streetcat gets it/, 60000);
 check('signed and sent: the record by the relay and every part of every photo', /^SIGNED · .+ · CAT-[0-9A-F]{10}\nrecord: sent · 1 of 1 relays have it\nphotos: (\d+) of \1 parts sent\nStreetcat gets it the next time its app checks\./.test(sent), sent.split('\n').slice(0, 3).join(' | '));
 check('…and its button says so, and cannot be pressed again', (await text(cl, '#cn-go')) === '✓ Signed' && await cl.isDisabled('#cn-go'));
-const kept = await cl.evaluate(async () => { const x = window.__vetlock.ccats()[0], db = await new Promise(r => { const q = indexedDB.open('streetcat', 1); q.onsuccess = () => r(q.result); });
+const kept = await cl.evaluate(async () => { const x = window.__vetlock.ccats()[0], db = await new Promise(r => { const q = indexedDB.open('streetcat'); q.onsuccess = () => r(q.result); });  /* the version the app made (2 since 12 Nov) */
   const get = k => new Promise(r => { const t = db.transaction('photos').objectStore('photos').get(k); t.onsuccess = () => r(t.result); });
   const out = []; for (const p of x.rec.statement.photos) { const b = await get(p.sha256); out.push({ slot: p.slot, n: b ? b.length : 0, jpeg: !!b && b[0] === 0xff && b[1] === 0xd8, exif: !!b && new TextDecoder('latin1').decode(b).includes('Exif'), gps: !!b && new TextDecoder('latin1').decode(b).includes('GPS-STREETCAT'), w: p.w, h: p.h }); } return out; });
 check('the photos the record names are JPEG, at most 38 kB and 640 px, and carry none of the camera\'s data', kept.length === 4 && kept.every(k => k.jpeg && k.n > 0 && k.n <= 38000 && Math.max(k.w, k.h) <= 640 && !k.exif && !k.gps), kept.map(k => `${k.slot} ${Math.round(k.n / 1000)} kB ${k.w}×${k.h}`).join(', '));
@@ -121,7 +121,7 @@ check('a record from a clinic of none of the campaigns: "unknown clinic", in red
 
 // a new record from nothing: the form comes back empty, with the colony of the last cat
 await cl.evaluate(() => window.__vetlock.openCatnew(null)); await cl.waitForSelector('#catnew.on');
-check('"record another cat": an empty form with the name to write, the colony and the procedure of the cat before, today, its button back', await cl.inputValue('#cn-name') === '' && await cl.isVisible('#cn-name') && await cl.inputValue('#cn-colony') === 'the marina'
+check('"record another cat": an empty form with the name to write, the colony to write too (13 Nov: not the cat before\'s), the procedure of the cat before, today, its button back', await cl.inputValue('#cn-name') === '' && await cl.isVisible('#cn-name') && await cl.inputValue('#cn-colony') === '' && (await cl.getAttribute('#cn-colony', 'placeholder')) === 'Choose colony'
   && (await text(cl, '#cn-sum')) === `sterilisation (spay) · ${today} · edit` && !(await cl.isVisible('#cn-coat')) && (await text(cl, '#cn-go')) === 'Sign and send to Streetcat' && !(await cl.isDisabled('#cn-go')) && (await cl.locator('#cn-shots .shot.has').count()) === 0);
 
 // nothing wider than the phone

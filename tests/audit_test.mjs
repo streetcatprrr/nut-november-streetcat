@@ -7,8 +7,8 @@
 //   campaign or a key that is not Streetcat's published one; "✓ campaign signed by Streetcat" otherwise.
 // a09 (integrity): a split donation released whole was invisible on the status page when its ledger entry left out its parts. Now every
 //   sat the mint shows as released must be covered by the clinic's signed declaration for it, or it is flagged in red.
-// F5 (robustness): the clinic's paste-certify path signed without core.js lockProblem, and the lock parsers accepted SIG_ALL and more
-//   than one refund signature. Now the clinic will not sign such a token, and the status page does not count it.
+// F5 (robustness): the clinic's paste-certify path (gone since 12 Nov) signed without core.js lockProblem, and the lock parsers accepted SIG_ALL and more
+//   than one refund signature. Now there is no such path (the partner signs only from a request), and the status page does not count it.
 import { chromium } from 'playwright';
 import fs from 'fs';
 import { pinBrowser, pin } from './pin.mjs';
@@ -74,14 +74,11 @@ const F = await divert(800), nF = total(F.ps), k2 = await certOf(F.ps, nF); s = 
 check('a09 (D): a release the clinic declared in full: not flagged', /RELEASED/.test(s.list) && !/✗/.test(s.list) && !/without the clinic's declaration/.test(s.note), s.list.slice(0, 80));
 
 // ---------- F5: locks with unusual rules ----------
-const clinic = await page(); await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(900); const clinicPk = await txt(clinic, '#c-pk'), scF = newSk(), d = now() + 30 * 86400;
+const clinic = await page(), clinicPk = C.pubOf(newSk()), scF = newSk(), d = now() + 30 * 86400;
 const base = () => new cashu.LockBuilder().addMainPubkey([C.pubOf(scF), clinicPk]).requireMainSignatures(2).lockUntil(d);
-const certifyTry = async t => { await clinic.fill('#c-token', ''); await clinic.fill('#c-token', t); const i = await waitText(clinic, '#c-info', /names|cannot|✗/, 15000); await clinic.evaluate(() => { document.getElementById('c-out').textContent = ''; }); await clinic.click('#c-go'); return { info: i, out: await waitText(clinic, '#c-out', /CERTIFIED|Failed|Not possible/, 15000) }; };
 const sigAll = tokOf(await locked(21, base().addRefundPubkey(C.pubOf(newSk())).sigAll()));
-let r = await certifyTry(sigAll); check('F5: a token locked with SIG_ALL: unreadable as a donation, and the clinic does not sign it', /cannot read token: its lock has an unusual signature rule \(SIG_ALL\)/.test(r.info) && /^Failed: its lock has an unusual signature rule/.test(r.out) && !/CERTIFIED/.test(r.out), r.out.slice(0, 90));
-r = await certifyTry(tokOf(await locked(13, base().addRefundPubkey([C.pubOf(newSk()), C.pubOf(newSk())]).requireRefundSignatures(2))));
-check('F5: a token whose refund needs two signatures: refused the same way', /unusual refund rule/.test(r.info) && /^Failed: its lock has an unusual refund rule/.test(r.out), r.out.slice(0, 90));
-r = await certifyTry(tokOf(await locked(8, base()))); check('F5: a token with no refund key: the paste path runs lockProblem and does not sign it', /^Failed: this token's lock is not a donation's lock \(no refund key: anyone could take it after the deadline\): it was not signed/.test(r.out), r.out.slice(0, 120));
+const gone = await clinic.evaluate(() => !document.getElementById('certify') && !document.getElementById('c-go') && !document.getElementById('w-certify') && !document.querySelector('nav [data-t="certify"]'));
+check('F5: the paste-certify path is gone: nothing in the partner\'s app signs a pasted token without a request (review of 12 Nov)', gone);
 const campF = { name: 'F5', op: 'test', mint: MINT, streetcat: C.pubOf(scF), clinic: clinicPk, deadline: d }; await pin(campF.streetcat); s = await status(ledger(campF, [{ ref: 'DON-00000000', amount: 21, date: '2026-11-04', token: sigAll, parts: [], remainders: [] }]));
 check('F5: the status page does not count a SIG_ALL lock either', /NOT COUNTED/.test(s.list) && /lock: unusual signature rule/.test(s.list), (s.list.match(/lock: [^\n]*/) || [''])[0]);
 

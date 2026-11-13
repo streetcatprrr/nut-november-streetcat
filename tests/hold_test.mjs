@@ -2,7 +2,8 @@
 // that moves money or signs needs holding; Pay with Lightning, which only shows an invoice, stays a tap. A tap does nothing and says
 // "hold to confirm"; let go early, the fill empties and nothing happens; held its full time (the app's own, read from the page), the
 // fill reaches the right in the colour of whose screen it is (Streetcat green, the donor orange, the clinic blue), blinks twice and the
-// button acts: a campaign is made, a donation locked (held with the keyboard's Space), a token certified. Done, it cannot be held again.
+// button acts: a campaign is made, a donation locked (held with the keyboard's Space); the clinic's fill in blue (its cat record's
+// "Sign and send", let go early: nothing is sent).
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { startRelay } from './nostr_relay.mjs';
@@ -26,7 +27,7 @@ const setHold = (p, ms) => p.evaluate(ms => { if (ms == null) localStorage.remov
 
 // which buttons need holding
 const held = await sc.evaluate(() => window.__vetlock.HOLD.map(id => [id, document.getElementById(id).classList.contains('hold')]));
-check('every button that moves money or signs needs holding (11), Pay with Lightning stays a tap', held.length === 11 && held.every(x => x[1]) && !(await donor.$eval('#d-ln', b => b.classList.contains('hold'))), held.map(x => x[0]).join(' '));
+check('every button that moves money or signs needs holding (10), Pay with Lightning stays a tap', held.length === 10 && held.every(x => x[1]) && !(await donor.$eval('#d-ln', b => b.classList.contains('hold'))), held.map(x => x[0]).join(' '));
 
 // keys, then Streetcat's campaign, held for the app's own time
 await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1200); const clinicPk = await txt(clinic, '#cs-pk');
@@ -51,13 +52,11 @@ await donor.waitForTimeout(700); await donor.keyboard.up('Space'); const locked 
 check('the donor holds Space on "Lock my donation": it fills in orange, and the donation is locked', dcol.role === 'donor' && dcol.c === dcol.want && dfill > .2 && /LOCKED 2 100 sat for MOCHI/.test(locked), `${dcol.c} · ${(locked.match(/LOCKED 2 100 sat for MOCHI/) || [locked.slice(0, 60)])[0]}`);
 const token = await donor.evaluate(() => window.__vetlock.donorKeys().map(k => k.lockedToken).filter(Boolean).pop());
 
-// the clinic certifies it, held: blue; done, it cannot be held again
-await setHold(clinic, 600); await tab(clinic, 'certify'); await clinic.fill('#c-token', token); await clinic.waitForTimeout(800);
-await at(clinic, '#c-go'); await clinic.mouse.down(); await clinic.waitForTimeout(300); const ccol = await fillColor(clinic, '#c-go'); await clinic.waitForTimeout(700); await clinic.mouse.up();
-const cert = await waitText(clinic, '#c-out', /CERTIFIED|Failed|Not possible/, 30000);
-check('the clinic holds "Certify": it fills in blue, and the token is certified', ccol.role === 'clinic' && ccol.c === ccol.want && /^CERTIFIED 2 100 sat/.test(cert), `${ccol.c} · ${cert.split('\n')[0]}`);
-await at(clinic, '#c-go'); await clinic.mouse.down(); await clinic.waitForTimeout(300); const again = await clinic.$eval('#c-go', b => b.classList.contains('holding')); await clinic.mouse.up();
-check('…done ("✓ Certified"), it cannot be held again', !again && /Certified/.test(await txt(clinic, '#c-go')), await txt(clinic, '#c-go'));
+// the clinic's held buttons fill in blue: its cat record's "Sign and send", let go early, so nothing is sent ("Certify a token", held here
+// before, is gone: review of 12 Nov)
+await setHold(clinic, 600); await tab(clinic, 'catnew'); await clinic.waitForTimeout(500);
+await at(clinic, '#cn-go'); await clinic.mouse.down(); await clinic.waitForTimeout(300); const ccol = await fillColor(clinic, '#cn-go'), cfill = await fill(clinic, '#cn-go'); await clinic.mouse.up(); await clinic.waitForTimeout(500);
+check('the clinic\'s held buttons fill in blue; let go early, nothing is sent', ccol.role === 'clinic' && ccol.c === ccol.want && cfill > .2 && (await fill(clinic, '#cn-go')) === 0 && !(await txt(clinic, '#cn-out')), `${ccol.c} · ${cfill.toFixed(2)}`);
 check('the three colours differ: green, orange, blue', new Set([col.c, dcol.c, ccol.c]).size === 3, [col.c, dcol.c, ccol.c].join(' · '));
 
 await b.close(); await relay.close(); say(bad ? `hold: ${bad} check(s) failed` : 'hold: every check passed'); process.exit(bad ? 1 : 0);

@@ -43,7 +43,7 @@ const violations = async p => (await p.evaluate(() => window.__csp || [])).conca
 // every screen of every role
 const sc = await page(); await tab(sc, 'release'); await sc.click('#s-new'); await sc.waitForTimeout(800);
 const clinic = await page(); await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(800); const clinicPk = await txt(clinic, '#cs-pk');
-for (const t of ['donate', 'refund', 'dhand', 'dcard', 'work', 'creq', 'certify', 'csettings', 'coffline', 'keys', 'home', 'scamp', 'snew', 'sreq', 'shand', 'release', 'campaign']) { await tab(sc, t); await sc.waitForTimeout(250); }
+for (const t of ['donate', 'refund', 'dhand', 'dcard', 'work', 'creq', 'csettings', 'coffline', 'keys', 'home', 'scamp', 'snew', 'sreq', 'shand', 'release', 'campaign']) { await tab(sc, t); await sc.waitForTimeout(250); }
 const sv = await violations(sc); check('every screen opens under the policy, with no violation', !sv.length, sv.join(' | '));
 // the cat recognition: its worker, the engine's WebAssembly and both models, on a drawn photo (no real photo is kept with the tests)
 const rec = await clinic.evaluate(async () => { const t0 = Date.now(), cv = new OffscreenCanvas(320, 240), cx = cv.getContext('2d');

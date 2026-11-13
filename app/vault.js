@@ -1,5 +1,5 @@
 // The private keys this browser keeps, locked with a PIN (11 Nov). Off until a PIN is set in Keys or in the partner's settings.
-// With a PIN, the six places where private keys are kept hold them encrypted, and the app does not start until the PIN is given:
+// With a PIN, the eight places where private keys are kept hold them encrypted, and the app does not start until the PIN is given:
 // it opens them for this tab only, and a closed tab is locked again. The PIN makes a key (PBKDF2-SHA256, 600 000 rounds, a salt of
 // this browser's); each value is sealed with it as a NIP-44 v2 payload (ChaCha20 and HMAC-SHA256, the library the app already
 // carries for its messages), in pieces when it is long. Sealing is done at once, as the value is written: a key is never "saved"
@@ -8,8 +8,9 @@
 // by whoever has a copy of the storage and time, so the backup with a long password stays the thing to keep. Not locked: what is
 // not a key (campaigns, requests, records, and the ecash kept as change or released, which is spent like cash).
 (() => {
-  const META = 'vetlock.pin', NEXT = 'vetlock.pin.next', SESSION = 'vetlock.pin.k', PRE = 'pin1:', ITER = 600000, MIN = 6, CHUNK = 16000;
-  const SLOTS = ['vetlock.clinic.sk', 'vetlock.streetcat.sk', 'vetlock.donor.sk', 'vetlock.clinic.old', 'vetlock.streetcat.old', 'vetlock.donor.keys'];
+  const META = 'vetlock.pin', NEXT = 'vetlock.pin.next', SESSION = 'vetlock.pin.k', PRE = 'pin1:', ITER = 600000, MIN = 8, CHUNK = 16000;  /* 8: a hundred million PINs to try, not a million (review of 12 Nov) */
+  const SLOTS = ['vetlock.clinic.sk', 'vetlock.streetcat.sk', 'vetlock.donor.sk', 'vetlock.clinic.old', 'vetlock.streetcat.old', 'vetlock.donor.keys',
+    'vetlock.volunteer.sk', 'vetlock.walletreqs'];  /* the volunteer's key, and the keys a wallet's payment comes to (12 Nov: they were left out) */
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), unhex = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
   const raw = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const put = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); return raw(k) === (v == null ? null : v); } catch (_) { return false; } };

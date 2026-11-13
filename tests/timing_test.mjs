@@ -41,7 +41,7 @@ const dl = {}, mk = async (name, days) => { await tab(sc, 'campaign'); await sc.
 const give = async (link, n) => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
   await waitText(donor, '#d-out', /LOCKED|Failed/); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); };
 const L2 = await mk('PLAYA DOS', 2), L30 = await mk('PLAYA TREINTA', 30); await give(L2, 100); await give(L30, 100);
-const inLedger = () => sc.evaluate(() => Object.values(JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}')).reduce((n, L) => n + Object.keys((L && L.entries) || {}).length, 0));
+const inLedger = () => sc.evaluate(async () => Object.values(await window.__vetlock.ledgerAll()).reduce((n, L) => n + Object.keys((L && L.entries) || {}).length, 0));
 for (let i = 0; i < 90 && await inLedger() < 2; i++) { await sc.evaluate(() => window.__vetlock.scCheck()).catch(() => {}); await sc.waitForTimeout(1000); }
 check('both donations reach Rescue\'s pots by relay', await inLedger() === 2);
 

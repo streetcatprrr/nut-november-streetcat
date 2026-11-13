@@ -8,7 +8,7 @@
 // in red, and nothing else. The status page opens with the keys locked. Not covered: a phone's own storage limits.
 import { chromium } from 'playwright';
 import { pinBrowser } from './pin.mjs';
-const BASE = process.env.BASE || 'http://127.0.0.1:8080/', say = (...a) => console.log(...a), PIN = '482913';
+const BASE = process.env.BASE || 'http://127.0.0.1:8080/', say = (...a) => console.log(...a), PIN = '48291375';  /* 8 digits: the shortest a PIN may be since 12 Nov */
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
 const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})), ctx = await b.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
 await ctx.addInitScript(() => { try { localStorage.setItem('vetlock.relays', 'ws://127.0.0.1:9'); } catch (_) {} });
@@ -22,9 +22,9 @@ const skOf = p => p.evaluate(() => window.__vetlock.key('clinic', false));
 // a partner's key, kept in the clear as before; then a PIN
 const p1 = await open(); await tab(p1, 'csettings'); await p1.click('#cs-new'); const sk1 = await skOf(p1), pk1 = await p1.evaluate(sk => window.__vetlock.pubOf(sk), sk1); await p1.waitForTimeout(1500);  /* the new key shuffles in */
 check('with no PIN the key is kept as before, and the settings say "PIN for the keys · off"', /^[0-9a-f]{64}$/.test(sk1) && (await raw(p1, 'vetlock.clinic.sk')) === sk1 && (await txt(p1, '#cs-pin-sum')) === 'PIN for the keys · off' && !(await p1.evaluate(() => window.scVault.on())));
-await p1.click('#cs-pin-sum'); await p1.fill('#cs-pin-a', '123'); await p1.fill('#cs-pin-b', '123'); await p1.click('#cs-pin-set'); const short = await txt(p1, '#cs-pin-out');
+await p1.click('#cs-pin-sum'); await p1.fill('#cs-pin-a', '123456'); await p1.fill('#cs-pin-b', '123456'); await p1.click('#cs-pin-set'); const short = await txt(p1, '#cs-pin-out');  /* six digits, enough before 12 Nov */
 await p1.fill('#cs-pin-a', PIN); await p1.fill('#cs-pin-b', '482914'); await p1.click('#cs-pin-set'); const differ = await txt(p1, '#cs-pin-out');
-check('a PIN too short, or not the same twice, is refused in red and nothing is locked', /^✗ A PIN has 6 characters or more/.test(short) && /^✗ The two PINs are not the same/.test(differ) && await isRed(p1, '#cs-pin-out') && (await raw(p1, 'vetlock.clinic.sk')) === sk1, short + ' | ' + differ);
+check('a PIN too short, or not the same twice, is refused in red and nothing is locked', /^✗ A PIN has 8 characters or more/.test(short) && /^✗ The two PINs are not the same/.test(differ) && await isRed(p1, '#cs-pin-out') && (await raw(p1, 'vetlock.clinic.sk')) === sk1, short + ' | ' + differ);
 await p1.fill('#cs-pin-b', PIN); await p1.click('#cs-pin-set'); const set = await waitText(p1, '#cs-pin-out', /✓|✗/), sealed = await raw(p1, 'vetlock.clinic.sk'), meta = JSON.parse(await raw(p1, 'vetlock.pin') || 'null');
 check('the PIN set: what the browser keeps of the key is sealed, and the PIN itself is nowhere', /^✓ Keys locked/.test(set) && /^pin1:/.test(sealed) && !sealed.includes(sk1) && !!meta && meta.iter === 600000 && !JSON.stringify(await p1.evaluate(() => ({ ...localStorage, ...sessionStorage }))).includes(PIN) && (await raw(p1, 'vetlock.pin.next')) === null, set + ' · ' + sealed.slice(0, 24) + '…');
 check('…the app reads it as before, and says "PIN for the keys · on" with "lock now" and "remove PIN"', (await skOf(p1)) === sk1 && (await txt(p1, '#cs-pk')) === pk1 && (await txt(p1, '#cs-pin-sum')) === 'PIN for the keys · on' && await p1.isVisible('#cs-pin-lock') && await p1.isVisible('#cs-pin-off') && !(await p1.isVisible('#cs-pin-set')));

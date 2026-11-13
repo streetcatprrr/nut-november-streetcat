@@ -81,7 +81,8 @@ await sc.click('#hd-back'); await sc.waitForSelector('#skind.on'); L = await lin
 check('back on Food, the pot is listed: its colony, its partner, its days left, what it was given and has to spend', L.length === 1 && L[0].title === 'COMIDA MARINA' && /^colony Marina · Pienso Sur · 3[01] days left$/.test(L[0].subs[0]) && L[0].subs[1] === '0 sat given · 0 sat to spend', JSON.stringify(L));
 // a second food pot of the same shop, the same day, for another colony
 await sc.click('#kd-camp'); await sc.waitForSelector('#campaign.on');
-check('the next food campaign starts with that shop as its partner', (await txt(sc, '#k-par')) === 'PIENSO SUR');
+check('the next food campaign chooses no partner by itself: "Choose partner" until one is chosen (13 Nov)', (await txt(sc, '#k-par')) === 'Choose partner' && (await txt(sc, '#k-col')) === 'Choose colony');
+await sc.click('#k-par'); await pick(sc, 'Pienso Sur'); await sc.waitForSelector('#campaign.on');  /* the same shop, chosen again */
 await sc.fill('#k-name', 'COMIDA PLAYA'); await sc.click('#k-col'); await sc.waitForSelector('#spick.on'); await sc.click('#pp-add'); await sc.fill('#pp-name', 'colony Playa'); await sc.click('#pp-save'); await sc.waitForSelector('#campaign.on');
 await sc.fill('#k-mint', MINT); await sc.click('#k-go'); made = await waitText(sc, '#k-out', /is ready|cannot|✗/, 30000); const L2 = (made.match(/http\S+#c=\S+/) || [])[0]; const c2 = await camp(sc);
 check('two pots of one shop made the same day lock differently: the second refunds one second earlier, on the same date', /is ready/.test(made) && c2.c.clinic === c1.c.clinic && c2.c.deadline === c1.c.deadline - 1 && new Date(c2.c.deadline * 1000).toISOString().slice(0, 10) === in30, `${c1.c.deadline} · ${c2.c.deadline}`);
@@ -136,7 +137,7 @@ const atShop = await (async () => { await tab(shop, 'work'); await shop.click('#
 check('…and it reaches the shop\'s phone', /20 kg dry feed/.test(atShop), atShop.slice(0, 80));
 // a sterilisation request: the cat and its photos again; its one pot comes by itself
 await tab(sc, 'home'); await sc.locator('#h-kinds button.tile', { hasText: 'Sterilisation' }).click(); await sc.click('#kd-req'); await sc.waitForSelector('#snew.on');
-check('a sterilisation request asks for the cat, its photos and the procedure; its one pot comes by itself, with its colony', await sc.isVisible('#sn-cat') && await sc.isVisible('#sn-shots') && (await txt(sc, '#sn-proc-l')) === 'Procedure' && (await txt(sc, '#sn-pot')).startsWith('TNR MARINA') && (await txt(sc, '#sn-col')) === 'COLONY MARINA');
+check('a sterilisation request asks for the cat, its photos and the procedure; its one pot comes by itself, the colony left to choose (13 Nov)', await sc.isVisible('#sn-cat') && await sc.isVisible('#sn-shots') && (await txt(sc, '#sn-proc-l')) === 'Procedure' && (await txt(sc, '#sn-pot')).startsWith('TNR MARINA') && (await txt(sc, '#sn-col')) === 'Choose colony');
 
 // THE DONOR: the same four kinds, two by two, none chosen: all of them
 await donor.goto(BASE + 'index.html'); await donor.click('#d-check'); await donor.waitForFunction(() => document.querySelectorAll('#d-reqs button.req').length === 3, null, { timeout: 30000 }).catch(() => {}); await settled(donor, '#d-reqs');

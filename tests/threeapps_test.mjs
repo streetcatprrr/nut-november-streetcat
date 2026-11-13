@@ -37,7 +37,7 @@ check('Rescue\'s new campaign: its link and its ledger to copy; no "open donatio
 // THE DONORS' APP: a donation, sent to Streetcat by relay; Rescue's app, in front again, has it
 await donor.goto(L1); await donor.reload(); await tab(donor, 'decash'); await donor.fill('#d-token', await plain(30)); await donor.click('#d-go');  /* more than the request: a mint with fees takes its sat */ const locked = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 30000);
 await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000);
-await tab(rescue, 'home'); await front(rescue); for (let i = 0; i < 40; i++) { await rescue.waitForTimeout(500); if (await rescue.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}')).length)) break; }
+await tab(rescue, 'home'); await front(rescue); for (let i = 0; i < 40; i++) { await rescue.waitForTimeout(500); if (await rescue.evaluate(async () => Object.keys(await window.__vetlock.ledgerAll()).length)) break; }
 await rescue.locator('#h-kinds button.tile', { hasText: 'Sterilisation' }).click(); await rescue.waitForSelector('#skind.on'); const pots = await lines(rescue, '#kd-pots');
 const given = ((pots[0] && pots[0].subs[1]) || '').match(/^(\d+) sat given · (\d+) sat to spend$/);
 check('the donation reaches Rescue\'s app by relay (30 sat, less a mint\'s fee if it takes one)', /LOCKED/.test(locked) && pots.length === 1 && !!given && +given[1] >= 27 && +given[1] <= 30 && given[1] === given[2], JSON.stringify(pots.map(p => p.subs[1])));

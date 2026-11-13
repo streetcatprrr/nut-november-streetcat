@@ -53,7 +53,7 @@ const CATID = (() => {
     return W; }
   const ask = m => new Promise((res, rej) => { const id = ++seq; waiting.set(id, { res, rej }); worker().postMessage({ ...m, id }); });
   const call = m => (chain = chain.then(() => ask(m), () => ask(m)));
-  async function load(onProgress){ progress = onProgress || null; try { await call({ op: 'load' }); LOADED = true; } finally { progress = null; } }
+  async function load(onProgress){ if (onProgress) progress = onProgress; try { await call({ op: 'load' }); LOADED = true; } finally { if (progress === onProgress) progress = null; } }  /* one without its own progress (a photo looked at as it is taken) leaves the other's */
   // are its files kept on this phone, for without a connection? (the engine's code too: the worker imports it)
   const AI = 'streetcat-ai-1';
   async function here(){ try { if (!self.caches) return false; for (const f in KEEP) if (!(await caches.match(ROOT + f))) return false; return true; } catch (_) { return false; } }
@@ -73,8 +73,10 @@ const CATID = (() => {
   async function compute(bytes){ const { px, w, h } = await pixels(bytes);
     const s0 = Math.min(512 / Math.min(w, h), 1333 / Math.max(w, h)), FW = Math.max(16, half(w * s0 / 16) * 16), FH = Math.max(16, half(h * s0 / 16) * 16);
     const r = await call({ op: 'find', x: tensor(resize(px, w, h, FW, FH, LINEAR), FW, FH), dims: [1, 3, FH, FW] }), [, Q, K] = r.ldims, found = [];
+    let pc = 0;  /* the highest chance of a cat in any box, under .5 too: catIn() below */
     for (let q = 0; q < Q; q++) { const L = r.logits.subarray(q * K, q * K + K); let mx = -Infinity, am = 0; for (let k = 0; k < K; k++) if (L[k] > mx) { mx = L[k]; am = k; }
-      if (am !== CAT) continue; let z = 0; for (let k = 0; k < K; k++) z += Math.exp(L[k] - mx); if (1 / z > .5) found.push([1 / z, Array.from(r.boxes.subarray(q * 4, q * 4 + 4))]); }
+      let z = 0; for (let k = 0; k < K; k++) z += Math.exp(L[k] - mx); pc = Math.max(pc, Math.exp(L[CAT] - mx) / z);
+      if (am === CAT && 1 / z > .5) found.push([1 / z, Array.from(r.boxes.subarray(q * 4, q * 4 + 4))]); }
     found.sort((a, b) => b[0] - a[0]);
     let x0 = 0, y0 = 0, x1 = w, y1 = h, p = 0, n = 0;
     if (found.length) { const [cx, cy, bw, bh] = found[0][1], m = .1; p = found[0][0]; n = 1 + found.slice(1).filter(([q, b]) => q > .7 && iou(b, found[0][1]) < .3).length;
@@ -84,7 +86,7 @@ const CATID = (() => {
     for (let y = 0; y < ch; y++) sq.set(px.subarray(((y0 + y) * w + x0) * 3, ((y0 + y) * w + x0 + cw) * 3), ((oy + y) * side + ox) * 3);
     const { e } = await call({ op: 'embed', x: tensor(resize(sq, side, side, 256, 256, CUBIC), 256, 256, 16, 16, 224), dims: [1, 3, 224, 224] });
     unit(e); const fc = await faceOf(px, w, h);
-    return { e, box: [x0, y0, x1, y1], p, n, f: fc ? fc.f : null, fs: fc ? fc.s : 0, fl: fc ? fc.l : null }; }
+    return { e, box: [x0, y0, x1, y1], p, n, pc, f: fc ? fc.f : null, fs: fc ? fc.s : 0, fl: fc ? fc.l : null }; }
   const unit = v => { let t = 0; for (const x of v) t += x * x; t = Math.sqrt(t) || 1; for (let i = 0; i < v.length; i++) v[i] /= t; return v; };
 
   // the face (version 2): the photo letterboxed into 384 × 384 on grey, as AnyFace was trained; its best face (score: object × class,
@@ -113,8 +115,11 @@ const CATID = (() => {
     const open = () => d || (d = new Promise((res, rej) => { const r = indexedDB.open('streetcat-catid', 1); r.onupgradeneeded = () => r.result.createObjectStore('vec'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }).catch(e => { d = null; throw e; }));
     const run = (mode, fn) => open().then(db => new Promise((res, rej) => { const t = db.transaction('vec', mode), q = fn(t.objectStore('vec')); t.oncomplete = () => res(q && q.result); t.onerror = t.onabort = () => rej(t.error); }));
     return { get: k => run('readonly', s => s.get(k)), put: (k, v) => run('readwrite', s => s.put(v, k)) }; })();
-  async function vecOf(sha, bytes){ const k = TAG + ':' + sha; try { const v = await DB.get(k); if (v && v.e) return v; } catch (_) {}
-    const b = typeof bytes === 'function' ? await bytes() : bytes; if (!b) return null; const v = await compute(b); try { await DB.put(k, v); } catch (_) {} return v; }
+  const WORKING = new Map();  /* a photo asked for again while it is being worked out waits for that, not for a second time */
+  function vecOf(sha, bytes){ const k = TAG + ':' + sha; if (WORKING.has(k)) return WORKING.get(k);
+    const p = (async () => { try { const v = await DB.get(k); if (v && v.e) return v; } catch (_) {}
+      const b = typeof bytes === 'function' ? await bytes() : bytes; if (!b) return null; const v = await compute(b); try { await DB.put(k, v); } catch (_) {} return v; })();
+    WORKING.set(k, p); const done = () => { if (WORKING.get(k) === p) WORKING.delete(k); }; p.then(done, done); return p; }
   const sim = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
   // two photos: each model's cosine on one scale, (cosine − the median of two different cats') / their spread, and the two averaged;
   // without a face in either, DINOv2's alone. A face counts only from a score of 0.6 (FACE): on the evaluation's photos real cat faces
@@ -124,6 +129,13 @@ const CATID = (() => {
   // 5 % of the time with two or three photos a side, as v1's 0.40 was, and another cat 84–89 % (v1: 66–76 %).
   const Z = { e: [.2871, .1272], f: [.0793, .1445] }, WARN = 1.0, FACE = .6, face = v => v.f && v.fs >= FACE;
   const pair = (a, b) => { const d = (sim(a.e, b.e) - Z.e[0]) / Z.e[1]; return face(a) && face(b) ? (d + (sim(a.f, b.f) - Z.f[0]) / Z.f[1]) / 2 : d; };
+  // IS THERE A CAT IN IT? (13 Nov) A hand against trousers came out "nothing points to another cat": the models compare whatever they are
+  // given. A cat is there when YOLOS finds one (n), or gives a cat a chance of 0.1 or more in some box (pc: it can call a cat a dog), or
+  // AnyFace finds a face and YOLOS gives a cat at least 0.01 (a close-up: AnyFace alone finds faces in a smiley, in drawn rings and in a
+  // drawn person). Measured in the browser on 73 photos of real cats and 106 pictures of no cat (photos of screens, of a pallet, of a
+  // forest; app screenshots; drawings, a drawn hand and trousers, noise): one cat missed (small, dark, in the grass: pc 0.07), no
+  // picture taken for a cat (the highest pc, a photo of a laptop's screen: 0.04). Numbers kept before 13 Nov have no pc: YOLOS or a face.
+  const PC = .1, PCF = .01, catIn = v => !!v && (v.n > 0 || (v.pc == null ? !!face(v) : v.pc >= PC || (!!face(v) && v.pc >= PCF)));
 
   // the records in the order of how much they look like a new cat: each photo of it finds its closest photo in a record (by pair()),
   // and the record's score is the mean of those. Only an order: with v2, one new photo against 13 cats' others, the right cat came
@@ -140,5 +152,5 @@ const CATID = (() => {
       if (pv.length && Number.isFinite(best[0])) out.push({ id: r.id, s: best.reduce((a, b) => a + b, 0) / best.length, sha }); }
     return out.sort((a, b) => b.s - a.s); }
 
-  return { V: 2, WARN, SIZE, FILES, KEEP, DIR, ROOT, here, keep, load, loaded: () => LOADED, vecOf, compute, sim, pair, Z, rank };
+  return { V: 2, WARN, SIZE, FILES, KEEP, DIR, ROOT, here, keep, load, loaded: () => LOADED, vecOf, compute, sim, pair, Z, rank, catIn };
 })();

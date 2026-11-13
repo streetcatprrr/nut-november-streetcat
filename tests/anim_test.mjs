@@ -20,7 +20,9 @@ await p.evaluate(() => localStorage.removeItem('vetlock.anim')); await p.reload(
 
 // the keys come onto the screen typing themselves in, then land, and the cursor goes
 await p.click('#h-new'); await p.waitForTimeout(120); const k0 = await keysNow(p);
-check('the keys come onto the screen typing themselves in, cursor ahead', k0.length === 2 && k0.some(k => k.cur || k.typing) && k0.some(k => !real.includes(k.text)), k0.map(k => `${k.text.slice(0, 8)}… ${k.cur ? 'cursor' : ''}`).join(' · '));
+check('the keys come onto the screen typing themselves in, cursor ahead', k0.length === 2 && (k0[0].cur || k0[0].typing) && k0[0].text !== real[0] && !/^[0-9a-f]{66}$/.test(k0[1].text), k0.map(k => `${k.text.slice(0, 8)}… ${k.cur ? 'cursor' : ''}`).join(' · '));
+check('…the partner, not chosen yet, is asked for (13 Nov)', await until(p, () => { const ks = document.querySelectorAll('#k-keys .kk'); return ks.length === 2 && ks[1].textContent === 'choose the partner above'; }, null, 4000));
+await p.click('#k-more summary'); await p.fill('#k-c', real[1]); await p.click('#k-more summary');  /* the partner, chosen: its key in the fold, as the picker sets it */
 const landed = await until(p, r => [...document.querySelectorAll('#k-keys .kk')].map(k => k.textContent).join() === r.join() && !document.querySelector('#k-keys .cur, #k-keys [data-typing]'), real);
 check('…and land, whole, and the cursor goes', landed, (await keysNow(p)).map(k => k.text.slice(0, 10)).join(' · '));
 
@@ -48,6 +50,6 @@ check('a red line never moves', /^✗ This browser does not hold Streetcat's key
 // still: with vetlock.anim off nothing types nor shuffles
 const s = await page(true); await tab(s, 'csettings'); await s.click('#cs-new'); await s.waitForTimeout(300); await tab(s, 'release'); await s.click('#s-new'); await s.waitForTimeout(300); await s.reload(); await tab(s, 'home');
 await s.click('#h-new'); await s.waitForTimeout(60); const sk = await s.$$eval('#k-keys .kk', ks => ks.map(k => ({ t: k.textContent, cur: !!k.querySelector('.cur') })));
-check('with vetlock.anim off (the other suites), the keys are just there', sk.length === 2 && sk.every(k => /^[0-9a-f]{66}$/.test(k.t) && !k.cur));
+check('with vetlock.anim off (the other suites), the keys are just there', sk.length === 2 && /^[0-9a-f]{66}$/.test(sk[0].t) && sk[1].t === 'choose the partner above' && sk.every(k => !k.cur));
 
 await b.close(); say(bad ? `anim: ${bad} check(s) failed` : 'anim: every check passed'); process.exit(bad ? 1 : 0);

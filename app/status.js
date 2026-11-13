@@ -32,7 +32,10 @@ function badFrag(text, keys = false){ const f = document.createDocumentFragment(
 // sats and times written as in the app (index.js: ONE WAY TO WRITE SATS AND DATES; review of 9 Nov, U2 and U3)
 const fmtSat = n => Number(n || 0).toLocaleString('en').replace(/,/g, ' ') + ' sat', EN = 'en-GB', hhmm = d => new Date(d).toLocaleTimeString(EN, { hour: '2-digit', minute: '2-digit' });
 const setLines = (e, text) => { e.textContent = ''; e.appendChild(badFrag(text)); return e; };
-function paintKeys(root){ const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => ((KEYRE.lastIndex = 0, KEYRE.test(n.nodeValue)) && !n.parentNode.closest('textarea, .key, .nokey, .bad')) || ((NAMERE.lastIndex = 0, NAMERE.test(n.nodeValue)) && !n.parentNode.closest('textarea, .key, .nokey, .bad, .who, button, a.sm, nav, input, select, title, .sc-roles')) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
+// a text is painted only for what it has to paint: a name it would leave as it is ("rescue", "STREETCAT": nameOk) is no reason to take it,
+// or it would be put back the same, seen as new, and taken again, for ever: the page hung (13 Nov)
+const paintsName = t => { let m; NAMERE.lastIndex = 0; while ((m = NAMERE.exec(t))) if (nameOk(m[1])) return true; return false; };
+function paintKeys(root){ const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => ((KEYRE.lastIndex = 0, KEYRE.test(n.nodeValue)) && !n.parentNode.closest('textarea, .key, .nokey, .bad')) || (paintsName(n.nodeValue) && !n.parentNode.closest('textarea, .key, .nokey, .bad, .who, button, a.sm, nav, input, select, title, .sc-roles')) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP });
   const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const n of nodes) n.parentNode.replaceChild(withKeys(n.nodeValue), n); }
 new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) { if (n.nodeType === 3 && n.parentNode) paintKeys(n.parentNode); else if (n.nodeType === 1) paintKeys(n); } }).observe(document.body, { childList: true, subtree: true, characterData: false });

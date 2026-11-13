@@ -21,7 +21,7 @@ const page = async relays => { const c = await b.newContext({ serviceWorkers: 'b
 const tab = (p, t) => p.evaluate(t => window.__vetlock.openTab(t), t), txt = async (p, s) => ((await p.textContent(s)) || '').trim();
 const waitText = async (p, s, re, ms = 30000) => { const t0 = Date.now(); let x = ''; while (Date.now() - t0 < ms) { x = await txt(p, s).catch(() => ''); if (re.test(x)) return x; await p.waitForTimeout(150); } return x; };
 const shot = async (p, name) => { if (!SHOT) return; await p.evaluate(() => { const e = document.querySelector('#d-out .send-sc'); if (e) e.scrollIntoView({ block: 'center' }); }); await p.waitForTimeout(1200); await p.screenshot({ path: `${SHOT}/${name}.png` }); };
-const ledger = p => p.evaluate(() => { const all = JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}'); return Object.values(all).flatMap(L => Object.entries((L && L.entries) || {}).map(([ref, e]) => ({ ref, amount: Number(e.amount) }))); });
+const ledger = p => p.evaluate(async () => { const all = await window.__vetlock.ledgerAll();  /* in IndexedDB since 12 Nov */ return Object.values(all).flatMap(L => Object.entries((L && L.entries) || {}).map(([ref, e]) => ({ ref, amount: Number(e.amount) }))); });
 const waitLedger = async (p, n, ms = 40000) => { const t0 = Date.now(); let l = []; while (Date.now() - t0 < ms) { await p.evaluate(() => window.__vetlock.scCheck()).catch(() => {}); l = await ledger(p); if (l.length >= n) return l; await p.waitForTimeout(1000); } return l; };
 const donations = p => p.evaluate(() => window.__vetlock.outbox().filter(x => x.t === 'streetcat.donation').map(x => ({ id: x.id, ref: x.ref, state: x.state, relays: x.relays })));
 

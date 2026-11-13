@@ -51,7 +51,7 @@ if (!link) { say('destflow: no campaign, nothing else can be tested'); await b.c
 // THE DONORS' APP: two donations, sent to Streetcat by relay
 const give = async n => { await donor.goto(link); await donor.reload(); await tab(donor, 'decash'); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); const t = await waitText(donor, '#d-out', /LOCKED|Failed|✗/, 40000); await waitText(donor, '#d-out .send-sc', /sent to Streetcat|relay|copy/, 20000); return t; };
 const g1 = await give(2100), g2 = await give(300);
-await tab(rescue, 'home'); await front(rescue); for (let i = 0; i < 60; i++) { await rescue.waitForTimeout(500); if (await rescue.evaluate(() => Object.values(JSON.parse(localStorage.getItem('vetlock.sc.ledger') || '{}')).reduce((s, L) => s + Object.keys(L.entries || {}).length, 0)) >= 2) break; await front(rescue); }
+await tab(rescue, 'home'); await front(rescue); for (let i = 0; i < 60; i++) { await rescue.waitForTimeout(500); if (await rescue.evaluate(async () => Object.values(await window.__vetlock.ledgerAll()).reduce((s, L) => s + Object.keys(L.entries || {}).length, 0)) >= 2) break; await front(rescue); }
 const pot = async () => { await tab(rescue, 'home'); await rescue.waitForTimeout(300); await rescue.locator('#h-kinds button.tile', { hasText: 'Sterilisation' }).click(); await rescue.waitForSelector('#skind.on'); const ps = await lines(rescue, '#kd-pots'); const m = ((ps[0] && ps[0].subs[1]) || '').match(/^([\d\s]+) sat given · ([\d\s]+) sat to spend$/); return m ? { given: num(m[1]), spend: num(m[2]), n: ps.length } : { n: ps.length, raw: JSON.stringify(ps) }; };
 const p0 = await pot();
 check('two donations (2 100 and 300 sat, less what locking costs at a mint with fees) reach the pot in Rescue\'s app by relay', /LOCKED/.test(g1) && /LOCKED/.test(g2) && p0.n === 1 && p0.given > 2380 && p0.given <= 2400 && p0.spend === p0.given, JSON.stringify(p0));
@@ -59,9 +59,10 @@ check('two donations (2 100 and 300 sat, less what locking costs at a mint with 
 // RESCUE's request: 2 201 sat, of the second clinic
 await rescue.click('#kd-req'); await rescue.waitForSelector('#snew.on'); await rescue.fill('#sn-cat', 'Luna'); await rescue.fill('#sn-proc', 'Spay'); await rescue.fill('#sn-cost', '2201'); await waitText(rescue, '#sn-cover', /✓|✗/, 30000);
 const chips = await rescue.$$eval('#sn-pars button', bs => bs.map(x => (x.classList.contains('on') ? '[x] ' : '[ ] ') + x.textContent)), go0 = await txt(rescue, '#sn-go');
-check('the request form shows the pot\'s two partners, the first chosen, and sends to it', await rescue.isVisible('#sn-pars') && chips.join() === '[x] Clinica Norte,[ ] Clinica Sur' && go0 === 'Send to Clinica Norte', chips.join() + ' · ' + go0);
+const kl0 = await rescue.$$eval('#sn-keys .kline', ls => ls.map(l => l.querySelector('.kk').textContent)), off0 = await rescue.$eval('#sn-go', b => b.disabled);
+check('the request form shows the pot\'s two partners, none chosen until one is tapped (13 Nov): the key line asks for it, and nothing is sent yet', await rescue.isVisible('#sn-pars') && chips.join() === '[ ] Clinica Norte,[ ] Clinica Sur' && go0 === 'Send to the partner' && off0 && kl0[1] === 'choose the partner above', chips.join() + ' · ' + go0 + ' · ' + kl0[1]);
 await rescue.locator('#sn-pars button', { hasText: 'Clinica Sur' }).click(); const go1 = await txt(rescue, '#sn-go'), kl = await rescue.$$eval('#sn-keys .kline', ls => ls.map(l => l.querySelector('small').textContent + ' ' + l.querySelector('.kk').textContent));
-check('…a tap chooses the other: the button and the key line say so', go1 === 'Send to Clinica Sur' && kl.length === 2 && kl[1] === 'Clinica Sur · clinic ' + B, go1 + ' · ' + kl[1]);
+check('…a tap chooses one: the button and the key line say so', go1 === 'Send to Clinica Sur' && kl.length === 2 && kl[1] === 'Clinica Sur · clinic ' + B, go1 + ' · ' + kl[1]);
 await waitText(rescue, '#sn-cover', /✓/, 30000); await rescue.click('#sn-go'); await rescue.waitForSelector('#sreq.on', { timeout: 30000 });
 const qid = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''), sent = await waitText(rescue, '#sq-steps', /sent · 2\/2 relays/, 30000), q = await rescue.evaluate(id => window.__vetlock.sreqs().find(r => r.id === id).q, qid);
 const sp = C.requestSplit(q), back = sp.reduce((s, x) => s + x.rest, 0), paid = sp.reduce((s, x) => s + x.pay, 0), fee = sp.reduce((s, x) => s + x.fee, 0);  /* what its transactions do: to the clinic, back under each lock, and to the mint where it charges */
@@ -93,6 +94,7 @@ check('the pot has 2 201 sat less to spend', p1.given === p0.given && p1.spend =
 
 // WHAT WAS LEFT pays the first clinic: 150 of the 199 sat, the rest that was put back among them
 await rescue.click('#kd-req'); await rescue.waitForSelector('#snew.on'); await rescue.fill('#sn-cat', 'Nube'); await rescue.fill('#sn-proc', 'Neuter'); await rescue.fill('#sn-cost', '150'); await waitText(rescue, '#sn-cover', /✓|✗/, 30000);
+await rescue.locator('#sn-pars button', { hasText: 'Clinica Norte' }).click(); await waitText(rescue, '#sn-cover', /✓|✗/, 30000);  /* none is chosen by itself (13 Nov): a tap */
 const cover = await txt(rescue, '#sn-cover'); await rescue.click('#sn-go'); await rescue.waitForSelector('#sreq.on', { timeout: 30000 });
 const qid2 = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2\/2 relays/, 30000); const q2 = await rescue.evaluate(id => window.__vetlock.sreqs().find(r => r.id === id).q, qid2);
 const sp2 = C.requestSplit(q2), back2 = sp2.reduce((s, x) => s + x.rest, 0), paid2 = sp2.reduce((s, x) => s + x.pay, 0), fee2 = sp2.reduce((s, x) => s + x.fee, 0), restYs = new Set((await Promise.all(q.contributions.map(k => C.reqTx(q, k)))).flatMap(t => t.open.map(o => C.yOf(o.secret))));
@@ -106,6 +108,7 @@ check('…confirmed by it and paid to it by the mint; the pot has 150 sat less a
 // THE MINT PAYS, AND ITS ANSWER COMES BACK AS AN ERROR (outside audit, 11 Nov): the payment is found at the mint and written down,
 // not booked as refused. The swap reaches the mint; what the page gets is an error in the mint's own form.
 await rescue.click('#kd-req'); await rescue.waitForSelector('#snew.on'); await rescue.fill('#sn-cat', 'Brisa'); await rescue.fill('#sn-proc', 'Check-up'); await rescue.fill('#sn-cost', '30'); await waitText(rescue, '#sn-cover', /✓|✗/, 30000);
+await rescue.locator('#sn-pars button', { hasText: 'Clinica Norte' }).click(); await waitText(rescue, '#sn-cover', /✓|✗/, 30000);  /* a tap, as above */
 await rescue.click('#sn-go'); await rescue.waitForSelector('#sreq.on', { timeout: 30000 }); const qid3 = (await txt(rescue, '#sq-head .mut')).replace(/^request /, ''); await waitText(rescue, '#sq-steps', /sent · 2\/2 relays/, 30000);
 const q3 = await rescue.evaluate(id => window.__vetlock.sreqs().find(r => r.id === id).q, qid3), sp3 = C.requestSplit(q3), paid3 = sp3.reduce((s, x) => s + x.pay, 0), fee3 = sp3.reduce((s, x) => s + x.fee, 0), to3 = q3.payee === A ? norte : sur;
 await tab(to3, 'work'); await to3.waitForTimeout(1500); await front(to3); await to3.waitForFunction(id => window.__vetlock.creqs().some(r => r.id === id), qid3, { timeout: 20000 }).catch(() => {});

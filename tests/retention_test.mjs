@@ -68,8 +68,11 @@ const mintPlain = async n => { const q = await w.createMintQuoteBolt11(n); for (
 const lockedTok = async n => { const lock = new cashu.LockBuilder().addMainPubkey([scPk, clPk]).requireMainSignatures(2).addRefundPubkey(C.pubOf(newSk())).lockUntil(Number(camp.deadline));
   const locked = await w.ops.receive(cashu.getEncodedToken({ mint: MINT, proofs: await mintPlain(n) })).asLocked(lock).run(); return cashu.getEncodedToken({ mint: MINT, proofs: locked, memo: 'MOCHI sterilisation — vet-certified donation' }); };
 const cl = await page('clinic', clSk), sc = await page('streetcat', scSk);
-await tab(cl, 'certify'); await cl.fill('#c-token', await lockedTok(21)); await waitText(cl, '#c-info', /names|no clinic key/); await cl.click('#c-go');
-const certified = ((await waitText(cl, '#c-out', /CERTIFIED|Failed/)).match(/cashuB[A-Za-z0-9_\-=]+/g) || []).pop();
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const certified = await certifyIn(cl, await lockedTok(21));
 check('(the clinic certifies a 21 sat donation)', !!certified);
 let swaps = 0; await sc.route('**/v1/swap', r => { swaps++; return r.continue(); });
 const V = p => p.evaluate(() => ({ kept: window.__vetlock.releasedList().filter(x => !x.paid).length, flights: window.__vetlock.flights().length }));

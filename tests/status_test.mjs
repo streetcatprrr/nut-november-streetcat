@@ -20,7 +20,7 @@ const out = async (p, id) => (await p.textContent('#' + id)).trim();
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return out(p, id); };
 const lastToken = s => s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
 
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1500); const clinicPk = await out(clinic, 'c-pk');  // the key flips in
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 
 const signed = c => streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), c);  /* an unsigned link takes no donation */
@@ -34,7 +34,11 @@ const C = await donate(soon, 5), D = await donate(soon, 3);    // C will be refu
 const keys = [A, B, C, D].map(x => JSON.parse(x.receipt).refund.key);
 say('fresh refund key per donation:', new Set(keys).size === 4 ? 'yes (4 different keys)' : 'NO', '| kept in the browser:', await donor.evaluate(() => window.__vetlock.donorKeys().length));
 
-await tab(clinic, 'certify'); await clinic.fill('#c-token', A.token); await clinic.click('#c-go'); const certified = lastToken(await waitOut(clinic, 'c-out', /CERTIFIED|Failed/));
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const certified = await certifyIn(clinic, A.token);
 await tab(streetcat, 'release'); await streetcat.fill('#s-token', certified); await streetcat.click('#s-go'); say('release A:', (await waitOut(streetcat, 's-out', /RELEASED|refused/)).split('\n')[0]);
 
 await tab(donor, 'refund'); await donor.fill('#r-receipt', C.token); await donor.click('#r-go'); say('refund C before the deadline:', (await waitOut(donor, 'r-out', /REFUNDED|refused|Not yet/)).split('\n')[0]);

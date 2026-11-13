@@ -17,7 +17,7 @@ const shot = async name => { if (SHOT) { await clinic.waitForTimeout(1200); awai
 const clinic = await ctx.newPage(); clinic.on('pageerror', e => { bad++; say('✗ PAGEERROR', e.message); }); clinic.on('dialog', d => d.accept()); await clinic.route('**/api/v1/prices', r => r.fulfill({ json: { EUR: 88000, USD: 100000 } }));
 await clinic.goto(BASE + 'index.html'); const tab = t => clinic.evaluate(t => window.__vetlock.openTab(t), t), txt = async sel => ((await clinic.textContent(sel)) || '').trim();
 const waitText = async (sel, re, ms = 30000) => { const t0 = Date.now(); let s = ''; while (Date.now() - t0 < ms) { s = await txt(sel).catch(() => ''); if (re.test(s)) return s; await clinic.waitForTimeout(200); } return s; };
-await tab('certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1200); const clinicPk = await txt('#c-pk');
+await tab('csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1200); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 
 // a campaign signed by Streetcat (a key of this test, pinned next to the published one), and a donation of 1 024 sat in one proof
 const sc = newSk(), camp = await C.signCampaign({ name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: C.pubOf(sc), clinic: clinicPk, deadline: now() + 30 * 86400 }, sc); await pin(camp.streetcat);

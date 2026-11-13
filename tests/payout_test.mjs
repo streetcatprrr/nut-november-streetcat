@@ -26,13 +26,16 @@ const page = async () => { const c = await b.newContext({ serviceWorkers: 'block
 const tab = (p, t) => p.evaluate(t => window.__vetlock.openTab(t), t), out = async (p, id) => ((await p.textContent('#' + id)) || '').trim();
 const waitOut = async (p, id, re, ms = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const s = await out(p, id); if (re.test(s)) return s; await p.waitForTimeout(200); } return out(p, id); };
 const donor = await page(), clinic = await page(), sc = await page();
-await tab(clinic, 'certify'); await clinic.click('#c-new'); await clinic.waitForTimeout(1200); const clinicPk = await out(clinic, 'c-pk');
+await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(sc, 'release'); await sc.click('#s-new'); await sc.waitForTimeout(1200); const scPk = await out(sc, 's-pk');
 const camp = await sc.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), { name: 'MOCHI', op: 'sterilisation', mint: MINT, streetcat: scPk, clinic: clinicPk, deadline: now() + 30 * 86400 });  /* signed by Streetcat: an unsigned link takes no donation */
 const donate = async n => { await tab(donor, 'donate'); await donor.evaluate(() => { const a = document.getElementById('d-again'); if (a) a.click(); }); await donor.fill('#d-camp', JSON.stringify(camp)); await donor.evaluate(() => window.__vetlock.openTab('decash'));
   await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return s.match(/cashuB[A-Za-z0-9_\-=]+/g).pop(); };
-const certify = async tok => { await tab(clinic, 'certify'); await clinic.fill('#c-token', ''); await clinic.fill('#c-token', tok); await waitOut(clinic, 'c-info', /names/); await clinic.click('#c-go'); await waitOut(clinic, 'c-out', /CERTIFIED|Failed/);
-  return clinic.evaluate(() => [...document.querySelectorAll('#c-out .mut.code')].map(e => e.textContent).find(t => /^cashuB/.test(t))); };
+// What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
+// signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
+const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
+  return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
+const certify = tok => certifyIn(clinic, tok);
 const release = async tok => { await tab(sc, 'release'); await sc.fill('#s-token', ''); await sc.fill('#s-token', tok); await waitOut(sc, 's-info', /certified/); await sc.waitForTimeout(600); await sc.click('#s-go');
   return waitOut(sc, 's-out', /sent to|Not sent|has not said|Import this plain token|Not possible|Failed/, 40000); };
 const setAddr = async a => { await tab(sc, 'keys'); if (await sc.$eval('#x-ln-box', e => e.hidden)) await sc.click('#x-ln-b'); await sc.fill('#h-ln', a);  /* in Keys, behind its long button, since 9 Nov */ await sc.press('#h-ln', 'Tab');

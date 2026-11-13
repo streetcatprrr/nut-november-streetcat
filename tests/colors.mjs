@@ -1,5 +1,5 @@
 // Every error, warning or odd state the tests' pages show must be in the app's bad colour (var(--bad))
-// ("todos los avisos de error o fallo o cosas raras tienen que ser en rojo"). watchColors(ctx) watches every page of a context: each
+// (red). watchColors(ctx) watches every page of a context: each
 // visible line that reads as one (MUST_BE_RED, written here from what the app says, apart from the app's own list) is recorded with its
 // colour. With COLORS_DIR set, the test writes what it saw to COLORS_DIR/<test>.json when it ends; colors_test.mjs reads them all after
 // the suites and fails on any line that was not red. pin.mjs installs it in every context, so every browser suite takes part.

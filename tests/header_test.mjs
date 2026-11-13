@@ -66,11 +66,11 @@ await K.waitForFunction(() => document.getElementById('w-net').textContent.trim(
 const g = await K.evaluate(() => { const bs = [...document.querySelectorAll('#work .actions button')], r = bs.map(x => x.getBoundingClientRect());
   return { ids: bs.map(x => x.id), sizes: [...new Set(r.map(x => Math.round(x.width) + 'x' + Math.round(x.height)))], cols: new Set(r.map(x => Math.round(x.left))).size, bottom: Math.round(Math.max(...r.map(x => x.bottom)) + scrollY), page: document.scrollingElement.scrollHeight, view: innerHeight, links: document.querySelectorAll('#work p.lnk a').length,
     off: document.getElementById('w-offline').textContent, offTitle: document.getElementById('w-offline').title, offRed: getComputedStyle(document.getElementById('w-offline')).color === getComputedStyle(document.documentElement).getPropertyValue('--bad').trim().replace(/^#(..)(..)(..)$/, (_, a, b, c) => `rgb(${parseInt(a, 16)}, ${parseInt(b, 16)}, ${parseInt(c, 16)})`) }; });
-check('the clinic\'s home is six buttons of one size, full width, one under another', J(g.ids) === J(['w-check', 'w-open', 'w-certify', 'w-offline', 'w-cats', 'w-settings']) && g.sizes.length === 1 && g.cols === 1 && /^350x56$/.test(g.sizes[0]) && g.links === 0, J(g));
+check('the clinic\'s home is five buttons of one size, full width, one under another (no "Certify a token": review of 12 Nov)', J(g.ids) === J(['w-check', 'w-open', 'w-offline', 'w-cats', 'w-settings']) && g.sizes.length === 1 && g.cols === 1 && /^350x56$/.test(g.sizes[0]) && g.links === 0, J(g));
 check('with two requests listed it all fits an iPhone 14-16 screen (390 x 844)', g.page <= g.view && g.bottom <= g.view, J(g));
 await K.evaluate(t => window.__vetlock.openPayload(t, 'relay'), await C.pack(reqs[2])); await K.waitForSelector('#creq.on'); await K.evaluate(() => window.__vetlock.openTab('work')); await K.waitForTimeout(600); await showW(K, 'w-pend');
 const g3 = await K.evaluate(() => ({ items: document.querySelectorAll('#w-list .item').length, over: document.scrollingElement.scrollHeight - innerHeight }));
-check('with a third request the page scrolls only a little (the list comes first)', g3.items === 3 && g3.over > 0 && g3.over < 60, J(g3));
+check('with a third request it fits, or scrolls only a little (the list comes first)', g3.items === 3 && g3.over < 60, J(g3));
 // the two numbers: a tap shows that one's requests typed in, a tap again hides them; done shows the done ones; entering Partner hides them
 const wState = () => K.evaluate(() => ({ hidden: document.getElementById('w-list').hidden, pend: document.getElementById('w-pend').classList.contains('on'), done: document.getElementById('w-dn').classList.contains('on'), items: document.querySelectorAll('#w-list .item').length, typing: document.querySelectorAll('#w-list [style*="max-height"]').length }));
 if ((await wState()).pend) await K.click('#w-pend');  /* from none shown */
@@ -80,13 +80,13 @@ check('a tap on "pending" shows its requests, typed in (as the donor\'s list); a
 check('…a tap on "done" shows the done ones instead (none here), "pending" no longer marked', !t3.hidden && t3.pend && !t4.hidden && t4.done && !t4.pend && t4.items === 0, J({ t3, t4 }));
 await K.click('#w-pend'); await K.click('#hd-roles button[data-r="clinic"]'); await K.waitForTimeout(400); const t5 = await wState();
 check('…and entering Partner again (its tab in the header) starts with none shown', t5.hidden && !t5.pend && !t5.done, J(t5));
-check('the offline button, right after Certify a token, says "Offline setup", in red while the phone is not ready', g.off === 'Offline setup' && g.offRed && /^not ready for offline: \d+ to fix$/.test(g.offTitle), J(g));
-for (const [id, t] of [['w-certify', 'certify'], ['w-cats', 'cats'], ['w-settings', 'csettings'], ['w-offline', 'coffline'], ['w-check', 'work']]) {
+check('the offline button, right after Open a request, says "Offline setup", in red while the phone is not ready', g.off === 'Offline setup' && g.offRed && /^not ready for offline: \d+ to fix$/.test(g.offTitle), J(g));
+for (const [id, t] of [['w-cats', 'cats'], ['w-settings', 'csettings'], ['w-offline', 'coffline'], ['w-check', 'work']]) {
   await K.evaluate(() => window.__vetlock.openTab('work')); await K.click('#' + id); await K.waitForTimeout(300); check(`${id} opens ${t}`, (await head(K)).screen === t); }
 await K.evaluate(() => window.__vetlock.openTab('work')); await K.click('#w-open'); check('Open a request shows the box for a request', await K.isVisible('#w-paste'));
 // the phone's own back (history) goes back one screen inside the app; the header arrow does the same
-await K.click('#w-certify'); await K.waitForTimeout(300); const u0 = K.url(); await K.goBack({ waitUntil: 'commit' }).catch(() => {}); await K.waitForTimeout(600);
-check('the phone\'s back from Certify a token goes back to the clinic\'s home, inside the app', (await head(K)).screen === 'work' && K.url() === u0, K.url());
+await K.click('#w-offline'); await K.waitForTimeout(300); const u0 = K.url(); await K.goBack({ waitUntil: 'commit' }).catch(() => {}); await K.waitForTimeout(600);
+check('the phone\'s back from Offline setup goes back to the clinic\'s home, inside the app', (await head(K)).screen === 'work' && K.url() === u0, K.url());
 await K.click('#w-settings'); await K.waitForTimeout(300); await K.click('#hd-back'); await K.waitForTimeout(600); check('the header arrow from Settings goes back to the clinic\'s home', (await head(K)).screen === 'work');
 await K.click('#w-cats'); await K.waitForTimeout(300); await K.goBack({ waitUntil: 'commit' }).catch(() => {}); await K.waitForTimeout(600); check('…and the phone\'s back after it too, still in the app', (await head(K)).screen === 'work' && K.url() === u0, K.url());
 

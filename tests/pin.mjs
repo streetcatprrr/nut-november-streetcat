@@ -12,6 +12,10 @@
 // suites fill them as before. pinBrowser(b, { form: 'short' }) leaves it short (kform_test).
 // And it sets vetlock.anim to 'off': the coloured texts, which type themselves in and shuffle at a tap, stay still, so the suites
 // read them as they are. pinBrowser(b, { anim: true }) lets them move (anim_test).
+// And the drawn cats count as cats. The cat recognition looks for a cat before it compares (index.js and catid.js, catIn, 13 Nov) and
+// finds none in a drawing; so on the suites' pages every photo is a cat but those whose SHA-256 is listed in localStorage 'test.nocat',
+// which the "no cat" checks fill. The app is not changed: its page's CATID.catIn is replaced here. pinBrowser(b, { cats: 'real' }) leaves
+// the recognition's own answer (nocat_test).
 import fs from 'fs';
 import { watchColors } from './colors.mjs';
 export const LINE = /const STREETCAT_KEYS = \[[^\]\n]*\];/;
@@ -23,7 +27,10 @@ const add = k => { const a = self.__pins = self.__pins || []; if (!a.includes(k)
 const keys = new Set(), ctxs = new Set();
 export const pin = async (...ks) => { for (let k of ks) { k = String(k || '').toLowerCase(); if (!k || keys.has(k)) continue; keys.add(k);
     for (const ctx of ctxs) { await ctx.addInitScript(add, k).catch(() => {}); for (const p of ctx.pages()) await p.evaluate(add, k).catch(() => {}); } } };
-export function pinBrowser(b, { auto = true, hold = false, form = 'open', anim = false } = {}) { const open = b.newContext.bind(b);
+function drawnCats(){ addEventListener('DOMContentLoaded', () => { if (typeof CATID === 'undefined') return; const vecOf = CATID.vecOf;
+  CATID.vecOf = async (sha, b) => { const v = await vecOf(sha, b); return v && Object.assign(v, { sha }); };  /* the photo's SHA-256 with its numbers, for catIn */
+  CATID.catIn = v => { let no = []; try { no = JSON.parse(localStorage.getItem('test.nocat') || '[]'); } catch (_) {} return !!v && !no.includes(v.sha); }; }); }
+export function pinBrowser(b, { auto = true, hold = false, form = 'open', anim = false, cats = 'drawn' } = {}) { const open = b.newContext.bind(b);
   b.newContext = async (o = {}) => { const ctx = await open(o); ctxs.add(ctx); ctx.on('close', () => ctxs.delete(ctx));
     await ctx.route('**/core.js', async r => { let res; try { res = await r.fetch(); } catch (_) { return r.abort('connectionrefused').catch(() => {}); }  /* a server the test has stopped (offline_test): no connection, as without the route */
       await r.fulfill({ response: res, body: rewrite(await res.text()) }); });
@@ -31,6 +38,7 @@ export function pinBrowser(b, { auto = true, hold = false, form = 'open', anim =
     await watchColors(ctx);  // every error and warning its pages show must be red (colors.mjs)
     if (!hold) await ctx.addInitScript(() => { try { if (localStorage.getItem('vetlock.holdms') === null) localStorage.setItem('vetlock.holdms', '0'); } catch (_) {} });  /* a definitive button needs holding (index.js): the suites tap, hold_test.mjs holds */
     if (form === 'open') await ctx.addInitScript(() => { try { if (localStorage.getItem('vetlock.kform') === null) localStorage.setItem('vetlock.kform', 'open'); } catch (_) {} });  /* the campaign form asks only the name (index.js): the suites fill every field, kform_test.mjs keeps it short */
+    if (cats === 'drawn') await ctx.addInitScript(drawnCats);  /* a drawing counts as a cat, unless listed in 'test.nocat' */
     if (!anim) await ctx.addInitScript(() => { try { if (localStorage.getItem('vetlock.anim') === null) localStorage.setItem('vetlock.anim', 'off'); } catch (_) {} });  /* coloured texts type in and shuffle (index.js): the suites read them still, anim_test.mjs watches them move */
     if (auto) { await ctx.exposeBinding('__pinStreetcat', (_, pk) => pin(pk));
       await ctx.addInitScript(() => { const set = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { set.call(this, k, v);
