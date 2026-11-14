@@ -26,12 +26,14 @@ await sc.click('#k-col'); await sc.waitForSelector('#spick.on'); await sc.click(
 await sc.click('#k-par'); await sc.waitForSelector('#spick.on'); await sc.click('#pp-add'); await sc.fill('#pp-name', 'Pienso Sur'); await sc.fill('#pp-key', shopPk); await sc.click('#pp-save'); await sc.waitForSelector('#campaign.on');
 await sc.fill('#k-name', 'COMIDA MARINA'); await sc.fill('#k-mint', MINT); await sc.click('#k-go'); const made = await waitText(sc, '#k-out', /is ready|cannot|✗/, 30000);
 check('Safari: a food campaign, with its colony and its partner', /is ready/.test(made) && (await stored(sc, 'vetlock.campaigns')).length === 1, made.slice(0, 60));
-const sha = await sc.evaluate(() => new Promise(res => { const cv = document.createElement('canvas'); cv.width = 64; cv.height = 48; const g = cv.getContext('2d'); g.fillStyle = '#c84'; g.fillRect(0, 0, 64, 48); g.fillStyle = '#123'; g.fillRect(8, 8, 20, 20);
+const { h: sha, n: shaBytes } = await sc.evaluate(() => new Promise(res => { const cv = document.createElement('canvas'); cv.width = 64; cv.height = 48; const g = cv.getContext('2d'); g.fillStyle = '#c84'; g.fillRect(0, 0, 64, 48); g.fillStyle = '#123'; g.fillRect(8, 8, 20, 20);
   cv.toBlob(async bl => { const u = new Uint8Array(await bl.arrayBuffer()), h = [...new Uint8Array(await crypto.subtle.digest('SHA-256', u))].map(x => x.toString(16).padStart(2, '0')).join('');
     const r = indexedDB.open('streetcat', 2); r.onupgradeneeded = () => { for (const s of ['photos', 'parts', 'ledger']) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
-    r.onsuccess = () => { const t = r.result.transaction('photos', 'readwrite'); t.objectStore('photos').put(u, h); t.oncomplete = () => res(h); }; }, 'image/jpeg', .8); }));
-// the photo is a cat record's (by actor, 8 Nov: an export carries only the photos this actor's records name)
-await sc.evaluate(sha => localStorage.setItem('vetlock.sc.cats', JSON.stringify([{ id: 'CAT-TEST', rec: { statement: { name: 'Crypto', colony: 'colony Marina', procedure: 'spay', date: '2026-11-07', photos: [{ slot: 'face', sha256: sha }] } }, from: 'test', at: new Date().toISOString() }])), sha);
+    r.onsuccess = () => { const t = r.result.transaction('photos', 'readwrite'); t.objectStore('photos').put(u, h); t.oncomplete = () => res({ h, n: u.length }); }; }, 'image/jpeg', .8); }));
+// the photo is a cat record's (by actor, 8 Nov: an export carries only the photos this actor's records name): a record the shop's key signs,
+// as one comes to Rescue (Import all leaves out a record not signed by the clinic key it names: Daybreak, 14 Nov)
+const catRec = await shop.evaluate(([sha, n]) => window.scCore.signCat({ name: 'Crypto', colony: 'colony Marina', procedure: 'spay', date: '2026-11-07', photos: [{ slot: 'face', sha256: sha, bytes: n, w: 64, h: 48 }] }, window.__vetlock.key('clinic', false)), [sha, shaBytes]);
+await sc.evaluate(rec => localStorage.setItem('vetlock.sc.cats', JSON.stringify([{ id: rec.id, rec, from: rec.statement.clinic, at: new Date().toISOString(), via: 'relay' }])), catRec);
 // EXPORT ALL in Safari, as Rescue: the keys type themselves out, then what goes with them; all of it copied at the tap
 await asRescue(sc); await sc.waitForTimeout(600); await sc.click('#x-exp'); const said = await waitText(sc, '#x-term', /in your clipboard/, 20000);
 const copied = await sc.evaluate(() => navigator.clipboard.readText()); let exp = null; try { exp = JSON.parse(copied); } catch (_) {}

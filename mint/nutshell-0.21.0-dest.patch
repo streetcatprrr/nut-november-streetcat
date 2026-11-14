@@ -45,7 +45,7 @@ diff -ruN a/cashu/mint/conditions.py b/cashu/mint/conditions.py
 diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 --- a/cashu/mint/dest.py
 +++ b/cashu/mint/dest.py
-@@ -0,0 +1,349 @@
+@@ -0,0 +1,355 @@
 +"""
 +Destination-bound P2PK: the `dest` tag.
 +
@@ -84,6 +84,8 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +Opening = Tuple[str, str]  # an output's secret and its blinding factor (hex)
 +# a blinding factor is written one way: 32 bytes, lower-case hex
 +_SCALAR_HEX = re.compile(r"[0-9a-f]{64}")
++# and so is an output's blinded message: a compressed point, lower-case hex
++_POINT_HEX = re.compile(r"0[23][0-9a-f]{64}")
 +
 +
 +def _is_p2pk(condition: object) -> bool:
@@ -356,13 +358,17 @@ diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
 +            # NUT-10 reads a secret past leading white space; a reader of the
 +            # mint's record should not have to
 +            raise TransactionError("dest: an opened secret has white space around it.")
++        if not _POINT_HEX.fullmatch(output.B_):
++            # whoever reads the mint's record rebuilds B_ from its opening, in lower
++            # case (Nutshell fails such a swap later, as it signs, saying less)
++            raise TransactionError("dest: an output's B_ is not lower-case hex.")
 +        try:
 +            # bytes.fromhex() skips spaces and a short scalar is padded: an r
 +            # that only looks like one would be stored for readers as given
 +            if not _SCALAR_HEX.fullmatch(r):
 +                raise ValueError("r is not 32 bytes of lower-case hex")
 +            B_, _ = step1_alice(secret, PrivateKey(bytes.fromhex(r)))
-+            matches = B_.format().hex() == output.B_.lower()
++            matches = B_.format().hex() == output.B_
 +        except Exception:
 +            raise TransactionError("dest: malformed opening.")
 +        if not matches:

@@ -103,7 +103,7 @@ await b.close();
 
 // the real scanner, with a camera: Chromium's fake camera plays an animated QR (donation A's parts, as the donor's phone shows them)
 const QR = new Function(fs.readFileSync(new URL('../app/qrcode.min.js', import.meta.url), 'utf8') + ';return qrcode;')();
-const video = `${TMP}/handover-qr.y4m`; { const S = 600, fd = fs.openSync(video, 'w'), uv = Buffer.alloc(S * S / 2, 128); fs.writeSync(fd, `YUV4MPEG2 W${S} H${S} F10:1 Ip A1:1 C420jpeg\n`);
+const vdir = fs.mkdtempSync(`${TMP}/handover-qr-`), video = `${vdir}/qr.y4m`; { const S = 600, fd = fs.openSync(video, 'wx'),  /* a folder of its own: a fixed name in /tmp could be a link someone else left there (Daybreak, 14 Nov) */ uv = Buffer.alloc(S * S / 2, 128); fs.writeSync(fd, `YUV4MPEG2 W${S} H${S} F10:1 Ip A1:1 C420jpeg\n`);
   for (const t of fa) { const q = QR(0, 'M'); q.addData(t, 'Byte'); q.make(); const m = q.getModuleCount(), s = Math.floor(S / (m + 8)), o = (S - s * (m + 8)) >> 1, Y = Buffer.alloc(S * S, 235);
     for (let r = 0; r < m; r++) for (let c = 0; c < m; c++) if (q.isDark(r, c)) for (let d = 0; d < s; d++) { const row = o + (r + 4) * s + d; Y.fill(16, row * S + o + (c + 4) * s, row * S + o + (c + 5) * s); }
     for (let k = 0; k < 4; k++) { fs.writeSync(fd, 'FRAME\n'); fs.writeSync(fd, Y); fs.writeSync(fd, uv); } } fs.closeSync(fd); }
@@ -112,7 +112,7 @@ await vol2.goto(BASE + 'index.html'); await tab(vol2, 'shand'); await vol2.click
 const seen = await vol2.waitForFunction(() => document.querySelectorAll('#v-checks li').length === 4 || /not available/.test(document.getElementById('scan-msg').textContent), null, { timeout: 60000 }).then(() => vol2.evaluate(() => ({ n: document.querySelectorAll('#v-checks li').length, msg: document.getElementById('scan-msg').textContent, overlay: !document.getElementById('scan').hidden }))).catch(() => null);
 const c2 = seen && seen.n === 4 ? await checks(vol2) : [];
 check('the camera scanner collects every part of the animated QR and closes', c2.length === 4 && c2.every(x => x.state === 'ok') && !seen.overlay, seen ? (seen.n === 4 ? c2.map(x => x.text).join(' · ') : seen.msg) : 'timed out');
-await cam.close(); try { fs.unlinkSync(video); } catch (_) {}
+await cam.close(); try { fs.rmSync(vdir, { recursive: true, force: true }); } catch (_) {}
 check('nothing was loaded from outside (no CDN): only the app, the local mint and the relays', outside.size === 0, [...outside].join(' '));
 
 await Promise.all(relays.map(r => r.close()));

@@ -1,7 +1,7 @@
 // The `dest` lock as the app's own code makes, checks and spends it (app/core.js, "a lock that says where the money may go"), in Node
 // against the patched test mint (mint/, port 3340), fake money, no browser. A donor locks 2 100 sat, cut small as the app cuts a
 // donation, to Streetcat's key and a list of two partners. Rescue makes the transaction that pays one of them 1 500 sat (destTx); the
-// partner's app checks it before signing (destProblems) and refuses six changed ones; both sign the whole transaction; the mint takes
+// partner's app checks it before signing (destProblems) and refuses seven changed ones; both sign the whole transaction; the mint takes
 // it (destSwap). The transaction is made from a seed only its request carries, so nobody else can know its blinded messages before
 // the mint has signed them (audit of 10 Nov); the rest is found in the witness, by whoever holds the donation (destTrace), and the
 // release is proven there by its two signatures. The partner then finds its payment
@@ -54,6 +54,7 @@ const last = tx.outputs.length - 1, changed = [
   ['one whose payment a stranger could also spend', edit(t => reopen(t, 0, JSON.stringify(['P2PK', { nonce: 'ab'.repeat(16), data: A.pk, tags: [['pubkeys', X.pk], ['n_sigs', '1']] }]))), /somewhere else/],
   ['one with an output that is not what its opening says', edit(t => { t.open[0].r = t.open[last].r; }), /not what it is said to be/],
   ['one with an output left unopened', edit(t => { t.open.pop(); }), /not every output is opened/],
+  ['one with its outputs written in upper case (14 Nov: the mint\'s rule asks for them as they are rebuilt, in lower case)', edit(t => t.outputs.forEach(o => { o.B_ = o.B_.toUpperCase(); })), /not what it is said to be/],
 ];
 for (const [what, t, re] of changed) { const p = C.destProblems(t, camp, { payee: A.pk, pay: 1500 }); check('the partner\'s app refuses ' + what, re.test(p.join('; ')), p.join('; ') || 'NOTHING FOUND'); }
 check('…and one that would pay a key that is not a partner of the campaign', /not a partner/.test(C.destProblems(tx, camp, { payee: X.pk, pay: 1500 }).join('; ')));

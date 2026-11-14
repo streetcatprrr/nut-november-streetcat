@@ -452,7 +452,7 @@ function destProblems(tx, c, { payee, pay }){ const p = [], ins = tx && Array.is
   if (!pointOk(payee) || !((c && c.payees) || []).some(k => sameKey(k, payee))) p.push('the one to be paid is not a partner of this campaign');
   if (outs.length !== open.length) p.push('not every output is opened');
   else outs.forEach((o, i) => { const s = String((open[i] || {}).secret || ''), a = amt(o.amount); given += a; let B = ''; try { B = cashu.blindMessage(enc.encode(s), BigInt('0x' + open[i].r)).B_.toHex(true); } catch (_) {}
-    if (!s || !B || B !== lc(o.B_) || !Number.isInteger(a) || a < 1) { p.push('an output is not what it is said to be'); return; } if (seen.has(s)) { p.push('two outputs have one secret'); return; } seen.add(s);
+    if (!s || !B || B !== o.B_ || !Number.isInteger(a) || a < 1) { p.push('an output is not what it is said to be'); return; }  /* B_ written as rebuilt, in lower case: the mint's rule asks it (14 Nov) */ if (seen.has(s)) { p.push('two outputs have one secret'); return; } seen.add(s);
     if (lockShape(s) === lock) { if (nonces.has(nonceOf(s))) p.push('what stays locked repeats a proof it comes from'); else rest += a; return; }
     if (payKey(s) && payKey(s) === lc(payee)) paid += a; else p.push('an output goes somewhere else than to the partner or back under the lock'); });
   if (!p.length && paid !== Number(pay)) p.push(`it pays ${paid} sat, not ${pay}`);
@@ -512,6 +512,11 @@ async function destOutputs(w, witness, lockSecret){ let o = null; try { o = JSON
 //   the deadline) is `unproven`: said as it is, never as a release.
 // Each proof of `trace` gets `how` (locked · pending · nostate · released · refunded · unproven · unknown) and `left`, how much of it
 // left the lock (its amount less what went back under it), so the sums by state add up to the donation.
+// A witness's signatures are read as the mint reads them: Python's bytes.fromhex() skips ASCII whitespace, so the mint takes a
+// signature with spaces or line breaks in it (Daybreak, 14 Nov: this side did not, and a release the mint took could be shown
+// "not proven"). Each one is still checked against its key and this very transaction: what is dropped is never part of a signature.
+const sigClean = g => String(g).replace(/[\t\n\v\f\r ]+/g, '');
+const witnessClean = w => { try { const j = JSON.parse(w); if (j && typeof j === 'object' && Array.isArray(j.signatures)) return JSON.stringify({ ...j, signatures: j.signatures.map(g => typeof g === 'string' ? sigClean(g) : g) }); } catch (_) {} return w; };
 async function destTrace(w, proofs){ const trace = [], bySecret = new Map(), opened = new Map(), read = new Map(), witOf = x => { try { const j = JSON.parse(x.witness); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch (_) { return null; } };
   for (let layer = (proofs || []).slice(), depth = 0; layer.length && depth < 64; depth++) { const states = await w.checkProofsStates(layer), stateOf = new Map(states.map(t => [lc(t.Y), t])), more = [];
     for (const p of layer) { if (bySecret.has(p.secret)) continue; const t = stateOf.get(yOf(p.secret)) || {}, x = { proof: p, state: t.state || 'UNKNOWN', witness: t.witness || null, depth }; bySecret.set(p.secret, x); trace.push(x);
@@ -521,7 +526,7 @@ async function destTrace(w, proofs){ const trace = [], bySecret = new Map(), ope
   const lock = lockOf(proofs[0] && proofs[0].secret), keys = lock && !lock.bad ? lock.main : [], byY = new Map(trace.map(x => [yOf(x.proof.secret), x])), counted = new Set(), paid = {}, loose = {}, txs = [];
   let released = 0, fees = 0, refunds = false, carry = 0;
   for (const x of trace) { x.left = amt(x.proof.amount); x.how = x.state === 'UNSPENT' ? 'locked' : x.state === 'PENDING' ? 'pending' : x.state === 'SPENT' ? '' : 'nostate'; }
-  const sigsOf = wit => (Array.isArray(wit.signatures) ? wit.signatures : []).filter(g => typeof g === 'string').slice(0, 32);
+  const sigsOf = wit => (Array.isArray(wit.signatures) ? wit.signatures : []).filter(g => typeof g === 'string').map(sigClean).slice(0, 32);
   // the releases: signed by Streetcat and by every partner paid, on this very transaction
   for (const x of trace) { if (x.state !== 'SPENT' || x.how || !x.witness || !keys.length) continue; const wit = witOf(x); if (!wit || !Array.isArray(wit.inputs) || !Array.isArray(wit.outputs)) continue;
     const outs = opened.get(x.proof.secret) || [], ins = wit.inputs.slice(0, 2000).map(y => byY.get(lc(y)));
@@ -749,7 +754,7 @@ root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derive
   TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry, fetchT,
   makeRequest, signRequest, requestSig, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, withSig, REASONS,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
-  ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE, receivedByOk, receivedOk, RECV_MAX,
+  ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, witnessClean, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE, receivedByOk, receivedOk, RECV_MAX,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,
   STREETCAT_KEYS, published, RECEIPT, makeReceipt, receiptCheck, receiptPng, readReceipt, sealKey, openSealed, isPng, pngTexts, pngWithText, crc32, lnAddressUrl, lnAddressInvoice };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -233,6 +233,14 @@ const PENDING = 'vetlock.pending';
 const pendings = () => { try { const a = JSON.parse(ls.get(PENDING) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
 const savePending = p => { const a = pendings().filter(x => x.quote !== p.quote); a.push(p); ls.set(PENDING, JSON.stringify(a)); };
 const dropPending = q => ls.set(PENDING, JSON.stringify(pendings().filter(x => x.quote !== q)));
+// An invoice waiting here keeps no private key: its refund key is found by its public key in the list of refund keys, which a PIN seals
+// (Daybreak, 14 Nov: with a PIN, a pending invoice kept its refund key in the clear beside it). One written before gives it up here,
+// once the list holds it.
+(() => { const a = pendings(); if (!a.some(p => p && p.sk)) return;
+  const b = a.map(p => { if (!p || !p.sk) return p; let pk = p.pk; try { pk = pk || pubOf(p.sk); } catch (_) { return p; }
+    const kept = findDonorKey([pk]) === p.sk || (addDonorKey({ campaign: p.campaign && p.campaign.name, deadline: Number(p.campaign && p.campaign.deadline), pk, sk: p.sk, created: p.created }) && findDonorKey([pk]) === p.sk);
+    if (!kept) return p; const { sk, ...rest } = p; return { ...rest, pk }; });
+  ls.set(PENDING, JSON.stringify(b)); })();
 function parseCampaign(text){ text = (text || '').trim(); if (!text) throw new Error('no campaign'); const m = text.match(/#c=([A-Za-z0-9_-]+)/); const j = JSON.parse(m ? b64u.dec(m[1]) : text);
   for (const k of ['name', 'mint', 'streetcat', 'clinic', 'deadline']) if (!j[k]) throw new Error('campaign is missing ' + k); return j; }
 // Streetcat's published key (core.js, one line there): a donation link must name it, or the page refuses the donation before any call
@@ -295,7 +303,7 @@ const yHex = p => cashu.hashToCurve(new TextEncoder().encode(p.secret)).toHex(tr
 async function stillLocked(w, proofs, info){ const states = await w.checkProofsStates(proofs), byY = new Map(states.map(s => [String(s.Y).toLowerCase(), s])), live = [], gone = [], kinds = new Set();
   for (const p of proofs) { const s = byY.get(yHex(p)) || {}; if (s.state === 'UNSPENT') { live.push(p); continue; } gone.push(p);
     if (s.state === 'PENDING') { kinds.add('being spent at the mint right now'); continue; } let k = 'spent';
-    try { const pw = { ...p, witness: s.witness }; if (s.witness && info.refund.some(r => cashu.hasP2PKSignedProof(r, pw))) k = 'taken back by the donor'; else if (s.witness && cashu.hasP2PKSignedProof(info.pubkeys[0], pw) && cashu.hasP2PKSignedProof(info.pubkeys[1], pw)) k = 'released already'; } catch (_) {}
+    try { const pw = { ...p, witness: window.scCore.witnessClean(s.witness) }; if (s.witness && info.refund.some(r => cashu.hasP2PKSignedProof(r, pw))) k = 'taken back by the donor'; else if (s.witness && cashu.hasP2PKSignedProof(info.pubkeys[0], pw) && cashu.hasP2PKSignedProof(info.pubkeys[1], pw)) k = 'released already'; } catch (_) {}
     kinds.add(k); }
   return { live, gone, why: [...kinds].join(', ') }; }
 // INDEXEDDB: the photos and the parts they travel in (below), and Rescue's ledger (12 Nov). Version 2 adds the ledger; a page of the
@@ -384,9 +392,10 @@ const NO_STORAGE = 'this browser does not let the page save anything (a private 
 const outSave = o => ({ a: amt(o.blindedMessage.amount), id: o.blindedMessage.id, B: o.blindedMessage.B_, r: o.blindingFactor.toString(16), s: new TextDecoder().decode(o.secret) });
 const outLoad = x => new cashu.OutputData({ amount: cashu.Amount.from(x.a), id: x.id, B_: x.B }, BigInt('0x' + x.r), new TextEncoder().encode(x.s));
 // Does a mint enforce `dest`, the lock that says where the money may go (core.js; docs/dest-lock.md)? Its own info says so (NUT-06). Asked
-// once per mint and page, and only when it matters: choosing a campaign's partners, making it, and locking a donation to one that needs it.
+// only when it matters: choosing a campaign's partners and making it (once per mint and page), and locking a donation to one that needs
+// it: that, every time (`fresh`; Daybreak, 14 Nov: a page left open kept locking donations after its mint had stopped saying so).
 const DEST_MINTS = new Map();
-async function mintDest(url){ url = String(url || '').trim().replace(/\/+$/, ''); if (!/^https?:\/\//i.test(url)) return false; if (DEST_MINTS.has(url)) return DEST_MINTS.get(url);
+async function mintDest(url, fresh = false){ url = String(url || '').trim().replace(/\/+$/, ''); if (!/^https?:\/\//i.test(url)) return false; if (!fresh && DEST_MINTS.has(url)) return DEST_MINTS.get(url);
   try { const r = await window.scCore.fetchT(url + '/v1/info', { cache: 'no-store' }); if (!r.ok) return false; const v = window.scCore.destMint(await r.json()); DEST_MINTS.set(url, v); return v; } catch (_) { return false; } }
 async function buildOutputs(w, amount, lock){ const ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id);
   // a donation (locked) is cut small: no proof over a tenth of it (core.js donationSplit), so a release seldom splits a proof, and what
@@ -394,7 +403,7 @@ async function buildOutputs(w, amount, lock){ const ks = await w.keyChain.ensure
   const sizes = Object.keys(ks.keys).map(Number), split = lock ? window.scCore.donationSplit(amount, sizes) : null;
   if (lock && lock.dest) {  // a campaign that says where its money may go: each proof's secret is made here (core.js destSecret), and only for a
     // mint that enforces the rule; one that does not would take the lock and ignore it, and any two of its keys could send the ecash anywhere
-    if (!(await mintDest(w.mint.mintUrl))) throw Object.assign(new Error('This campaign needs a mint that enforces where its donations may go, and this mint does not say it does. Do not donate through it.'), { byPage: true });
+    if (!(await mintDest(w.mint.mintUrl, true))) throw Object.assign(new Error('This campaign needs a mint that enforces where its donations may go, and this mint does not say it does. Do not donate through it.'), { byPage: true });
     const cut = split || (() => { const o = []; let n = amount; for (const s of sizes.slice().sort((a, b) => b - a)) while (n >= s) { o.push(s); n -= s; } return o; })(), te = new TextEncoder();
     return cut.map(a => { const s = te.encode(window.scCore.destSecret(lock.dest)), b = cashu.blindMessage(s); return new cashu.OutputData({ amount: cashu.Amount.from(a), id: ks.id, B_: b.B_.toHex(true) }, b.r, s); }); }
   return lock ? cashu.OutputData.createP2PKData(lock.toOptions(), amount, ks, split || undefined) : cashu.OutputData.createRandomData(amount, ks); }
@@ -419,15 +428,22 @@ const dropFlight = id => ls.set(INFLIGHT, JSON.stringify(flights().filter(x => x
 const NOT_WRITTEN = 'this browser could not write the operation down first (its storage is full or blocked), so nothing was sent to the mint: free some room in this browser and try again';
 const settled = (id, keep) => p => { let ok = !keep; try { ok = ok || !!keep(p); } catch (_) {} if (ok) dropFlight(id); return p; };
 async function safeSwap(w, inputs, { lock, privkey, what, mint, keep }){ if (!storageWorks()) throw new Error(NO_STORAGE);
-  const fee = amt(w.getFeesForProofs(inputs)), amount = sum(inputs) - fee; if (amount <= 0) throw new Error('nothing would be left after the mint fee');
+  const fee = amt(w.getFeesForProofs(inputs)), amount = sum(inputs) - fee; if (amount <= 0) throw Object.assign(new Error('nothing would be left after the mint fee'), { final: true });
   const outs = await buildOutputs(w, amount, lock), id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), done = settled(id, keep);
   if (!saveFlight({ id, what, mint: norm(mint), ys: inputs.map(p => cashu.hashToCurve(new TextEncoder().encode(p.secret)).toHex(true)), outputs: outs.map(outSave), created: new Date().toISOString() })) throw Object.assign(new Error(NOT_WRITTEN), { byPage: true });
   try { let b = w.ops.receive(inputs); if (privkey) b = b.privkey(privkey); const proofs = await b.asCustom(outs).run(); return done(proofs); }
-  catch (e) { if (cashu.isMintOperationError(e)) { dropFlight(id); throw e; }  // the mint answered and refused: nothing happened
-    // no answer: the mint may or may not have done it, now or later. Recover if it did; otherwise keep the record for next time.
-    let spent = false; try { spent = (await w.checkProofsStates(inputs)).every(s => s.state === 'SPENT'); } catch (_) {}
-    if (spent) { const back = await restoreOutputs(w, outs.map(outSave)).catch(() => null); if (back) return done(back); }
-    throw Object.assign(new Error((spent ? 'the mint took the ecash but its answer was lost, and it could not hand the result back yet.' : 'the mint did not answer, so it is not known whether it did it.') + ' Nothing is lost: this browser kept what it needs, so open this page again later and it will finish, or simply try again. (' + (e.message || e) + ')'), { kept: true }); } }
+  catch (e) { return swapFailed(w, e, id, inputs, outs, done, ', or simply try again'); } }
+// A SWAP THAT CAME BACK WITH AN ERROR, OR WITH NOTHING: the mint is asked what happened before the record goes (Daybreak, 14 Nov: an
+// error from a mint that had done the swap all the same dropped the record, and with it the only way to get the result back). A swap
+// spends all its inputs or none. All spent, into these outputs: done, and the result is asked for again (NUT-09) and kept. Refused and
+// not done (an input still unspent, or all of them spent into other outputs: a donor's refund, another tab): the record goes and the
+// refusal is said. Anything else (no answer: the mint may still do it; or it cannot be told): the record stays, and the page finishes
+// it when it opens again.
+async function swapFailed(w, e, id, inputs, outs, done, more = ''){ const refused = cashu.isMintOperationError(e); let st = null; try { st = await w.checkProofsStates(inputs); } catch (_) {}
+  const spent = !!st && st.length === inputs.length && st.every(s => s.state === 'SPENT');
+  if (spent) { const back = await restoreOutputs(w, outs.map(outSave)).catch(() => undefined); if (back) return done(back); if (refused && back === null) { dropFlight(id); throw e; } }
+  else if (refused && st && st.some(s => s.state === 'UNSPENT')) { dropFlight(id); throw e; }
+  throw Object.assign(new Error((spent ? 'the mint took the ecash but its answer was lost, and it could not hand the result back yet.' : refused ? 'the mint answered with an error and could not be asked whether it did it.' : 'the mint did not answer, so it is not known whether it did it.') + ` Nothing is lost: this browser kept what it needs, so open this page again later and it will finish${more}. (` + (e.message || e) + ')'), { kept: true }); }
 const whyFailed = e => (e && e.kept ? 'Interrupted: ' : e && e.byPage ? 'Not possible: ' : 'Mint refused: ') + ((e && e.message) || e);
 const norm = u => String(u || '').trim().replace(/\/+$/, '');
 // released tokens are plain bearer ecash: kept here until Streetcat has them in its wallet
@@ -574,17 +590,22 @@ $('s-show').onclick = () => showSk('streetcat', $('s-show'));
 // the PIN that locks the keys on this phone (vault.js): set, lock now, remove; in Keys and in the partner's settings
 const pinDraw = () => { const on = scVault.on(); for (const p of ['x', 'cs']) { $(p + '-pin-sum').textContent = 'PIN for the keys · ' + (on ? 'on' : 'off'); for (const id of ['a', 'b', 'set']) $(`${p}-pin-${id}`).hidden = on; for (const id of ['lock', 'off']) $(`${p}-pin-${id}`).hidden = !on; } };
 for (const p of ['x', 'cs']) { const out = $(p + '-pin-out'), A = $(p + '-pin-a'), B = $(p + '-pin-b');
-  $(p + '-pin-set').onclick = async () => { if (A.value.length < scVault.MIN) return show(out, `✗ A PIN has ${scVault.MIN} characters or more.`, 'bad'); if (A.value !== B.value) return show(out, '✗ The two PINs are not the same.', 'bad');
-    show(out, 'locking…'); try { await scVault.set(A.value); A.value = B.value = ''; buzz(); show(out, '✓ Keys locked. The PIN is asked when the app opens.', 'ok'); } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } pinDraw(); };
+  // a second tap while the PIN is being set (its key takes a moment to make) does nothing (Daybreak, 14 Nov: it left every key unreadable; vault.js)
+  $(p + '-pin-set').onclick = async () => { const btn = $(p + '-pin-set'); if (btn.disabled) return; if (A.value.length < scVault.MIN) return show(out, `✗ A PIN has ${scVault.MIN} characters or more.`, 'bad'); if (A.value !== B.value) return show(out, '✗ The two PINs are not the same.', 'bad');
+    busy(btn, true); show(out, 'locking…'); try { await scVault.set(A.value); A.value = B.value = ''; buzz(); show(out, '✓ Keys locked. The PIN is asked when the app opens.', 'ok'); } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } busy(btn, false); pinDraw(); };
   $(p + '-pin-lock').onclick = () => { scVault.lock(); location.reload(); };
-  $(p + '-pin-off').onclick = async () => { const pin = await scVault.askPin('PIN, to remove it'); if (!pin) return; try { await scVault.clear(pin); show(out, 'PIN removed: the keys are kept as before.'); } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } pinDraw(); }; }
+  $(p + '-pin-off').onclick = async () => { const btn = $(p + '-pin-off'); if (btn.disabled) return; busy(btn, true);
+    try { const pin = await scVault.askPin('PIN, to remove it'); if (pin) { await scVault.clear(pin); show(out, 'PIN removed: the keys are kept as before.'); } } catch (e) { show(out, '✗ ' + ((e && e.message) || e), 'bad'); } busy(btn, false); pinDraw(); }; }
 pinDraw();
 for (const [id, role] of [['s-copy', 'streetcat']]) $(id).onclick = async () => { const b = $(id), sk = key(role, false);  // the public key is what goes into a campaign
   if (!sk) return flapLabel(b, 'no key'); const ok = await copyText(pubOf(sk)); if (ok) doneLabel(b); else flapLabel(b, 'select it'); if (ok) termShow(pubOf(sk), role, { hex: true, ms: 6000 }); };
 // everything else this browser keeps goes with the keys: campaigns, donations, requests, partners, colonies, cat records, released tokens, settings, and the photos. The keys
 // stay where they were in the export, so an app of before still takes them. Not moved: what is under way here (payments and swaps
-// this browser finishes), caches, and this browser's own screen.
-const XSKIP = new Set(['vetlock.clinic.sk', 'vetlock.streetcat.sk', 'vetlock.donor.sk', 'vetlock.clinic.old', 'vetlock.streetcat.old', 'vetlock.donor.keys', 'vetlock.pending', 'vetlock.inflight', 'vetlock.outbox', 'vetlock.mintcache', 'vetlock.probe', 'vetlock.role', 'vetlock.kform']);
+// this browser finishes), caches, and this browser's own screen. Nor where this browser sends what it is paid (Rescue's and the
+// partner's Lightning address): each phone is told by hand, so that an export made by someone else cannot send it its payments
+// (Daybreak, 14 Nov: imported into a browser that had none, the address was taken, and every payment went to it by itself).
+const XSKIP = new Set(['vetlock.clinic.sk', 'vetlock.streetcat.sk', 'vetlock.donor.sk', 'vetlock.clinic.old', 'vetlock.streetcat.old', 'vetlock.donor.keys', 'vetlock.pending', 'vetlock.inflight', 'vetlock.outbox', 'vetlock.mintcache', 'vetlock.probe', 'vetlock.role', 'vetlock.kform', 'vetlock.sc.payto', 'vetlock.clinic.payto']);
+const XPAYTO = ['vetlock.sc.payto', 'vetlock.clinic.payto'];
 // By actor: the actor is the role on
 // screen, fixed at /clinic and /streetcat. The partner's export carries the clinic keys and the partner's records; Rescue's carries
 // Streetcat's keys, Rescue's records, and this browser's own refund keys and donations (Streetcat gives to its own pots in tests;
@@ -656,6 +677,18 @@ async function ledgerImport(v){ await LEDGER_READY; let b; try { b = JSON.parse(
     for (const [ref, e] of Object.entries(xObj(L && L.entries))) { if (!e || typeof e !== 'object') continue; const m = mine[ref] ? lmerge(mine[ref], e) : e; if (JSON.stringify(m) !== JSON.stringify(mine[ref])) changed[ref] = m; }
     if (Object.keys(changed).length) ok = (await ledgerWrite(id, changed)) && ok; }
   return ok; }
+// What carries a check of its own is checked again as it comes in, as when it comes by relay or by link: an export is text anyone can
+// write (Daybreak, 14 Nov). A request waiting for the partner's review can be confirmed only with Streetcat's signature on it (C7: by
+// link, file or QR nothing else says who made it, and an export says nothing either); a cat record only signed with the clinic key it
+// names, or it is left out. `out.dropped` counts those left out.
+const REQ_BROKEN = 'its signature does not match: it was changed after Streetcat signed it', REQ_UNSIGNED = 'it is not signed by Streetcat: ask Streetcat to send it again';
+async function xChecked(k, v, out){ let a; try { a = JSON.parse(v); } catch (_) { return v; } if (!Array.isArray(a)) return v;
+  if (k === 'vetlock.clinic.requests') { for (const r of a) { if (!r || typeof r !== 'object' || r.state !== 'review' || !r.q) continue; let sg = 'broken'; try { sg = await window.scCore.requestSig(r.q); } catch (_) {}
+      const un = sg === 'broken' ? [REQ_BROKEN] : sg !== 'signed' ? [REQ_UNSIGNED] : []; if (un.length) r.unsigned = un; else delete r.unsigned; }
+    return JSON.stringify(a); }
+  if (k === 'vetlock.sc.cats' || k === 'vetlock.clinic.cats') { const keep = []; for (const x of a) { let v2 = null; try { v2 = x && x.rec && x.id === x.rec.id ? await window.scCore.catCheck(x.rec) : null; } catch (_) {} if (v2 && v2.ok) keep.push(x); else out.dropped++; }
+    return JSON.stringify(keep); }
+  return v; }
 // importing never drops a key: the ones this browser had move to the kept lists (or, for the old shared refund key, to the donor keys)
 $('x-imp').onclick = async () => { const out = $('x-out'); show(out, ''); $('x-term').querySelectorAll('.term-text').forEach(e => e.remove());  // what Export all typed over the box goes: the box is what imports
   const boxed = $('x-box').value.trim(); let raw = boxed, j = boxed ? exportOf(boxed) : null;
@@ -676,10 +709,16 @@ $('x-imp').onclick = async () => { const out = $('x-out'); show(out, ''); $('x-t
   if (!mineKeys && !mineData) { $('x-box').value = ''; return show(out, `✗ This export has nothing of ${mine.who}: nothing imported, and the box is emptied (it held another actor's private keys). It carries ${left.join(', ')}: import it in ${role === 'clinic' ? 'Rescue\'s' : 'the partner\'s'} app, not here.`, 'bad'); }
   let saved = true;
   for (const r of ['clinic', 'streetcat']) { if (!mine.keys.includes(r)) continue; for (const k of list(j[r + 'Old']).map(lc)) if (k !== key(r, false)) saved = keepOld(r, k) && saved; if (j[r]) saved = setKey(r, lc(j[r])) && saved; }
-  if (mine.keys.includes('donor')) { const legacy = key('donor', false); if (j.donor && legacy && legacy !== lc(j.donor)) addDonorKey({ sk: legacy, pk: pubOf(legacy) });
-    if (j.donor) ls.set(KEYS.donor, lc(j.donor)); dks.forEach(k => addDonorKey({ ...k, sk: lc(k.sk), pk: pubOf(k.sk) })); }
-  // everything else of this actor: campaigns, donations, requests… and the photos its records name, each checked against its SHA-256
-  const d = Object.entries(xObj(j.data)).filter(([k, v]) => xMovable(k) && xOwns(role, k) && typeof v === 'string'); for (const [k, v] of d) saved = (k === SCLEDGER ? await ledgerImport(v) : xMerge(k, v)) && saved;
+  // the refund keys, each write checked (Daybreak, 14 Nov: "Imported" was said when the phone had kept none of them); this browser's
+  // older shared key goes to the list first, and is replaced only once it is there
+  if (mine.keys.includes('donor')) { const legacy = key('donor', false), give = !!(j.donor && legacy && legacy !== lc(j.donor)), moved = !give || addDonorKey({ sk: legacy, pk: pubOf(legacy) }); saved = moved && saved;
+    if (j.donor && moved) saved = ls.set(KEYS.donor, lc(j.donor)) && key('donor', false) === lc(j.donor) && saved;
+    for (const k of dks) saved = addDonorKey({ ...k, sk: lc(k.sk), pk: pubOf(k.sk) }) && saved; }
+  // everything else of this actor: campaigns, donations, requests… (checked again where they carry a check: xChecked) and the photos
+  // its records name, each checked against its SHA-256
+  const chk = { dropped: 0 }, d = [];
+  for (const [k, v] of Object.entries(xObj(j.data))) if (xMovable(k) && xOwns(role, k) && typeof v === 'string') d.push([k, await xChecked(k, v, chk)]);
+  for (const [k, v] of d) saved = (k === SCLEDGER ? await ledgerImport(v) : xMerge(k, v)) && saved;
   const named = d.map(([, v]) => v).join('\n');
   const phs = Object.entries(xObj(j.photos)).filter(([k, v]) => /^[0-9a-f]{64}$/.test(k) && typeof v === 'string' && named.includes(k));
   for (const [sha, b] of phs) { let ok = false; try { ok = await photoHere(sha) || await keepPhoto(sha, unb64(b)); } catch (_) {} saved = ok && saved; }
@@ -687,8 +726,11 @@ $('x-imp').onclick = async () => { const out = $('x-out'); show(out, ''); $('x-t
   CAMPMAP = null; refreshKeys(); for (const r of ['sc', 'clinic']) jset(RMARKS(r), {});  /* what it brought may have answers waiting: the next check reads all nine days */ try { renderHome(); } catch (_) {} xPrep(); const what = xWhat(Object.fromEntries(d), Object.fromEntries(phs));
   if (saved) { buzz(); $('x-box').value = ''; }
   const leftOut = left.length ? ` Left out, not ${mine.who}'s: ${left.join(', ')}; import the export in ${role === 'clinic' ? 'Rescue\'s' : 'the partner\'s'} app for those.` : '';
+  const payNote = XPAYTO.some(k => xOwns(role, k) && String(xObj(j.data)[k] || '').trim()) ? ' Its Lightning address is not imported: set yours here.' : '';  /* an export of before carries one (XSKIP) */
+  const dropNote = chk.dropped ? ` ${chk.dropped} cat record${chk.dropped > 1 ? 's' : ''} left out: not signed by the clinic key ${chk.dropped > 1 ? 'they name' : 'it names'}.` : '';
+  const warn = !!(left.length || payNote || dropNote);
   if (saved && window.scRelay) window.scRelay.retry();  /* messages that waited for what was imported are tried again */
-  show(out, saved ? `${left.length ? '⚠ ' : ''}Imported, as ${mine.who}. The keys this browser had before are kept too.` + (what ? ` With them: ${what}; what this browser had stays too.` : '') + leftOut + ' Copy something else now, so the keys do not stay in the clipboard.' : '✗ This browser could not save everything (it may be full). Nothing was deleted; try again.', saved && !left.length ? '' : 'bad'); };  /* something left out: a warning, in red */
+  show(out, saved ? `${warn ? '⚠ ' : ''}Imported, as ${mine.who}. The keys this browser had before are kept too.` + (what ? ` With them: ${what}; what this browser had stays too.` : '') + leftOut + payNote + dropNote + ' Copy something else now, so the keys do not stay in the clipboard.' : '✗ This browser could not save everything (it may be full). Nothing was deleted; try again.', saved && !warn ? '' : 'bad'); };  /* something left out: a warning, in red */
 
 // campaign from URL
 // A campaign tapped in "Check for requests" goes in the address marked as picked (&pick=1), and this session remembers it (sessionStorage).
@@ -869,7 +911,13 @@ async function collect(p, w){ const sk = p.sk || findDonorKey([p.pk]); if (!sk) 
   let locked; try { locked = await w.ops.mintBolt11(p.amount, p.quote).asCustom(p.outputs.map(outLoad)).run(); }
   catch (e) { let q = null; try { q = await w.checkMintQuoteBolt11(p.quote); } catch (_) {} if (!q || q.state !== 'ISSUED') throw e;
     locked = await restoreOutputs(w, p.outputs).catch(() => null); if (!locked) throw e; }  // the mint issued it but the answer was lost: ask for it again (NUT-09)
-  dropPending(p.quote); return { locked, sk }; }
+  return { locked, sk, kept: keptDonation(p.campaign, p.pk, locked, p.quote) }; }
+// THE INVOICE GOES ONLY ONCE ITS DONATION IS KEPT (Daybreak, 14 Nov). The pending invoice holds the blank outputs the mint signed, from
+// which the donation can be asked for again (NUT-09); it was dropped before the donation was written down, and a phone that could not
+// write it then had it only on the screen. Now it stays until the donation is kept with its refund key, and is finished again when the
+// app opens; meanwhile the screen says so, in red, over the receipt.
+const keptDonation = (c, pk, locked, quote) => { const ok = addDonorKey({ pk, lockedToken: lockedOf(c, locked), amount: sum(locked), mint: c.mint }); if (ok) dropPending(quote); return ok; };
+const notKept = () => { const out = $('d-out'); if (out) out.prepend(el('div', 'bad', '✗ No room in this browser to keep this donation: save the receipt below now. It is tried again when the app opens.')); };
 // once paid, the QR's line stops breathing and stays on
 async function waitAndMint(p){ const me = { quote: p.quote }; WAITING = me; renderPendings(); const st = () => $('d-st');
   let w = null, fails = 0, tried = false;
@@ -877,9 +925,9 @@ async function waitAndMint(p){ const me = { quote: p.quote }; WAITING = me; rend
   while (WAITING === me) {
     try { if (!w) w = await wallet(p.campaign.mint);
       const q = await w.checkMintQuoteBolt11(p.quote); if (WAITING !== me) return;  /* left with the arrow: kept below, and finished by pendCheck if paid */
-      if (q.state === 'PAID') { if (st()) st().textContent = 'paid ✓ — locking your donation…'; const fp = document.querySelector('#d-out .frame'); if (fp) { (fp._anims || []).forEach(a => a.cancel()); fp.style.opacity = '1'; } tried = true; const { locked, sk } = await collect(p, w); WAITING = null; renderLocked(p.campaign, locked, sk); renderPendings(); return; }
+      if (q.state === 'PAID') { if (st()) st().textContent = 'paid ✓ — locking your donation…'; const fp = document.querySelector('#d-out .frame'); if (fp) { (fp._anims || []).forEach(a => a.cancel()); fp.style.opacity = '1'; } tried = true; const { locked, sk, kept } = await collect(p, w); WAITING = null; renderLocked(p.campaign, locked, sk); if (!kept) notKept(); renderPendings(); return; }
       if (q.state === 'ISSUED') { const back = p.outputs ? await restoreOutputs(w, p.outputs) : null;  // a network error here goes to the retry below
-        if (back) { dropPending(p.quote); WAITING = null; renderLocked(p.campaign, back, p.sk || findDonorKey([p.pk])); renderPendings(); return; }
+        if (back) { const kept = keptDonation(p.campaign, p.pk, back, p.quote); WAITING = null; renderLocked(p.campaign, back, p.sk || findDonorKey([p.pk])); if (!kept) notKept(); renderPendings(); return; }
         // issued, but not with outputs this page knows: another tab may have it. Keep the record (marked) instead of deleting it.
         savePending({ ...p, stuck: true }); WAITING = null; renderPendings();
         show($('d-out'), (tried || p.outputs)
@@ -912,12 +960,12 @@ $('d-ln').onclick = async () => { const btn = $('d-ln'); busy(btn, true); try { 
   if (!storageWorks()) throw new Error(NO_STORAGE);
   show($('d-out'), 'asking the mint for an invoice…'); const w = await wallet(c.mint);
   /* a campaign that says where its money may go: the mint is asked now whether it enforces that, not once the invoice is paid (audit of 10 Nov: a mint that had stopped saying so left the paid sats in a quote this page would not mint) */
-  if (c.lock === 'dest' && !(await mintDest(c.mint))) throw Object.assign(new Error('This campaign needs a mint that enforces where its donations may go, and this mint does not say it does. Do not donate through it.'), { byPage: true });
+  if (c.lock === 'dest' && !(await mintDest(c.mint, true))) throw Object.assign(new Error('This campaign needs a mint that enforces where its donations may go, and this mint does not say it does. Do not donate through it.'), { byPage: true });
   const desc = `Streetcat · ${c.name} ${c.op || ''} · vet-certified donation`.slice(0, 100);
   let canDescribe = false; try { canDescribe = w.getMintInfo().supportsNut04Description('bolt11', 'sat'); } catch (_) {}
   const q = canDescribe ? await w.createMintQuoteBolt11(amount, desc) : await w.createMintQuoteBolt11(amount);
-  const { sk, pk } = newDonorKey(c);
-  const p = { quote: q.quote, request: q.request, amount, expiry: q.expiry || null, campaign: c, pk, sk, created: new Date().toISOString() };
+  const { pk } = newDonorKey(c);  /* the refund key is in the list of refund keys (newDonorKey), sealed by a PIN: the pending invoice names it by its public key only */
+  const p = { quote: q.quote, request: q.request, amount, expiry: q.expiry || null, campaign: c, pk, created: new Date().toISOString() };
   savePending(p); if (!pendings().some(x => x.quote === p.quote)) throw new Error(NO_STORAGE);  // never show an invoice this browser could forget
   renderInvoice(p); renderPendings(); waitAndMint(p);
 } catch (e) { $('donate').classList.remove('paying'); show($('d-out'), 'Failed: ' + (e.message || e), 'bad'); } busy(btn, false); };
@@ -975,7 +1023,7 @@ async function refundCheck(rin){ const w = rin.w, out = { at: nowIso(), dleq: fa
     if (rin.info.dest) { const d = await window.scCore.destTrace(w, rin.dec.proofs); out.refundable = d.trace.filter(x => x.state === 'UNSPENT').map(x => x.proof); out.locked = d.locked; out.released = d.released + d.fees + d.unproven; out.refunded = d.refunded; out.paid = d.paid; return out; }  /* released: what left the lock for a partner, the mint's fee with it (and what a spend paid a partner without its two signatures to show) */
     const tr = await window.scCore.traceDonation(w, rin.dec.proofs);
     for (const x of tr) { const a = amt(x.proof.amount); if (x.state === 'UNSPENT') { out.refundable.push(x.proof); out.locked += a; continue; } if (x.state !== 'SPENT') continue;
-      const pw = { ...x.proof, witness: x.witness }; let byRefund = false; try { byRefund = !!x.witness && rin.info.refund.some(k => cashu.hasP2PKSignedProof(k, pw)); } catch (_) {} if (byRefund) out.refunded += a; else out.released += a - (x.putBack || 0); }  /* what was put back is followed below */
+      const pw = { ...x.proof, witness: window.scCore.witnessClean(x.witness) }; let byRefund = false; try { byRefund = !!x.witness && rin.info.refund.some(k => cashu.hasP2PKSignedProof(k, pw)); } catch (_) {} if (byRefund) out.refunded += a; else out.released += a - (x.putBack || 0); }  /* what was put back is followed below */
   } catch (e) { out.unavailable = true; out.why = e.message || String(e); } return out; }
 const reserveGuess = n => Math.max(2, Math.ceil(n / 100));  // the mint keeps this much for Lightning fees, at most, by the usual rule (2 sat or 1 %)
 function refundEstimate(rin, chk){ const w = rin.w; let fee1 = 0, fee2 = 0; try { fee1 = amt(w.getFeesForProofs(chk.refundable)); fee2 = fee1; } catch (_) {} const ecash = Math.max(0, chk.locked - fee1); return { ecash, ln: Math.max(0, ecash - fee2 - reserveGuess(ecash)), fees: fee1 + fee2 }; }
@@ -1348,7 +1396,7 @@ async function takeRequest(q0, from){ const { photoData, ...q } = q0 || {};
   /* Whose request it is: through the relay its seal says so; by link, file or QR only Streetcat's signature on it does, and without
      one it is shown but cannot be confirmed (independent review, 11 Nov: anyone could write one naming Streetcat's published key). */
   const have = creqs().find(x => x.id === q.id), sg = await C.requestSig(q), unsig = sg === 'broken' ? ['its signature does not match: it was changed after Streetcat signed it'] : sg !== 'signed' && from !== 'relay' ? ['it is not signed by Streetcat: ask Streetcat to send it again'] : [];
-  if (have && !(have.state === 'review' && (have.unsigned || []).length && !unsig.length)) return have;  /* one copy kept; an unsigned or changed copy opened first gives way to Streetcat's own (review of 12 Nov: it kept the genuine one out) */
+  if (have && !(['review', 'reported'].includes(have.state) && (have.unsigned || []).length && !unsig.length)) return have;  /* reported too (Daybreak, 14 Nov: a forged copy opened first and reported kept Streetcat's own out) */  /* one copy kept; an unsigned or changed copy opened first gives way to Streetcat's own (review of 12 Nov: it kept the genuine one out) */
   const r = { id: q.id, q, from, at: nowIso(), state: 'review', problems: [...reqProblems(q), ...unsig], ...(unsig.length ? { unsigned: unsig } : {}) }; saveCreq(r); if (!r.problems.length) amountsAgain(r.id);  /* its amounts, against the mint's keys (A04): apart, so a slow mint holds nothing up */
   const sk = clinicSkFor(q); if (sk && OUTBOX && !r.problems.length) { try { await OUTBOX.add(R.receiptFor(q), sk, q.campaign.streetcat, { relays: relays(), label: 'received ' + q.id }); flush(); } catch (_) {} }  /* tells Streetcat it arrived */
   return r; }
@@ -1450,7 +1498,7 @@ function answerOut(r){ const out = $('cr-out'), a = r.answer; if (!a) return; co
   const w = PWORDS[pkindOf(r.q)], nph = ((a.statement && a.statement.photos) || []).length;
   const head = a.kind === 'certified' ? `${w ? w.done : 'CONFIRMED'} · ${when(a.statement.signed)}\n` + payLine(r) + (a.statement.evidence ? `with the ${a.statement.evidence.kind}'s fingerprint ${a.statement.evidence.sha256.slice(0, 16)}…\n` : '') + (nph ? `with ${nph} photo${nph > 1 ? 's' : ''}, named in it · ${ansPhotosSent(r) ? '✓ sent' : 'sending'}\n` : '') : `PROBLEM REPORTED (${a.statement.reason}) · ${when(a.statement.signed)}\n`;
   const qrLink = t => { const p = el('p', 'center lnk'), x = el('a', null, t); x.href = '#'; x.onclick = async e => { e.preventDefault(); const box = el('div', 'term'), lbl = el('div', 'mut'); p.replaceWith(box); box.after(lbl); showQR(box, await C.pack(a), lbl); r.handed = true; saveCreq(r); }; p.appendChild(x); return p; };
-  if (gone || (online() && OUTBOX && !stuck(s, a.statement.signed))) {
+  if (gone || (online() && OUTBOX && !!r.outbox && !stuck(s, a.statement.signed))) {  /* one the outbox never took is not "sending" (Daybreak, 14 Nov): it is said, with the ways to send it */
     /* What became of the answer, as short lines in a terminal box that fills the rest of the screen, typed in as
        they change, a mark before every one; whoever is named takes its key's colours (withKeys); the big button stays, saying what happened */
     const T = 100, L = [], hm = t => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }); }; let paid = false;
@@ -1478,20 +1526,28 @@ function answerOut(r){ const out = $('cr-out'), a = r.answer; if (!a) return; co
   const row = el('div', 'row2'), lb = smallBtn('copy link for Streetcat', async () => { const ok = await copyText(await linkOf(a, 'streetcat')); if (ok) { doneLabel(lb); r.handed = true; saveCreq(r); } else flapLabel(lb, 'select it'); });
   row.appendChild(lb); row.appendChild(smallBtn('save as file', () => { saveFile(`answer-${r.id}.json`, JSON.stringify(a)); r.handed = true; saveCreq(r); })); inbox.appendChild(row);
   const rq = el('div', 'row1'), qb = smallBtn('show as QR', async () => { const box = el('div', 'term'), lbl = el('div', 'mut'); (rq.closest('.term.fill') || rq).replaceWith(box); box.after(lbl);  /* the QR takes the box's place: inside it, it would be too small to scan */ showQR(box, await C.pack(a), lbl); r.handed = true; saveCreq(r); }); rq.appendChild(qb); inbox.appendChild(rq);
-  if (s.state !== 'sent' && OUTBOX && online()) { const r1 = el('div', 'row1'); r1.appendChild(smallBtn('send again', async () => { await flush(); renderCreq(); })); inbox.appendChild(r1); } }
+  /* sent again: one the outbox never took (no room), or gave up on, goes in again (Daybreak, 14 Nov: "send again" only went over what was there) */
+  if (s.state !== 'sent' && OUTBOX && online()) { const r1 = el('div', 'row1'); r1.appendChild(smallBtn('send again', async () => { try { await answerQueue(creqs().find(x => x.id === r.id) || r, true); } catch (e) { return show($('cr-out'), failText(e), 'bad'); } await flush(); renderCreq(); })); inbox.appendChild(r1); } }
 $('cr-ok').onchange = () => { $('cr-go').disabled = !$('cr-ok').checked; };
 document.querySelectorAll('#cr-why button').forEach(b => { b.onclick = () => { REASON = b.dataset.r; document.querySelectorAll('#cr-why button').forEach(x => x.classList.toggle('on', x === b)); $('cr-report').disabled = false; }; });
-async function clinicAnswer(make){ const r = creqs().find(x => x.id === CUR_CREQ); if (!r) throw new Error('no request open'); const sk = clinicSkFor(r.q); if (!sk) throw new Error(`this phone has no clinic key for ${r.q.campaign.name}`);
+// the answer to the request it names, the one that was on screen when it was tapped (Daybreak, 14 Nov: it took the one open when its
+// photos were saved, so opening another meanwhile signed that other, with the first one's photos and none of its checks)
+// into the outbox: a new answer always; again (the button) only one the outbox does not hold, or gave up on
+async function answerQueue(r, again = false){ if (!OUTBOX || !r.answer || (again && r.outbox && !['none', 'failed'].includes(sentState(r.outbox).state))) return;
+  const it = await OUTBOX.add(r.answer, clinicSkFor(r.q), r.q.campaign.streetcat, { relays: relays(), label: 'answer ' + r.id }); r.outbox = it.id; saveCreq(r); }
+async function clinicAnswer(make, id){ const r = creqs().find(x => x.id === id); if (!r) throw new Error('no request open'); const sk = clinicSkFor(r.q); if (!sk) throw new Error(`this phone has no clinic key for ${r.q.campaign.name}`);
   r.answer = await make(r, sk); r.state = r.answer.kind === 'report' ? 'reported' : 'answered'; r.offline = !online(); saveCreq(r); buzz();
-  if (OUTBOX) { const it = await OUTBOX.add(r.answer, sk, r.q.campaign.streetcat, { relays: relays(), label: 'answer ' + r.id }); r.outbox = it.id; saveCreq(r); }
-  renderCreq(); await flush(); renderCreq(); }
+  await answerQueue(r); renderCreq(); await flush(); renderCreq(); }
 $('cr-go').onclick = async () => { const btn = $('cr-go'), was = CUR_CREQ; busy(btn, true); try { if (!$('cr-ok').checked) throw new Error('tick the box first');
-    const r0 = creqs().find(x => x.id === CUR_CREQ), w = r0 && PWORDS[pkindOf(r0.q)];
-    if (r0 && r0.state === 'review' && (creqProblems(r0).length || !r0.amounts)) throw Object.assign(new Error('this request cannot be confirmed: ' + (creqProblems(r0)[0] || 'its amounts are not checked with the mint yet')), { byPage: true });  /* signed only what was checked (A04) */
-    const shots = w ? C.ANS_SLOTS.filter(s => CR_SHOTS[s]).map(s => ({ slot: s, sha256: CR_SHOTS[s].sha256, bytes: CR_SHOTS[s].bytes.length, w: CR_SHOTS[s].w, h: CR_SHOTS[s].h })) : [];
+    const r0 = creqs().find(x => x.id === was), w = r0 && PWORDS[pkindOf(r0.q)]; if (!r0) throw new Error('no request open');
+    if (r0.state === 'review' && (creqProblems(r0).length || !r0.amounts)) throw Object.assign(new Error('this request cannot be confirmed: ' + (creqProblems(r0)[0] || 'its amounts are not checked with the mint yet')), { byPage: true });  /* signed only what was checked (A04) */
+    /* what is on screen as it is tapped: the photos are saved first, and another request may be opened meanwhile */
+    const mine = CR_SHOTS, ev = !w && EVID ? { sha256: EVID.sha256, kind: EVID.kind } : null, recv = (w && CR_RECV.id === was && CR_RECV.v.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/ {2,}/g, ' ').trim()) || null;  /* a pasted tab or line break is a space (review of 12 Nov: it made the confirmation fail) */
+    const shots = w ? C.ANS_SLOTS.filter(s => mine[s]).map(s => ({ slot: s, sha256: mine[s].sha256, bytes: mine[s].bytes.length, w: mine[s].w, h: mine[s].h })) : [];
     if (w && !shots.length) throw new Error(`add a photo first: ${w.note}, or ${w.goods}`);
-    try { for (const p of shots) await IDB.put('photos', p.sha256, CR_SHOTS[p.slot].bytes); } catch (_) { throw Object.assign(new Error('this browser cannot keep the photos (a private window?): open the app in a normal window'), { byPage: true }); }  /* before the confirmation names them */
-    await clinicAnswer((r, sk) => C.certify(r.q, sk, undefined, !w && EVID ? { sha256: EVID.sha256, kind: EVID.kind } : null, shots, (w && CR_RECV.id === r.id && CR_RECV.v.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/ {2,}/g, ' ').trim()) || null)); CR_RECV = { id: '', v: '' };  /* a pasted tab or line break is a space (review of 12 Nov: it made the confirmation fail) */ if (shots.length) { (window.CR_DONE = window.CR_DONE || {})[r.id] = CR_SHOTS; CR_SHOTS = {}; ansParts().then(() => { if ($('creq').classList.contains('on')) renderCreq(); }).catch(() => {}); } }
+    try { for (const p of shots) await IDB.put('photos', p.sha256, mine[p.slot].bytes); } catch (_) { throw Object.assign(new Error('this browser cannot keep the photos (a private window?): open the app in a normal window'), { byPage: true }); }  /* before the confirmation names them */
+    await clinicAnswer((r, sk) => C.certify(r.q, sk, undefined, ev, shots, recv), was); if (CR_RECV.id === was) CR_RECV = { id: '', v: '' };
+    if (shots.length) { (window.CR_DONE = window.CR_DONE || {})[was] = mine; if (CR_SHOTS === mine) CR_SHOTS = {}; ansParts().then(() => { if ($('creq').classList.contains('on')) renderCreq(); }).catch(() => {}); } }
   catch (e) { show($('cr-out'), failText(e), 'bad'); } if (CUR_CREQ === was) busy(btn, false); };  /* another request opened meanwhile: its screen set the button (13 Nov: a confirmation still sending enabled the next one's) */
 // the confirmation's photos, every part that two relays do not have yet, wrapped for Streetcat's key (as a request's, reqParts)
 let ANSSENDING = null;
@@ -1502,7 +1558,7 @@ async function ansParts(){ if (ANSSENDING) return ANSSENDING; if (!R || !online(
         for (const part of C.ansPhotoParts(r0.id, ph.slot, ph.sha256, b64of(new Uint8Array(bytes)), C.askedOf(r0.q), r0.q.campaign.streetcat)) { const r = creqs().find(y => y.id === r0.id) || r0; r.parts = r.parts || {}; const acked = r.parts[part.kind] || []; if (acked.length >= need) continue;
           try { const res = await R.publish(await R.wrap(part, sk, r0.q.campaign.streetcat), rels.filter(u => !acked.includes(u)), { timeout: 8000 }); for (const x of res) if (x.ok && !acked.includes(x.url)) acked.push(x.url); } catch (_) {}
           r.parts[part.kind] = acked; saveCreq(r); } } } })().finally(() => { ANSSENDING = null; }); return ANSSENDING; }
-$('cr-report').onclick = async () => { const btn = $('cr-report'); busy(btn, true); try { if (!REASON) throw new Error('pick what happened'); await clinicAnswer((r, sk) => C.report(r.q, sk, REASON, $('cr-note').value.trim())); } catch (e) { show($('cr-out'), failText(e), 'bad'); } busy(btn, false); };
+$('cr-report').onclick = async () => { const btn = $('cr-report'), was = CUR_CREQ, why = REASON, note = $('cr-note').value.trim(); busy(btn, true); try { if (!why) throw new Error('pick what happened'); await clinicAnswer((r, sk) => C.report(r.q, sk, why, note), was); } catch (e) { show($('cr-out'), failText(e), 'bad'); } busy(btn, false); };
 $('w-check').onclick = async () => { const btn = $('w-check'); busy(btn, true); $('w-net').textContent = 'checking the relays…'; try { const res = await clinicCheck(); setLines($('w-net'), res.text); } catch (e) { setLines($('w-net'), '✗ ' + (e.message || e)); } renderWork(); busy(btn, false); };
 $('w-open').onclick = () => { $('w-paste').hidden = !$('w-paste').hidden; if (!$('w-paste').hidden) $('w-text').focus(); };
 $('w-read').onclick = async () => { try { await openPayload($('w-text').value, 'link'); $('w-text').value = ''; } catch (e) { show($('w-out'), failText(e), 'bad'); } };
@@ -1746,6 +1802,11 @@ async function takeDonation(p, via){ await LEDGER_READY; let said; try { said = 
 async function takeAnswer(a, via){ const r = sreqs().find(x => x.id === a.id); if (!r) throw Object.assign(new Error('an answer to a request this browser did not make'), { byPage: true });
   const v = await C.checkAnswer(r.q, a); if (r.check && r.check.ok && !v.ok) return r;  /* a good answer is never replaced by a bad one */
   if (r.check && r.check.ok && r.check.received === 'ok' && v.received !== 'ok') return r;  /* nor one whose "Received by" checks out by a copy with it stripped or changed (review of 12 Nov) */
+  /* Two good answers (a confirmation and a report): the one the partner signed last stands, in whatever order the relays bring them,
+     and once released, the confirmation it was released on stays (Daybreak, 14 Nov: a report that came after it took its place, and
+     the ledger lost the clinic's certificate: the status page then showed the release in red, as declared by nobody) */
+  if (r.check && r.check.ok && v.ok && r.answer) { if (r.state === 'released' && r.answer.kind === 'certified' && a.kind !== 'certified') return r;
+    if (String((a.statement || {}).signed || '') < String((r.answer.statement || {}).signed || '')) return r; }
   const was = r.state; r.answer = a; r.check = { ok: v.ok, text: v.text, kind: a.kind, ...(v.received !== 'none' ? { received: v.received, receivedBy: v.receivedBy } : {}) }; r.answeredAt = r.answeredAt || nowIso(); r.via = via; if (r.state !== 'released') r.state = !v.ok ? 'bad' : a.kind === 'report' ? 'reported' : 'certified'; saveSreq(r); if (r.state === 'certified') reannounce(r.q.campaign);
   if (r.state === 'certified' && was !== 'certified') buzz();  /* a new confirmation: something to release (Home lists it) */
   const sk = heldFor('streetcat', [r.q.campaign.streetcat]); if (sk && OUTBOX && v.ok) { try { await OUTBOX.add(R.receiptFor(a), sk, C.askedOf(r.q), { relays: relays(), label: 'received answer ' + r.id }); flush(); } catch (_) {} }
@@ -2249,29 +2310,41 @@ $('sq-rec-a').onclick = e => { e.preventDefault(); const r = sreqs().find(y => y
 async function safeSwapOuts(w, inputs, outs, { what, mint, keep }){ if (!storageWorks()) throw new Error(NO_STORAGE); const id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), done = settled(id, keep);
   if (!saveFlight({ id, what, mint: norm(mint), ys: inputs.map(yHex), outputs: outs.map(outSave), created: nowIso() })) throw Object.assign(new Error(NOT_WRITTEN), { byPage: true });
   try { const proofs = await w.ops.receive(inputs).asCustom(outs).run(); return done(proofs); }
-  catch (e) { if (cashu.isMintOperationError(e)) { dropFlight(id); throw e; } let spent = false; try { spent = (await w.checkProofsStates(inputs)).every(s => s.state === 'SPENT'); } catch (_) {}
-    if (spent) { const back = await restoreOutputs(w, outs.map(outSave)).catch(() => null); if (back) return done(back); }
-    throw Object.assign(new Error((spent ? 'the mint took the ecash but its answer was lost, and it could not hand the result back yet.' : 'the mint did not answer, so it is not known whether it did it.') + ' Nothing is lost: this browser kept what it needs, so open this page again later and it will finish. (' + (e.message || e) + ')'), { kept: true }); } }
+  catch (e) { return swapFailed(w, e, id, inputs, outs, done); } }  /* asked at the mint first, as safeSwap does */
 // A POT THAT PAYS FROM THE LOCK (core.js, `dest`): the mint pays the partner itself, and nothing comes to this app but what goes back
 // under each donor's lock. One transaction per donation (each has its own lock), built anew from the request: the one the partner's app
 // built and signed, or its signature would not hold; Streetcat's signature goes next to it. A transaction the mint already took (its
 // answer lost, the page closed halfway) is read back from the mint (NUT-09), never sent again; a donation no longer locked (its donor
 // took it back meanwhile) is said, and what the others paid is kept.
+// Was it this very transaction that spent these inputs? The mint keeps a spend's witness with each of its inputs (NUT-07), and the
+// rule makes a witness open every output of its transaction: inputs spent with a witness that opens these very outputs were spent by
+// this transaction. Its outputs found signed say less (Daybreak, 14 Nov): whoever knows them (the partner, Streetcat) could have had
+// them signed with other ecash while the donation stayed locked, or went back to its donor. True, false, or it throws (no answer).
+async function spentByTx(w, tx){ const st = await w.checkProofsStates(tx.inputs); if (st.length !== tx.inputs.length || !st.every(x => x.state === 'SPENT')) return false;
+  let o = null; try { o = JSON.parse(st[0].witness || '').outputs; } catch (_) {} if (!Array.isArray(o) || o.length !== tx.open.length) return false;
+  return tx.open.every((x, i) => o[i] && o[i].secret === x.secret && String(o[i].r) === String(x.r)); }
 async function releaseDest(r, sk){ await LEDGER_READY; const q = r.q, c = q.campaign, w = await wallet(c.mint), to = C.askedOf(q), txs = [], kept = { kept: true };
   for (const k of q.contributions) txs.push(await C.reqTx(q, k));
-  const states = (await w.checkProofsStates(txs.flatMap(t => t.inputs))).map(x => x.state), entries = scEntries(c), done = r.destDone || (r.destDone = {}), short = []; let at = 0, paid = 0, back = 0, fee = 0, n = 0;
+  const states = (await w.checkProofsStates(txs.flatMap(t => t.inputs))).map(x => x.state), entries = scEntries(c), done = r.destDone || (r.destDone = {}), short = [], unwritten = []; let at = 0, paid = 0, back = 0, fee = 0, n = 0;
   for (let i = 0; i < txs.length; i++) { const k = q.contributions[i], tx = txs[i], st = states.slice(at, at + tx.inputs.length); at += tx.inputs.length; let parts = [];
     if (st.every(x => x === 'UNSPENT')) { try { parts = await C.destSwap(w, tx, [C.destSign(tx, sk), r.answer.sigs[i]]); }
       catch (e) { try { parts = await C.destFind(w, tx); } catch (_) { parts = []; }  /* an error, or no answer: did the mint take it all the same? Asked before anything is concluded (outside audit, 11 Nov: an error that came back after the mint had paid, or a release already made from another tab, was booked as "the mint refused it", and the payment was never written down) */
+        if (C.destWhole(tx, parts)) { let ours = null; try { ours = await spentByTx(w, tx); } catch (_) {}  /* found, but was it this transaction that spent the donation? */
+          if (ours === null) throw Object.assign(new Error('the mint could not be asked whether it paid. Nothing is lost: release again later, and what the mint has paid is not paid twice. (' + (e.message || e) + ')'), kept);
+          if (!ours) { short.push({ ref: k.ref, why: 'its payment was signed by the mint for another spend, and the donation is still locked: make a new request with it' }); continue; } }
         if (!C.destWhole(tx, parts) && cashu.isMintOperationError(e)) { short.push({ ref: k.ref, why: 'the mint refused it (' + String(e.message || e).slice(0, 120) + ')' }); continue; }  /* this donation's transaction, not the others': they are still paid, and it is said below (audit of 10 Nov: one refusal left the request half paid and "certified" for ever) */
         if (!C.destWhole(tx, parts)) throw Object.assign(new Error('the mint did not answer, so it is not known whether it paid. Nothing is lost: release again later, and what the mint has paid is not paid twice. (' + (e.message || e) + ')'), kept); } }
-    else if (st.every(x => x === 'SPENT')) parts = await C.destFind(w, tx);  /* taken before: is it this very transaction that the mint signed? */
+    else if (st.every(x => x === 'SPENT')) { parts = await C.destFind(w, tx);  /* taken before: is it this very transaction that the mint signed, and that spent the donation? */
+      if (C.destWhole(tx, parts)) { let ours = null; try { ours = await spentByTx(w, tx); } catch (_) {} if (ours === null) throw Object.assign(new Error('the mint could not be asked whether it paid. Nothing is lost: release again later, and what the mint has paid is not paid twice.'), kept); if (!ours) parts = []; } }
     /* only the whole of it, each output for its amount (audit of 10 Nov: whatever the mint had signed under its blinded messages was booked as this release; a second request over the same proofs "paid" what the first had) */
     if (!C.destWhole(tx, parts)) { short.push({ ref: k.ref, why: 'it is no longer locked (its donor took it back, or it was released another way)' }); continue; }
     const rest = parts.filter(x => x.rest).map(x => x.proof); paid += parts.filter(x => !x.rest && x.to === to).reduce((a, x) => a + x.amount, 0); back += sum(rest); fee += tx.fee; n++;
     if (!done[k.ref]) { const e = entries[k.ref]; if (e) { e.parts = [...(e.parts || []), { request: q.id, patient: q.patient, procedure: q.procedure, date: q.date, amount: Number(k.release) }];
         if (rest.length) e.remainders = [...(e.remainders || []), cashu.getEncodedToken({ mint: c.mint, proofs: rest.map(fullProof) })]; }
-      done[k.ref] = nowIso(); await saveEntries(c, entries); saveSreq(r); } }  /* each donation as it is paid: a page closed halfway counts nothing twice */
+      /* marked done only once the ledger has it (Daybreak, 14 Nov: a write that failed marked it done all the same, and the payment
+         never reached the ledger): not written, it is said below, and releasing again writes it, paying nothing twice */
+      if (await saveEntries(c, entries)) { done[k.ref] = nowIso(); saveSreq(r); } else unwritten.push(k.ref); } }
+  if (unwritten.length) throw Object.assign(new Error(`paid, but this phone has no room to write ${unwritten.join(', ')} in the ledger. Free some room and release again: what the mint has paid is not paid twice.`), kept);
   /* Nothing paid at all: the request stays as it was, and says why. Part of it paid: it is done as far as it goes (what was not
      paid is free for a new request, which the partner confirms again), and says in red what is missing. */
   if (!n) throw Object.assign(new Error(short.map(x => `${x.ref}: ${x.why}`).join('; ') + '. Nothing was paid. Make a new request with what is still locked.'), { byPage: true });
@@ -2343,12 +2416,15 @@ async function vInspect(text){ text = String(text || '').trim(); let p = null; t
   const checks = [], dleq = await dleqOk(w, dec.proofs).catch(() => false);
   checks.push({ state: dleq ? 'ok' : 'bad', text: dleq ? 'Mint signature verified' : 'The mint\'s signature cannot be checked', detail: dleq ? `${dec.proofs.length} proof${dec.proofs.length > 1 ? 's' : ''}, each signed by ${c.mint.replace(/^https?:\/\//, '')} (DLEQ)` : 'Without it, this could be ecash the mint never issued: do not accept it.' });
   const lockBad = [...(scOk(c) ? [] : ['it is not locked with Streetcat\'s published key: Streetcat could never release it']), ...new Set(dec.proofs.map(x => C.lockProblem(C.lockOf(x.secret), c)).filter(Boolean))];  /* S1 */
-  checks.push({ state: lockBad.length ? 'bad' : 'ok', text: lockBad.length ? 'The lock is not what the campaign promises' : `Conditions match ${c.name}`, detail: lockBad.length ? lockBad.join('; ') : `Streetcat ${abbr(c.streetcat)} and the clinic ${abbr(c.clinic)} must both sign · the donor refunds after ${fmtDate(c.deadline)}` });
+  /* the campaign it says it is for is Streetcat's only with Streetcat's signature on it (Daybreak, 14 Nov: one written by anyone around
+     Streetcat's published key, and a partner key of its own, was "Conditions match", and the volunteer signed for it) */
+  const sg = p && p.campaign ? await C.campaignSig(p.campaign).catch(() => 'broken') : 'unsigned', campBad = sg === 'signed' ? '' : sg === 'broken' ? 'The campaign was changed after Streetcat signed it' : 'The campaign is not signed by Streetcat';
+  checks.push({ state: campBad || lockBad.length ? 'bad' : 'ok', text: campBad || (lockBad.length ? 'The lock is not what the campaign promises' : `Conditions match ${c.name}`), detail: campBad ? ['ask the donor for the donation\'s QR or file from the Streetcat app', ...lockBad].join('; ') : lockBad.length ? lockBad.join('; ') : `Streetcat ${abbr(c.streetcat)} and the clinic ${abbr(c.clinic)} must both sign · the donor refunds after ${fmtDate(c.deadline)}` });
   const ys = dec.proofs.map(yHex), have = new Set(vrecs().flatMap(x => x.ys || [])), dup = ys.filter(y => have.has(y)).length;
   checks.push({ state: dup ? 'bad' : 'ok', text: dup ? (dup === ys.length ? 'Already received' : `Partly received before (${dup} of ${ys.length} proofs)`) : 'No duplicates', detail: dup ? 'Do not accept it twice.' : 'none seen here before' });
   let spent = null; if (online() && !w._vlOffline) { try { spent = (await w.checkProofsStates(dec.proofs)).filter(s => s.state !== 'UNSPENT').length; } catch (_) {} }
   checks.push(spent == null ? { state: 'warn', text: 'Spending state not checked', detail: 'checked when Streetcat receives it · a mint signature does not prove it unspent' } : { state: spent ? 'bad' : 'ok', text: spent ? 'Already spent at the mint' : 'Unspent at the mint', detail: '' });
-  VPEND = { ok: dleq && !lockBad.length && !dup && !spent, c, token: tok, ys, ref: await C.donRef(ys), amount: sum(dec.proofs), proofs: dec.proofs, offline: spent == null, dec, info, checks }; return VPEND; }
+  VPEND = { ok: dleq && !campBad && !lockBad.length && !dup && !spent, c, token: tok, ys, ref: await C.donRef(ys), amount: sum(dec.proofs), proofs: dec.proofs, offline: spent == null, dec, info, checks }; return VPEND; }
 async function vShow(text){ show($('v-out'), ''); $('v-accept').disabled = true; const term = $('v-term'); clearInterval(term._qr); term.querySelectorAll('.qr,.tcard').forEach(e => e.remove());
   try { const p = await vInspect(text); checkList($('v-checks'), p.checks); term.appendChild(tokenCard(p.dec, p.info, 'locked')); $('v-empty').hidden = true;
     show($('v-out'), p.ok ? `${p.offline ? 'Received offline' : 'Received'} · ${fmtSat(p.amount)} for ${p.c.name} · ${p.ref}` : 'Do not accept it.', p.ok ? '' : 'bad'); $('v-accept').disabled = !p.ok;
@@ -2400,8 +2476,10 @@ function donorExtras(out, row, c, lockedToken, sk, locked){ DONATION = { c, lock
   more.appendChild(h); more.appendChild(document.createTextNode(' · ')); more.appendChild(k); out.appendChild(more); }
 async function renderDhand(){ const d = DONATION, head = $('dh-head'), term = $('dh-term'); head.textContent = ''; show($('dh-out'), ''); clearInterval(term._qr); term.textContent = ''; $('dh-part').textContent = '';
   if (!d) { head.appendChild(el('div', 'mut', 'Lock a donation first: then it can be handed over.')); return; } head.style.setProperty('--h', String(campHue(d.c))); head.appendChild(el('div', 'title', d.c.name)); head.appendChild(el('div', 'mut', `${fmtSat(d.amount)} · locked`));
-  showQR(term, await C.pack({ t: 'streetcat.handover', v: 1, campaign: C.campaignOf(d.c), token: d.lockedToken }), $('dh-part')); }
-$('dh-file').onclick = async () => { const d = DONATION; if (!d) return; saveFile(`donation-${await C.donRef(d.proofs.map(yHex))}.txt`, await C.pack({ t: 'streetcat.handover', v: 1, campaign: C.campaignOf(d.c), token: d.lockedToken }), 'text/plain'); };
+  showQR(term, await C.pack({ t: 'streetcat.handover', v: 1, campaign: handCamp(d.c), token: d.lockedToken }), $('dh-part')); }
+// the campaign handed over with the donation, with Streetcat's signature on it: the volunteer's phone checks it (Daybreak, 14 Nov)
+const handCamp = c => c.sig ? { ...C.campSigned(c), sig: String(c.sig) } : C.campaignOf(c);
+$('dh-file').onclick = async () => { const d = DONATION; if (!d) return; saveFile(`donation-${await C.donRef(d.proofs.map(yHex))}.txt`, await C.pack({ t: 'streetcat.handover', v: 1, campaign: handCamp(d.c), token: d.lockedToken }), 'text/plain'); };
 async function donorAck(text){ try { const a = await C.unpack(text); if (!a || a.t !== 'streetcat.handover-receipt' || !(await C.handoverReceiptOk(a))) throw new Error('this is not a signed acknowledgment');
     const d = DONATION, ref = d ? await C.donRef(d.proofs.map(yHex)) : a.body.donation; if (a.body.donation !== ref) throw new Error(`this acknowledgment is for another donation (${a.body.donation})`);
     jset('vetlock.donor.acks', [...jget('vetlock.donor.acks', []).filter(x => x && x.ref !== ref), { ref, ack: a, at: nowIso() }]); buzz();
@@ -2456,22 +2534,40 @@ async function walletRequest(){ if (!R || !window.nostrkit) throw new Error('thi
 async function renderWallet(){ const term = $('dw-term'), op = $('dw-open'); term.textContent = ''; term._retrace = null; show($('dw-state'), ''); op.removeAttribute('href');
   try { const r = await walletRequest(); WCUR = r; const q = qrSvg(r.creq); if (q) term.appendChild(q); term._retrace = qrFrame(q); op.href = 'cashu:' + r.creq; show($('dw-state'), 'waiting for the payment…'); wCheck(); } catch (e) { WCUR = null; show($('dw-state'), failText(e), 'bad'); } }
 let WCHECKING = false;
+// A payment is marked as seen once it is taken, or refused for good. One that failed in a way that may pass (the mint out of reach, no
+// room to write it down first) is tried again at the next check, up to 20 times (Daybreak, 14 Nov: it was marked first, and a mint out
+// of reach for a moment lost it). A request already paid is read for two more days: a second payment to it (a wallet that pays twice)
+// is locked too, as another donation with the same refund key, not left in the relay for no one.
+const WAGAIN = 2 * 86400e3, WTRIES = 20;
 async function wCheck(){ if (WCHECKING || !R || !online()) return; WCHECKING = true;
-  try { for (const r of wreqs().filter(x => x.state === 'waiting').sort((a, b) => (b.id === (WCUR && WCUR.id)) - (a.id === (WCUR && WCUR.id)) || b.created - a.created)) { let res;  /* the one on screen first, then the newest: none is dropped any more */ try { res = await R.receivePayments(r.sk, { relays: r.relays || relays(), since: Math.floor(r.created / 1000), seen: new Set(r.seen || []), timeout: 6000 }); } catch (_) { continue; }
-      for (const m of res.payments) { const cur = wreqs().find(x => x.id === r.id) || r; cur.seen = [...(cur.seen || []), m.wrap].slice(-60); saveWreq(cur); if (m.payload.id && m.payload.id !== r.id) continue; await takeWalletEcash(cur, m.payload); if (cur.state !== 'waiting') break; } } } catch (_) {}
+  try { const live = x => x.state === 'waiting' || (x.state === 'done' && Date.now() - (Date.parse(x.done) || 0) < WAGAIN);
+    for (const r of wreqs().filter(live).sort((a, b) => (b.id === (WCUR && WCUR.id)) - (a.id === (WCUR && WCUR.id)) || b.created - a.created)) { let res;  /* the one on screen first, then the newest: none is dropped any more */ try { res = await R.receivePayments(r.sk, { relays: r.relays || relays(), since: Math.floor(r.created / 1000), seen: new Set(r.seen || []), timeout: 6000 }); } catch (_) { continue; }
+      for (const m of res.payments) { const cur = wreqs().find(x => x.id === r.id) || r, seen = () => { if (cur.tries) delete cur.tries[m.wrap]; cur.seen = [...(cur.seen || []), m.wrap].slice(-60); saveWreq(cur); };
+        if (m.payload.id && m.payload.id !== r.id) { seen(); continue; }
+        const how = {}, ok = await takeWalletEcash(cur, m.payload, undefined, how), tries = cur.tries || (cur.tries = {});
+        if (ok || !how.again || (tries[m.wrap] = (tries[m.wrap] || 0) + 1) >= WTRIES) seen(); else saveWreq(cur);
+        if (ok) break; } } } catch (_) {}
   WCHECKING = false; }
 const otherMint = (from, c) => `this ecash is from ${from}, but the campaign uses ${c.mint}: it was not taken. Pay with Lightning instead: your wallet can pay the invoice.`;
-async function takeWalletEcash(r, p, out = $('dw-state')){ const c = r.c; try {
-    if (norm(p.mint) !== norm(c.mint)) throw new Error(otherMint(p.mint, c));
-    if (p.unit && p.unit !== 'sat') throw new Error('this ecash is not in sat: it was not taken');
-    const w = await wallet(c.mint), proofs = (p.proofs || []).map(x => ({ ...x, amount: amt(x.amount) })); if (!proofs.length) throw new Error('there is no ecash in it');
+// `how.again`: the failure may pass, and the payment is to be tried again (above). A refusal of the payment itself (`wNo`) or the
+// mint's own is final. A swap with no answer is tried again too: the payment's ecash is only in its message, so the record kept of the
+// swap (`kept`) cannot do it again; and if the mint did it all the same, its ecash is spent, the second try is refused, and that record
+// gets the result back when the app opens (recoverFlights). Nothing is taken twice.
+const wNo = t => Object.assign(new Error(t), { final: true });
+async function takeWalletEcash(r, p, out = $('dw-state'), how = {}){ const c = r.c; try {
+    if (norm(p.mint) !== norm(c.mint)) throw wNo(otherMint(p.mint, c));
+    if (p.unit && p.unit !== 'sat') throw wNo('this ecash is not in sat: it was not taken');
+    const w = await wallet(c.mint), proofs = (p.proofs || []).map(x => ({ ...x, amount: amt(x.amount) })); if (!proofs.length) throw wNo('there is no ecash in it');
     const lockedIn = proofs.filter(x => /^\s*\[/.test(String(x.secret)));
     if (!lockedIn.length) { show(out, `received ${fmtSat(sum(proofs))} — locking it…`); const got = await safeSwap(w, proofs, { lock: lockFor(c, r.pk), what: { kind: 'donation', campaign: c, pk: r.pk }, mint: c.mint, keep: keepLocked(c, r.pk) }); return finishWallet(r, got); }
-    if (lockedIn.length === proofs.length && lockMatches(c, r.pk, proofs)) { if (!(await dleqOk(w, proofs).catch(() => false))) throw new Error('the mint\'s signature on this locked ecash cannot be checked: it was not taken');
-      if ((await w.checkProofsStates(proofs)).some(s => s.state !== 'UNSPENT')) throw new Error('this locked ecash is already spent'); return finishWallet(r, proofs); }
+    if (lockedIn.length === proofs.length && lockMatches(c, r.pk, proofs)) { if (!(await dleqOk(w, proofs))) throw wNo('the mint\'s signature on this locked ecash cannot be checked: it was not taken');  /* the mint's keys out of reach: thrown as it is, and tried again */
+      if ((await w.checkProofsStates(proofs)).some(s => s.state !== 'UNSPENT')) throw wNo('this locked ecash is already spent');
+      if (!keepLocked(c, r.pk)(proofs)) throw new Error(NOT_WRITTEN);  /* taken as it is, with no swap: kept here before it is called done, or tried again */
+      return finishWallet(r, proofs); }
     const to = [...new Set(lockedIn.map(x => { const i = lockInfo([x]); return (i.pubkeys || []).map(k => abbr(lc(k))).join(' + ') || 'another condition'; }))].join('; ');
-    throw new Error(`your wallet sent ecash that is already locked (to ${to}), not with this campaign's lock: this page cannot unlock it or lock it again, so it is not a donation. If it is locked to Streetcat's key alone, ask Streetcat to return it.`);
-  } catch (e) { show(out, '✗ ' + (e.message || e), 'bad'); r.last = String(e.message || e); saveWreq(r); } }
+    throw wNo(`your wallet sent ecash that is already locked (to ${to}), not with this campaign's lock: this page cannot unlock it or lock it again, so it is not a donation. If it is locked to Streetcat's key alone, ask Streetcat to return it.`);
+  } catch (e) { how.again = !(e.final || cashu.isMintOperationError(e) || (e.byPage && e.message !== NOT_WRITTEN));
+    show(out, '✗ ' + (e.message || e) + (how.again ? ' It is tried again by itself.' : ''), 'bad'); r.last = String(e.message || e); saveWreq(r); return false; } }
 function finishWallet(r, proofs){ r.state = 'done'; r.done = nowIso(); saveWreq(r); WCUR = null; if (nav.dataset.role !== 'donor' || !$('donate').classList.contains('on')) openTab('donate'); renderLocked(r.c, proofs, findDonorKey([r.pk])); return true; }
 // the "Pay with ecash" screen, opened from Donate: the payment request, made when it opens, and one box for pasting ecash
 async function renderEcash(){ settleAmt(); const head = $('de-head'); head.textContent = ''; show($('de-out'), '');
@@ -2701,6 +2797,7 @@ $('cr-cat-a').onclick = e => { e.preventDefault(); const r = creqs().find(x => x
 // STREETCAT: a record, checked (signed with the clinic key it names, which must be one of a campaign's to be trusted), then its photos
 async function takeCat(p, via){ const v = await C.catCheck(p); if (!v.ok) throw Object.assign(new Error('a cat record that does not check out: ' + v.problems.join('; ')), { byPage: true });
   const { photos, ...rec } = p, have = scats().find(x => x.id === p.id);
+  if (have && lc(rec.statement.clinic) !== lc(have.rec.statement.clinic)) throw Object.assign(new Error(`a record ${p.id} is here already, signed by another clinic key: this one is not taken`), { byPage: true });  /* only its own clinic corrects a record (Daybreak, 14 Nov: any clinic key could put its own in its place) */
   if (!have || String(rec.statement.signed) > String(have.rec.statement.signed)) saveScat({ id: p.id, rec, from: lc(p.from || rec.statement.clinic), at: have ? have.at : nowIso(), via: have ? have.via : via });  /* signed again (corrected): the newer one */
   if (photos && typeof photos === 'object') for (const ph of rec.statement.photos) if (typeof photos[ph.slot] === 'string') { try { await keepPhoto(ph.sha256, unb64(photos[ph.slot])); } catch (_) {} }  /* a file carries its photos */
   return !have; }

@@ -56,15 +56,24 @@
   const write = (k, v) => { v = String(v); if (!SLOTS.includes(k) || !on()) return put(k, v); return keyOk() ? put(k, enc(v, K)) : false; };
   const check = async pin => { const m = meta(); if (!m) return false; const k = await derive(pin, m.salt, m.iter); return fits(m, k) ? k : false; };
   const unlock = async pin => { const k = await check(pin); if (!k) return false; try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} useKey(k); sealAll(); return true; };
-  const set = async pin => { pin = String(pin); if (on()) throw new Error('a PIN is set already: remove it first'); if (pin.length < MIN) throw new Error(`a PIN has ${MIN} characters or more`);
+  // ONE CHANGE OF PIN AT A TIME (Daybreak, 14 Nov: a second tap on "lock" while the first was still making its key passed the "no
+  // PIN yet" check too; the first sealed the keys, and the second, finding them sealed, wrote only its own salt over the first's: the
+  // PIN opened, and no key could be read, ever). A second change in this tab is refused while one runs, and what is stored is looked
+  // at again once the key is made, which takes a moment: another tab may have set or changed the PIN meanwhile.
+  let changing = false;
+  const one = f => async (...a) => { if (changing) throw new Error('the PIN is being changed already: wait a moment'); changing = true; try { return await f(...a); } finally { changing = false; } };
+  const set = one(async pin => { pin = String(pin); if (raw(NEXT) != null && !finish()) throw new Error('a change of PIN is not finished yet: free some room and open the app again');
+    if (on()) throw new Error('a PIN is set already: remove it first'); if (pin.length < MIN) throw new Error(`a PIN has ${MIN} characters or more`);
     const salt = hex(crypto.getRandomValues(new Uint8Array(16))), k = await derive(pin, salt, ITER), slots = {};
+    if (on() || raw(NEXT) != null) throw new Error('a PIN was set meanwhile (in another tab?): nothing changed here');
     for (const s of SLOTS) { const v = raw(s); if (v != null && !v.startsWith(PRE)) slots[s] = [enc(v, k), sum(v)]; }
     if (!put(NEXT, JSON.stringify({ meta: { v: 1, kdf: 'PBKDF2-SHA256', iter: ITER, salt, check: enc('vetlock', k) }, slots }))) { put(NEXT, null); throw new Error('this phone could not write it down (its storage is full or blocked), so nothing changed'); }
-    try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} const done = finish(); load(); if (!K && meta()) useKey(k); if (!done) throw new Error('this phone has no room to finish: it is finished the next time the app opens'); return true; };
-  const clear = async pin => { const k = await check(pin); if (!k) return false; const slots = {};
-    for (const s of SLOTS) { const v = raw(s); if (v != null && v.startsWith(PRE)) slots[s] = [dec(v, k), sum(v)]; }
+    try { sessionStorage.setItem(SESSION, hex(k)); } catch (_) {} const done = finish(); load(); if (!K && meta()) useKey(k); if (!done) throw new Error('this phone has no room to finish: it is finished the next time the app opens'); return true; });
+  const clear = one(async pin => { if (raw(NEXT) != null && !finish()) throw new Error('a change of PIN is not finished yet: free some room and open the app again');
+    const k = await check(pin); if (!k) return false; const m = meta(); if (!m || !fits(m, k) || raw(NEXT) != null) throw new Error('the PIN was changed meanwhile (in another tab?): nothing changed here');
+    const slots = {}; for (const s of SLOTS) { const v = raw(s); if (v != null && v.startsWith(PRE)) slots[s] = [dec(v, k), sum(v)]; }
     if (!put(NEXT, JSON.stringify({ meta: null, slots }))) { put(NEXT, null); throw new Error('this phone could not write it down (its storage is full or blocked), so nothing changed'); }
-    finish(); try { sessionStorage.removeItem(SESSION); } catch (_) {} load(); return true; };
+    finish(); try { sessionStorage.removeItem(SESSION); } catch (_) {} load(); return true; });
   const lock = () => { try { sessionStorage.removeItem(SESSION); } catch (_) {} useKey(null); };
   const erase = () => { for (const k of [...SLOTS, NEXT, META]) put(k, null); lock(); };
 

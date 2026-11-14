@@ -57,8 +57,11 @@ The mint accepts the spend only if all of this holds:
 2. The lock is `SIG_ALL`, asks for at least two signatures, and its `dest` policy is one the mint knows.
 3. At least `n_sigs` distinct keys of `data` and `pubkeys` have a valid signature on the NUT-11 `SIG_ALL` message, and
    the key in `data` is one of them. The witness holds no more signatures than the lock has keys.
-4. There is one opening per output, and for each `B_ = hash_to_curve(secret) + r·G`, with `r` written as 64 lower-case
-   hex digits and nothing else, and the secret with no white space before or after it.
+4. There is one opening per output, and for each `B_ = hash_to_curve(secret) + r·G`, with the output's `B_` written as
+   its compressed point in lower-case hex (66 digits) and `r` as 64 lower-case hex digits, nothing else, and the secret
+   with no white space before or after it. (Whoever reads the mint's record rebuilds each `B_` from its opening, in lower
+   case, and asks the mint for it by that (NUT-09). Nutshell 0.21.0 fails a swap with `B_` written otherwise anyway, as it
+   signs, with an error that does not say why.)
 5. Every opened secret is one of two things:
    - **the same lock**: a P2PK secret with the inputs' `data` and `tags`, value for value and in the same order, and a
      nonce no input has;

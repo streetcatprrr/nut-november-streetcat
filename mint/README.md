@@ -31,7 +31,7 @@ own in Nutshell's suite and no wallet side there; the tests are this repository'
 The patch goes on a copy, so the installed package stays as it is:
 
 ```
-pip install cashu==0.21.0        # on Python 3.13 see tests/README.md
+pip install cashu==0.21.0        # stops now: breez-sdk-spark 0.17 is gone from PyPI; mint/install.sh lists what to install
 cp -r "$(python3 -c 'import cashu, os; print(os.path.dirname(cashu.__file__))')" ./cashu
 patch -p1 < mint/nutshell-0.21.0-dest.patch
 
@@ -58,7 +58,9 @@ sudo bash mint/install.sh mint.example.org
 
 The name must point at the server first, with ports 80 and 443 open. The mint's key is made on the server and written to
 `/etc/nutshell-dest/env`, never printed; a second run installs the code afresh and keeps the key and the database. It
-sets up the fake backend only and refuses any other. The copying, patching and load check have been tried here; the
+sets up the fake backend only and refuses any other: a settings file that names another (even in lower case, or under
+Nutshell's old name `MINT_LIGHTNING_BACKEND`) or that it cannot read whole, a `.env` that Nutshell would read over it,
+and a name, port or domain that is not one plain line (14 Nov). The copying, patching and load check have been tried here; the
 script as a whole has not yet been run on a real server.
 
 ## Licence

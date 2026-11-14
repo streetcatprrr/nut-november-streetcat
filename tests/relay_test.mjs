@@ -130,6 +130,52 @@ check('a relay that holds more than the limit is read page by page: every messag
 await Promise.all([mk1, mk2].map(r => r.close()));
 
 await Promise.all([late8, keep8, mute8, no8, k10].map(r => r.close()));
+// 12) A BAD COPY DOES NOT HIDE THE GOOD ONE (Daybreak, 14 Nov). One relay serves the request's wrap with another body under the same id
+// (a relay that changes what it keeps, or breaks it); the other relay has it as it was sent. The bad copy came first and was the one
+// kept, then dropped when checked: the message never came. Now the good copy comes, once, from the relay that has it as sent; the same
+// for a wallet's payment (receivePayments).
+{ const bad12 = startRelay({ port: 7121 }), good12 = startRelay({ port: 7122 }); await Promise.all([bad12.ready, good12.ready]); const u12 = [bad12.url, good12.url];
+  const q12 = await C.makeRequest({ campaign: camp, patient: 'NUBE', procedure: 'vaccine', date: '2026-11-04', contributions: [{ release: 64, proofs: fakeProofs(camp, C.pubOf(newSk()), [64]) }] });
+  const box12 = R.outbox(store()); await box12.add(q12, sc, camp.clinic, { relays: u12 }); await box12.flush();
+  const spoil = r => { for (let i = 0; i < r.events.length; i++) r.events[i] = { ...r.events[i], content: r.events[i].content.slice(0, -8) + 'AAAAAAA=' }; };
+  spoil(bad12); const got12 = await R.receive([cl], { relays: u12, expect: clinicExpects });
+  check('a relay that gives a bad copy of a message does not hide the good copy another relay gives: it comes once, from that relay', got12.messages.length === 1 && got12.messages[0].payload.id === q12.id && JSON.stringify(got12.messages[0].relays) === JSON.stringify([good12.url]), got12.messages.map(m => m.payload.id + ' from ' + m.relays.map(u => u.slice(-4)).join('+')).join(', ') || 'nothing');
+  const kit = loadKit(), wsk = newSk(), to = kit.getPublicKey(Uint8Array.from(wsk.match(/../g), x => parseInt(x, 16)));
+  const pay12 = kit.wrapEvent({ kind: 14, content: JSON.stringify({ id: 'r12', mint: camp.mint, unit: 'sat', proofs: fakeProofs(camp, C.pubOf(newSk()), [8]) }), tags: [['p', to]] }, kit.generateSecretKey(), to);
+  await R.publish(pay12, u12); spoil(bad12); const p12 = await R.receivePayments(wsk, { relays: u12 });
+  check('…and the same for a wallet\'s payment', p12.payments.length === 1 && p12.payments[0].payload.id === 'r12', `${p12.payments.length} payment(s)`);
+  await Promise.all([bad12.close(), good12.close()]); }
+// 13) RELAYS THAT CAP A WHOLE REQ, AND FLOODS LONGER THAN THE PAGES (Daybreak, 14 Nov). The test relay caps a REQ as a whole, not each
+// of its filters, as some relays do: a flood of wraps to one key filled the answer, another key's message never came, and that key's
+// mark moved past it. Each key is now asked in a REQ of its own. And a flood longer than the pages: a read stopped after them and the
+// next began again at the newest, so a message under it never came; now each read goes on from where the last one stopped.
+{ const kit = loadKit(), cl2 = newSk(), camp2 = { ...camp, name: 'NORTE', clinic: C.pubOf(cl2) }, both = p => p && p.t === 'streetcat.request' ? p.campaign.streetcat : null, t13 = Math.floor(Date.now() / 1000);
+  const flood = async (r, pk, n, from) => { const to = await R.pubOf(pk); for (let i = 0; i < n; i++) r.events.push(kit.finalizeEvent({ kind: 1059, created_at: from + i, tags: [['p', to]], content: 'flood ' + i }, kit.generateSecretKey())); };  /* wraps anyone can send, newer than the message */
+  const send = async (r, patient) => { const q = await C.makeRequest({ campaign: camp2, patient, procedure: 'sterilisation', date: '2026-11-14', contributions: [{ release: 16, proofs: fakeProofs(camp2, C.pubOf(newSk()), [16]) }] }), box = R.outbox(store()); await box.add(q, sc, camp2.clinic, { relays: [r.url] }); await box.flush(); return q; };
+  const ra = startRelay({ port: 7123 }), rb = startRelay({ port: 7124 }); await Promise.all([ra.ready, rb.ready]);
+  const qa = await send(ra, 'LUNA'); await flood(ra, camp.clinic, 60, t13 + 100);
+  const ga = await R.receive([cl, cl2], { relays: [ra.url], expect: both, marks: {}, limit: 20 });
+  check('a relay that caps a REQ as a whole: a flood of wraps to one key does not hide another key\'s message', ga.messages.some(m => m.payload.id === qa.id), `${ga.messages.length} message(s) · ${ra.stats.reqs.length} REQs`);
+  const qb = await send(rb, 'KIRA'); await flood(rb, camp2.clinic, 100, t13 + 200); const pub2 = await R.pubOf(camp2.clinic);
+  let marks = {}, got = false, reads = 0; for (; reads < 6 && !got;) { reads++; const res = await R.receive([cl2], { relays: [rb.url], expect: both, marks, limit: 3 }); got = res.messages.some(m => m.payload.id === qb.id); for (const [u, m] of Object.entries(res.marks || {})) marks[u] = { ...(marks[u] || {}), ...m }; }
+  const mb = marks[rb.url] || {};
+  check('a flood longer than the pages: each read goes on from where the last stopped, and the message under it comes a few reads later', got && reads > 1, `${got ? 'came' : 'never came'} · ${reads} read(s)`);
+  check('…and once the walk reaches the end, the key\'s mark is set and where it stopped is cleared', !!mb[pub2] && !mb['<' + pub2] && !mb['^' + pub2], JSON.stringify(Object.fromEntries(Object.entries(mb).map(([k, v]) => [k.slice(0, 9), v]))));
+  await Promise.all([ra.close(), rb.close()]); }
+// 14) EQUAL DATES (Daybreak, 14 Nov; M03 of the first scan). A flood of wraps that all bear one second, newer than a message: the
+// page asked for what is older came back the same, the walk stopped with no cursor, and the message under it never came, read after
+// read. Now a full page that reaches no further back moves on to the second before. Three such seconds here, each over a page.
+{ const kit = loadKit(), cl3 = newSk(), camp3 = { ...camp, name: 'SOL', clinic: C.pubOf(cl3) }, from3 = p => p && p.t === 'streetcat.request' ? p.campaign.streetcat : null;
+  const rc = startRelay({ port: 7125 }); await rc.ready;
+  const q3 = await C.makeRequest({ campaign: camp3, patient: 'SOL', procedure: 'sterilisation', date: '2026-11-14', contributions: [{ release: 16, proofs: fakeProofs(camp3, C.pubOf(newSk()), [16]) }] }), box3 = R.outbox(store());
+  await box3.add(q3, sc, camp3.clinic, { relays: [rc.url] }); await box3.flush();
+  const to3 = await R.pubOf(camp3.clinic), T = Math.floor(Date.now() / 1000) + 300;
+  const tie = (n, at) => { for (let i = 0; i < n; i++) rc.events.push(kit.finalizeEvent({ kind: 1059, created_at: at, tags: [['p', to3]], content: 'tie ' + i }, kit.generateSecretKey())); };
+  tie(12, T); tie(7, T - 50); tie(5, T - 51);
+  let marks = {}, got = false, reads = 0; for (; reads < 4 && !got;) { reads++; const res = await R.receive([cl3], { relays: [rc.url], expect: from3, marks, limit: 3 }); got = res.messages.some(m => m.payload.id === q3.id); for (const [u, m] of Object.entries(res.marks || {})) marks[u] = { ...(marks[u] || {}), ...m }; }
+  check('a flood of wraps that all bear one second does not stop the paging: the message under it comes', got, `${got ? 'came' : 'never came'} · ${reads} read(s) · ${rc.stats.reqs.length} REQs`);
+  check('…and the walk reaches the end: the key\'s mark is set', !!(marks[rc.url] || {})[to3], JSON.stringify(Object.fromEntries(Object.entries(marks[rc.url] || {}).map(([k, v]) => [k.slice(0, 9), v]))));
+  await rc.close(); }
 await Promise.all(relays.map(r => r.close()));
 say(bad ? `relay: ${bad} check(s) failed` : 'relay: every check passed');
 process.exit(bad ? 1 : 0);

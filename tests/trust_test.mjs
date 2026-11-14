@@ -46,7 +46,7 @@ const okNow = await (async () => { for (let i = 0; i < 100; i++) { if (!(await c
 check('the same request from Streetcat\'s key: "From Streetcat …", and it can be confirmed', /^Streetcat 0[23][0-9a-f]{8}…$/.test(from) && okNow, from + ' · ' + (await txt(clinic, '#cr-warn')).split('\n')[0]);
 
 // ---------- a volunteer's phone ----------
-const vol = await page('streetcat'), handover = async sk => { const c = camp(sk); return C.linkFor(BASE + 'index.html?role=streetcat', { t: 'streetcat.handover', v: 1, campaign: C.campaignOf(c), token: cashu.getEncodedToken({ mint: MINT, proofs: await locked(21, c), memo: 'TNR NORTE sterilisation' }) }); };
+const vol = await page('streetcat'), handover = async sk => { const c = await C.signCampaign(camp(sk), sk); return C.linkFor(BASE + 'index.html?role=streetcat', { t: 'streetcat.handover', v: 1, campaign: { ...C.campSigned(c), sig: c.sig }, token: cashu.getEncodedToken({ mint: MINT, proofs: await locked(21, c), memo: 'TNR NORTE sterilisation' }) }); };
 await open(vol, await handover(evil)); let out = await waitText(vol, '#v-out', /accept|Received|Failed/), checks = await txt(vol, '#v-checks');
 check('a donation handed over under a campaign\'s name but another key: "Do not accept it", and why', /^Do not accept it\./.test(out) && /not locked with Streetcat's published key/.test(checks) && await vol.$eval('#v-accept', e => e.disabled), out + ' · ' + (checks.match(/it is not locked[^;]*/) || [''])[0]);
 await open(vol, await handover(good)); out = await waitText(vol, '#v-out', /accept|Received|Failed/);

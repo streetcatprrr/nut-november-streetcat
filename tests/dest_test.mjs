@@ -6,7 +6,7 @@
 // allowed is checked too: a payee paid for what it signed, the rest under the very same lock (twice over), the payee rebuilding its
 // payment from the mint alone (NUT-07 + NUT-09), and the donor's refund after the deadline, untouched. After the audit of 10 Nov
 // (docs/dest-lock.md): the witness is kept with every input, so a proof of the signers' own put first hides nothing from the donor;
-// a lock that asks for one signature is refused; a blinding factor is written one way; a refund's witness may hold anything else,
+// a lock that asks for one signature is refused; a blinding factor is written one way, and (14 Nov) so is an output; a refund's witness may hold anything else,
 // and a lock with no refund key never opens to a stranger. Not covered here: the app (tests/dest*_test.mjs), and load.
 import fs from 'fs';
 const APP = new URL('../app/', import.meta.url).pathname, MINT = process.env.MINT || 'http://127.0.0.1:3340', say = (...a) => console.log(...a);
@@ -100,6 +100,7 @@ const tries = [
   ['an opening with a blinding factor that is not one', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: 'zz' }] }), /malformed opening/],
   ['an opening whose blinding factor is the right number, written in upper case', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: rHex(whole[0].r).toUpperCase() }] }), /malformed opening/],
   ['an opening whose blinding factor has a space in it (Python would read past it)', () => spend(don2, whole, [S, A], { open: [{ secret: whole[0].secret, r: rHex(whole[0].r).slice(0, 62) + ' ' + rHex(whole[0].r).slice(62, 63) }] }), /malformed opening|does not match/],
+  ['a payment to A whose output is written in upper case (14 Nov: whoever reads the mint rebuilds it in lower case)', () => spend(don2, whole.map(o => ({ ...o, B_: o.B_.toUpperCase() })), [S, A]), /lower-case hex/],
   ['a payment to A with its key in upper case (11 Nov: a payee is named letter for letter)', () => spend(don2, [output(64, JSON.stringify(['P2PK', { nonce: nonce(), data: A.pk.toUpperCase() }]))], [S, A]), /where the lock does not allow/],
   ['a payment to A with a space before its secret', () => spend(don2, [output(64, ' ' + payTo(A.pk))], [S, A]), /white space/],
   ['an output locked to a stranger', () => spend(don2, [output(64, payTo(X.pk))], [S, A]), /where the lock does not allow/],

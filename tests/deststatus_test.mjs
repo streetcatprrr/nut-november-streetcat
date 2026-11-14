@@ -20,14 +20,16 @@ const swapTo = async (inputs, outs) => { const res = await w.mint.swap({ inputs:
 const fmt = n => String(n).replace(/\B(?=(\d{3})+$)/g, ' ') + ' sat', tok = ps => cashu.getEncodedToken({ mint: MINT, proofs: ps });
 
 // the ecash first (the test mint pays its invoices in a while), then the campaign and four donations, each under its donor's lock
-const coins = []; for (const n of [2100, 300, 64, 128]) coins.push(await plain(n));
+const coins = []; for (const n of [2100, 300, 64, 128, 256]) coins.push(await plain(n));
 const S = key(), P1 = key(), P2 = key(), X = key(), camp = await C.signCampaign({ name: 'LUNA', op: 'sterilisation', mint: MINT, streetcat: S.pk, clinic: P1.pk, partners: [P2.pk], lock: 'dest', deadline: now() + 30 }, S.sk); await pin(S.pk);
 const donate = async ps => { const d = key(), lock = { streetcat: S.pk, payees: C.payeesOf(camp), deadline: camp.deadline, refund: d.pk }; return { sk: d.sk, proofs: await swapTo(ps, C.donationSplit(total(ps), denoms).map(a => outOf(a, C.destSecret(lock)))) }; };
-const A = await donate(coins[0]), B = await donate(coins[1]), E = await donate(coins[2]), F = await donate(coins[3]), dest = { keysetId: ks.id, denoms, fee: ps => amt(w.getFeesForProofs(ps)) };
+const A = await donate(coins[0]), B = await donate(coins[1]), E = await donate(coins[2]), F = await donate(coins[3]), G = await donate(coins[4]), dest = { keysetId: ks.id, denoms, fee: ps => amt(w.getFeesForProofs(ps)) };
 // before the deadline: B whole to the first partner, 1 500 sat of A to the second (as the app does: asked, confirmed, signed whole)
-const release = async (don, amount, P) => { const plan = C.planRelease(don.proofs, amount), q = await C.makeRequest({ campaign: camp, patient: 'LUNA', procedure: 'sterilisation (spay)', date: '2026-11-10', contributions: [{ ref: await C.donRef(don.proofs.map(p => C.yOf(p.secret))), release: amount, proofs: plan.inputs }], payee: P.pk, dest })  /* by the donation's code, as the app names it */, a = await C.certify(q, P.sk), tx = await C.reqTx(q, q.contributions[0]);
-  const parts = await C.destSwap(w, tx, [C.destSign(tx, S.sk), a.sigs[0]]); return { q, a, rest: parts.filter(x => x.rest).map(x => x.proof) }; };
+const release = async (don, amount, P, spell = s => s) => { const plan = C.planRelease(don.proofs, amount), q = await C.makeRequest({ campaign: camp, patient: 'LUNA', procedure: 'sterilisation (spay)', date: '2026-11-10', contributions: [{ ref: await C.donRef(don.proofs.map(p => C.yOf(p.secret))), release: amount, proofs: plan.inputs }], payee: P.pk, dest })  /* by the donation's code, as the app names it */, a = await C.certify(q, P.sk), tx = await C.reqTx(q, q.contributions[0]);
+  const parts = await C.destSwap(w, tx, [spell(C.destSign(tx, S.sk)), a.sigs[0]]); return { q, a, rest: parts.filter(x => x.rest).map(x => x.proof) }; };
 const rB = await release(B, 300, P1), rA = await release(A, 1500, P2), backA = total(A.proofs) - 1500;
+// and one more, whose Streetcat signature is written with spaces in it, as Python's bytes.fromhex() reads it at the mint (Daybreak, 14 Nov)
+const rG = await release(G, 256, P1, sig => sig.replace(/(.{16})/g, '$1 ').trim());
 check('before the deadline: 300 sat paid to the first partner, 1 500 to the second, and the rest of that donation back under its lock', camp.deadline > now() && total(rA.rest) > 0 && !rB.rest.length, `${total(rA.rest)} sat put back`);
 await new Promise(r => setTimeout(r, Math.max(0, camp.deadline - now() + 2) * 1000));
 // after it: A's donor takes back what is left of it (the proofs never touched and the rest put back, in one spend), E's donor all of it
@@ -82,5 +84,16 @@ const ws = new cashu.Wallet(STOCK); await ws.loadMint(); const qs = await ws.cre
 ledgers.alien = { ...ledgers.dest, donations: [...ledgers.dest.donations, cashu.getEncodedToken({ mint: MINT, proofs: alien })] };
 const al = await open('alien');
 check('a token in the ledger that is not this mint\'s ecash: one row in red, and every other donation still checked', !/Failed/.test(al.out) && al.rows.length === 5 && al.rows.filter(r => r.ok).length === 4 && al.rows.some(r => r.status === 'UNREADABLE' && /not this mint's/.test(r.text)), al.rows.map(r => r.status).join(' | ') + (/Failed/.test(al.out) ? ' · ' + al.out.slice(0, 100) : ''));
+// ---------- what the second scan of 14 Nov (Daybreak) found on this page ----------
+// 1. Two listed tokens that share proofs lead to the same transaction: its payment was counted twice under the totals ("600 sat paid to
+// partner 1" for a payment of 300), so whoever wrote the ledger could make it say more than the mint paid. It counts once.
+const eBE = await C.ledgerEntry({ token: tok([...B.proofs, ...E.proofs]), proofs: [...B.proofs, ...E.proofs], date: '2026-11-10' });
+ledgers.overlap = C.ledgerV2({ campaign: camp, entries: [eB, eBE], certificates: [rB.a] }); const ov = await open('overlap');
+check('Daybreak · two listed tokens that share proofs: the payment they lead to counts once under the totals', ov.note.includes(`300 sat paid to partner 1 ${ab(P1.pk)}`) && !/600 sat paid/.test(ov.note), ov.note.slice(0, 160));
+// 6. The mint reads a signature with Python's bytes.fromhex(), which skips spaces: a release whose Streetcat signature had spaces in it
+// was taken by the mint, and this page called it "not proven". It reads them as the mint does (each still checked against its key).
+const eG = await C.ledgerEntry({ token: tok(G.proofs), proofs: G.proofs, date: '2026-11-10', parts: [partOf(rG, 256)] });
+ledgers.spaced = C.ledgerV2({ campaign: camp, entries: [eG], certificates: [rG.a] }); const sp = await open('spaced'), g = sp.rows[0] || { text: '' };
+check('Daybreak · a release the mint took with spaces in its Streetcat signature: RELEASED, and paid to its partner', g.status === 'RELEASED' && g.text.includes(`256 sat paid by the mint to partner 1 ${ab(P1.pk)}`), `${g.status} · ${g.text.split('\n').filter(l => /paid|proven/i.test(l)).join(' / ').slice(0, 140)}`);
 await b.close();
 say(bad ? `deststatus: ${bad} check${bad > 1 ? 's' : ''} FAILED` : 'deststatus: every check passed'); process.exit(bad ? 1 : 0);
