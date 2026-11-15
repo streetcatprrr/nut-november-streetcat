@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import http from 'http';
 import fs from 'fs';
 import { pinBrowser, pin } from './pin.mjs';
+import { releaseLikeApp } from './apprelease.mjs';
 const APP = new URL('../app/', import.meta.url).pathname, BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', SHOT = process.env.SHOT_DIR, say = (...a) => console.log(...a);
 eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
 const C = globalThis.scCore, hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), newSk = () => hex(cashu.createRandomSecretKey()), amt = C.amt, total = ps => ps.reduce((s, p) => s + amt(p.amount), 0);
@@ -45,10 +46,7 @@ check('…and the estimate of what can come back, before any invoice', /≈ \d+ 
 s = await go(viewer, /Not yet|REFUNDED|Failed/); check('…and taking it back is refused until then, saying when it opens in UTC and local time', /^Not yet: the deadline has not passed\. The refund opens \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC \((\d{1,2} [A-Z][a-z]{2}, )?\d{2}:\d{2} CET in Madrid\)/.test(s), s.split(';')[0]);
 
 // Streetcat and the clinic release B whole, and 1 500 sat of D (the rest goes back under the lock), as the app does
-const release = async (proofs, amount) => { const plan = C.planRelease(proofs, amount), q = await C.makeRequest({ campaign: camp, patient: 'TEO', procedure: 'castration', date: '2026-11-05', contributions: [{ release: amount, proofs: plan.inputs }] }), a = await C.certify(q, cl);
-  const sigs = C.clinicSigsByY(q, a), inputs = cashu.signP2PKProofs(plan.inputs.map(p => C.withSig(p, sigs.get(C.yOf(p.secret)))), sc), fee = amt(w.getFeesForProofs(inputs)), ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id);
-  const bits = n => { const o = []; for (let x = 1; n; x *= 2) { if (n & x) { o.push(x); n -= x; } } return o.reverse(); }, back = plan.split ? await C.remainderOutputs(plan.split, bits(plan.remainder), ks.id) : [];
-  await w.ops.receive(inputs).asCustom([...cashu.OutputData.createRandomData(amount - fee, ks), ...back]).run(); return plan.remainder || 0; };
+const release = async (proofs, amount) => (await releaseLikeApp({ C, cashu, w, campaign: camp, sc, cl, proofs, amount })).plan.remainder || 0;  /* signed whole: its one transaction (tests/apprelease.mjs) */
 await release(B.proofs, total(B.proofs)); const restD = await release(D.proofs, 1500), backD = total(D.proofs) - 1500;  /* restD: what the one split proof put back; backD: all that is still locked, the untouched proofs too (the donation is cut in tenths, 8 Nov) */
 await new Promise(r => setTimeout(r, Math.max(0, camp.deadline - now() + 2) * 1000));
 

@@ -2,7 +2,7 @@
 // clinic certifies one donation and Streetcat releases it. Home's "copy ledger" must give a version 2 ledger with both donations by
 // their DON- codes, the released one with what it released; and status.html must read it back from the mint.
 import { chromium } from 'playwright';
-import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
+import { Wallet, getEncodedToken, LockBuilder, getPubKeyFromPrivKey, createRandomSecretKey } from '@cashu/cashu-ts';
 import { pinBrowser } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', say = (...a) => console.log(...a);
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -21,7 +21,12 @@ await tab(sc, 'release'); await sc.click('#s-new'); await sc.waitForTimeout(1500
 await tab(sc, 'campaign'); await sc.reload(); await tab(sc, 'campaign'); await sc.fill('#k-name', 'MOCHI'); await sc.fill('#k-mint', MINT); await sc.fill('#k-c', clinicPk);
 await sc.fill('#k-dl', new Date(Date.now() + 86400000 * 30).toISOString().slice(0, 10)); await sc.click('#k-go'); await waitOut(sc, 'k-out', /is ready|cannot|pick another/); await sc.waitForTimeout(1500);
 const link = (await out(sc, 'k-out')).match(/http\S+#c=\S+/)[0];
-const give = async n => { await donor.goto(link); await donor.reload(); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go'); return lastToken(await waitOut(donor, 'd-out', /LOCKED|Failed/)); };
+// The release of a certified token, which this test then publishes, is for donations made before 15 Nov (locked proof by proof): the
+// donor's page now locks them signed whole, released from a request only. So the two donations are locked here as they were then, in
+// Node, for the campaign Rescue made, and reach its ledger as that screen takes them (pasted under Release).
+const hexOf = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), campNow = (await sc.evaluate(() => JSON.parse(localStorage.getItem('vetlock.campaigns') || '[]'))).map(x => x && x.c).find(c => c && c.name === 'MOCHI');
+const give = async n => { void link; const lock = new LockBuilder().addMainPubkey([campNow.streetcat, campNow.clinic]).requireMainSignatures(2).addRefundPubkey(hexOf(getPubKeyFromPrivKey(createRandomSecretKey()))).lockUntil(Number(campNow.deadline));
+  return getEncodedToken({ mint: MINT, proofs: await w.ops.receive(await plain(n)).asLocked(lock).run(), memo: 'MOCHI · donation' }); };
 const A = await give(21), B = await give(8);
 // What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
 // signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.

@@ -4,6 +4,9 @@
 // lost), and opens again asking for the PIN; a tab running without a PIN writes no key in the clear once another tab has set one;
 // a PIN set on a nearly full phone, which could not finish, no longer puts its old plan back over a key saved afterwards. Also: a
 // change written down in the older form is still finished, and a key left in the clear beside a PIN is sealed once the PIN is given.
+// Each tab here is given the app (onetab.js gives it to one tab of a browser at a time, 15 Nov; what is checked here is the vault's own
+// care, kept behind that). And since then: a tab that waits for the app writes nothing, nor does the status page, which takes no part in
+// it, not even as it opens.
 import fs from 'fs'; import vm from 'vm';
 const APP = new URL('../app/', import.meta.url).pathname, NOSTR = fs.readFileSync(APP + 'nostr-bundle.js', 'utf8'), VAULT = fs.readFileSync(APP + 'vault.js', 'utf8');
 let bad = 0; const say = (...a) => console.log(...a), check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -13,8 +16,11 @@ class Store { constructor(quota = Infinity){ this.m = new Map(); this.quota = qu
   removeItem(k){ this.m.delete(k); } get length(){ return this.m.size; } key(i){ return [...this.m.keys()][i]; }
   used(){ return [...this.m].reduce((s, [a, b]) => s + a.length + b.length, 0); } }
 let LS = new Store();
-const tab = () => { const ctx = { localStorage: LS, sessionStorage: new Store(), crypto: globalThis.crypto, TextEncoder, TextDecoder, Uint8Array, console, setTimeout, reloads: 0 };
-  ctx.location = { reload(){ ctx.reloads++; } }; ctx.window = ctx; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(NOSTR, ctx); vm.runInContext(VAULT, ctx); return ctx; };
+// a tab: true, it runs the app (its vault started, as index.js does once onetab.js has given it the app); false, it waits while another
+// has it; null, a page that takes no part in the app (the status page)
+const tab = (runs = true) => { const ctx = { localStorage: LS, sessionStorage: new Store(), crypto: globalThis.crypto, TextEncoder, TextDecoder, Uint8Array, console, setTimeout, reloads: 0 };
+  if (runs !== null) ctx.scOneTab = { held: () => runs, ready: Promise.resolve() };
+  ctx.location = { reload(){ ctx.reloads++; } }; ctx.window = ctx; ctx.self = ctx; vm.createContext(ctx); vm.runInContext(NOSTR, ctx); vm.runInContext(VAULT, ctx); if (runs === true) ctx.scVault.start(); return ctx; };
 const V = t => t.window.scVault, tick = () => new Promise(r => setTimeout(r, 5));
 // the app's own helpers over the vault (index.js: ls, donorKeys, addDonorKey)
 const get = (t, k) => { try { return V(t).read(k); } catch (_) { return null; } }, put = (t, k, v) => { try { return V(t).write(k, v); } catch (_) { return false; } };
@@ -61,5 +67,21 @@ const addDonorKey = (t, k) => { const a = donorKeys(t), i = a.findIndex(x => x.p
   let short = ''; try { await V(A).set('123456'); } catch (e) { short = e.message; } await V(A).set('66666666');
   const B = tab(), opened = await V(B).unlock('66666666'), raw = ['vetlock.volunteer.sk', 'vetlock.walletreqs'].map(k => LS.getItem(k));
   check('the volunteer\'s key and the wallet requests are sealed with the PIN, and read back; a PIN of 6 digits is refused', opened && raw.every(v => /^pin1:/.test(v)) && get(B, 'vetlock.volunteer.sk') === '9'.repeat(64) && JSON.parse(get(B, 'vetlock.walletreqs'))[0].sk === '8'.repeat(64) && /8 characters or more/.test(short) && V(B).MIN === 8, short); }
+
+// 7. one tab at a time (onetab.js, 15 Nov): a tab that waits while another has the app writes nothing, and a page that takes no part in
+// it (the status page) neither, not even as it opens; what is left (a key found in the clear beside a PIN, a change of PIN cut short) is
+// done by the tab that runs the app
+{ LS = new Store(); const W0 = tab(false); let threw = ''; try { await V(W0).set('77777777'); } catch (e) { threw = e.message; }
+  const wrote = put(W0, 'vetlock.clinic.sk', 'c'.repeat(64));
+  check('a tab that waits for the app writes nothing: no key, and no PIN (refused: nothing changed)', wrote === false && /could not write it down/.test(threw) && LS.getItem('vetlock.clinic.sk') === null && LS.getItem('vetlock.pin') === null && LS.getItem('vetlock.pin.next') === null, `${wrote} · ${threw.slice(0, 40)}`);
+  const A = tab(); put(A, 'vetlock.clinic.sk', 'c'.repeat(64)); await V(A).set('77777777'); LS.setItem('vetlock.donor.sk', '7'.repeat(64));
+  const W = tab(false), opened = await V(W).unlock('77777777'), left = LS.getItem('vetlock.donor.sk'), T = tab(), openedT = await V(T).unlock('77777777');
+  check('…opened with the PIN there, it seals nothing: a key found in the clear is sealed by the tab that runs the app', opened && left === '7'.repeat(64) && openedT && /^pin1:/.test(LS.getItem('vetlock.donor.sk')) && get(T, 'vetlock.donor.sk') === '7'.repeat(64), String(left).slice(0, 10) + '…'); }
+{ LS = new Store(); const A = tab(); put(A, 'vetlock.streetcat.sk', '5'.repeat(64)); await V(A).set('44444444');
+  const state = { meta: JSON.parse(LS.getItem('vetlock.pin')), slots: { 'vetlock.streetcat.sk': LS.getItem('vetlock.streetcat.sk') } };
+  LS.setItem('vetlock.pin.next', JSON.stringify(state)); LS.removeItem('vetlock.pin'); LS.setItem('vetlock.streetcat.sk', '5'.repeat(64));
+  const P = tab(null), seen = get(P, 'vetlock.streetcat.sk'), left = !!LS.getItem('vetlock.pin.next') && LS.getItem('vetlock.streetcat.sk') === '5'.repeat(64) && !LS.getItem('vetlock.pin'), wrote = put(P, 'vetlock.clinic.sk', 'x');
+  const T = tab(), openedT = await V(T).unlock('44444444');
+  check('the status page (no part in the app) only reads, even as it opens: a change of PIN cut short is left as it was, and the tab that runs the app finishes it', seen === '5'.repeat(64) && left && wrote === false && !LS.getItem('vetlock.pin.next') && /^pin1:/.test(LS.getItem('vetlock.streetcat.sk')) && openedT && get(T, 'vetlock.streetcat.sk') === '5'.repeat(64), `left as it was ${left} · write ${wrote}`); }
 
 say(bad ? `vault: ${bad} check${bad > 1 ? 's' : ''} FAILED` : 'vault: every check passed'); process.exit(bad ? 1 : 0);

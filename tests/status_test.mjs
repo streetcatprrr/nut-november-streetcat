@@ -3,6 +3,8 @@
 import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import { pinBrowser } from './pin.mjs';
+import fs from 'fs';
+import { releaseLikeApp } from './apprelease.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 const say = (...a) => console.log(...a);
 const now = () => Math.floor(Date.now() / 1000);
@@ -38,8 +40,11 @@ say('fresh refund key per donation:', new Set(keys).size === 4 ? 'yes (4 differe
 // signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
 const certifyIn = (p, tok, memo = 'the operation was done') => p.evaluate(async ([t, m]) => { const V = window.__vetlock, { dec } = await V.decodeTok(t), info = V.lockInfo(dec.proofs), want = info.pubkeys.map(k => String(k).toLowerCase()), sk = V.heldKeys('clinic').find(k => want.includes(V.pubOf(k)));
   return sk ? cashu.getEncodedToken({ mint: dec.mint, proofs: cashu.signP2PKProofs(dec.proofs, sk), memo: `${(dec.memo || 'donation').split(' ')[0]} · certified: ${m} · signed by clinic ${V.pubOf(sk).slice(0, 10)}` }) : null; }, [tok, memo]);
-const certified = await certifyIn(clinic, A.token);
-await tab(streetcat, 'release'); await streetcat.fill('#s-token', certified); await streetcat.click('#s-go'); say('release A:', (await waitOut(streetcat, 's-out', /RELEASED|refused/)).split('\n')[0]);
+// A is released as Rescue's app releases a donation signed whole (every one the donor's page makes since 15 Nov): a request, the
+// partner's confirmation, one transaction (tests/apprelease.mjs), with the keys these pages hold
+const APP = new URL('../app/', import.meta.url).pathname; eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
+{ const SC = globalThis.scCore, bw = new globalThis.cashu.Wallet(MINT); await bw.loadMint(); const scSk = await streetcat.evaluate(() => window.__vetlock.heldKeys('streetcat')[0]), clSk = await clinic.evaluate(() => window.__vetlock.key('clinic', false));
+  const got = await releaseLikeApp({ C: SC, cashu: globalThis.cashu, w: bw, campaign: open, sc: scSk, cl: clSk, proofs: bw.decodeToken(A.token).proofs, amount: 21 }); say('release A:', `RELEASED ${got.pay.reduce((a, p) => a + SC.amt(p.amount), 0)} sat, signed whole`); void certifyIn; }
 
 await tab(donor, 'refund'); await donor.fill('#r-receipt', C.token); await donor.click('#r-go'); say('refund C before the deadline:', (await waitOut(donor, 'r-out', /REFUNDED|refused|Not yet/)).split('\n')[0]);
 await donor.waitForTimeout(Math.max(0, soon.deadline - now() + 1) * 1000);

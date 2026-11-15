@@ -88,24 +88,25 @@ await donor.fill('#d-amt', '21'); await donor.dispatchEvent('#d-amt', 'input'); 
 const url7 = donor.url(); check('a campaign picked from the list goes in the address marked as picked', /#c=[A-Za-z0-9_-]+&pick=1$/.test(url7), url7.slice(-24));
 await donor.reload(); await donor.waitForSelector('#donate.paying', { timeout: 15000 }).catch(() => {}); await waitText(donor, '#d-campinfo', /TNR FOREST/i, 15000); const l7a = await look(donor);
 check('…a reload in the same session (back from the wallet app) brings back the invoice and its campaign', l7a.paying && /waiting for the payment/.test(l7a.out) && /TNR FOREST/i.test(l7a.campText), JSON.stringify({ ...l7a, out: l7a.out.slice(0, 50) }));
-const again = await donor.context().newPage(); again.on('pageerror', e => say('PAGEERROR', e.message)); await prices(again); await unpaid(again);
+const dctx = donor.context(); await donor.close();  /* closed (the app runs in one tab of a browser at a time, onetab.js) */
+const again = await dctx.newPage(); again.on('pageerror', e => say('PAGEERROR', e.message)); await prices(again); await unpaid(again);
 await again.goto(url7); await again.waitForTimeout(2500); const l7b = await look(again);  /* a new session at the same address, as a phone reopening the app where it was; after the first check */
 check('closed and opened again: Donate starts with nothing chosen (no campaign, no invoice, the mark gone from the address)', plain(l7b) && !l7b.campText && !/#c=/.test(again.url()), JSON.stringify({ ...l7b, url: again.url().slice(-24) }));
 check('…the unfinished invoice waits below, to resume', /Unfinished Lightning donation: TNR FOREST · 21 sat/.test(l7b.pend) && /resume/.test(l7b.pend), l7b.pend);
 await again.click('#d-check'); await again.waitForSelector('#d-reqs button.req', { timeout: 30000 }); const l7c = await look(again), n7 = await again.$$eval('#d-reqs button.req', bs => bs.length);
 check('…until Check for requests, which lists the open requests as always', l7c.list && n7 >= 1, `${n7} listed`);
-const outside = await donor.context().newPage(); await prices(outside); await unpaid(outside); await outside.goto(url7.replace(/&pick=1$/, '')); const t7 = await waitText(outside, '#d-campinfo', /TNR FOREST/i, 15000);
+await again.close(); const outside = await dctx.newPage(); await prices(outside); await unpaid(outside); await outside.goto(url7.replace(/&pick=1$/, '')); const t7 = await waitText(outside, '#d-campinfo', /TNR FOREST/i, 15000);
 check('a donation link opened from outside still opens its campaign, in a new session too', /TNR FOREST/i.test(t7), t7.slice(0, 40));
 // 8 · the iPhone's home-screen app (navigator.standalone) opens no link from outside, so a campaign in its address when it opens is where it
 // was left, or the link its icon was made with: nothing chosen, even with no mark; but back from the wallet app while an invoice of this session is on screen, it stays
-const app = await donor.context().newPage(); app.on('pageerror', e => say('PAGEERROR', e.message)); await app.addInitScript(() => Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true }));
+await outside.close(); const app = await dctx.newPage(); app.on('pageerror', e => say('PAGEERROR', e.message)); await app.addInitScript(() => Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true, configurable: true }));
 await prices(app); await unpaid(app); await app.goto(url7.replace(/&pick=1$/, '')); await app.waitForTimeout(2500); const l8a = await look(app);
 check('the iPhone app opened at a campaign\'s address with no mark (as its icon may be): Donate starts with nothing chosen, the address cleared', plain(l8a) && !l8a.campText && !/#c=/.test(app.url()), JSON.stringify({ ...l8a, url: app.url().slice(-24) }));
 await app.click('#d-check'); await app.waitForSelector('#d-reqs button.req', { timeout: 30000 }); await app.locator('#d-reqs button.req', { hasText: 'TNR FOREST' }).click(); await waitText(app, '#d-campinfo', /TNR FOREST/i, 15000);
 await app.fill('#d-amt', '21'); await app.dispatchEvent('#d-amt', 'input'); await app.click('#d-ln'); await app.waitForSelector('#donate.paying', { timeout: 15000 }); await waitText(app, '#d-out', /waiting for the payment/, 15000);
 await app.reload(); await app.waitForSelector('#donate.paying', { timeout: 15000 }).catch(() => {}); await waitText(app, '#d-campinfo', /TNR FOREST/i, 15000); const l8b = await look(app);
 check('…but back from the wallet app while paying (the same session), the invoice and its campaign stay', l8b.paying && /waiting for the payment/.test(l8b.out) && /TNR FOREST/i.test(l8b.campText), JSON.stringify({ ...l8b, out: l8b.out.slice(0, 50) }));
-await again.close(); await outside.close(); await app.close(); await donor.unroute('**/v1/mint/quote/bolt11/*');
+await app.close();
 
 say(bad ? `donorback: ${bad} check(s) failed` : 'donorback: every check passed');
 await b.close(); relays.forEach(r => r.close && r.close()); process.exit(bad ? 1 : 0);

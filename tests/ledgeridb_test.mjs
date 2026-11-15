@@ -1,6 +1,6 @@
 // Rescue's ledger in IndexedDB (12 Nov): app/index.html in Chromium, with no mint and no relay. Each donation is kept whole, 9 to 15 KB,
 // and localStorage (some 5 MB for everything) had room for 200 to 500. Here: a thousand donations of 12 KB are kept and read back after
-// a reload; a second tab of the same browser sees what the first kept, without a reload; a ledger still in localStorage, as the app
+// a reload; the next tab of the same browser sees all the first kept (one tab at a time since 15 Nov); a ledger still in localStorage, as the app
 // kept it before, moves over at the next opening, all of it, and leaves localStorage; and a browser that refuses IndexedDB keeps the
 // ledger in localStorage, as before. The donations here are made up (their tokens are not ecash): what is tried is where they are kept.
 import { chromium } from 'playwright';
@@ -21,10 +21,9 @@ const count = p => p.evaluate(async () => Object.values(await window.__vetlock.l
     return ok; }, [ID, 12000]);
   await p.reload(); const n = await count(p), left = await p.evaluate(() => localStorage.getItem('vetlock.sc.ledger'));
   check('a thousand donations of 12 KB (12 MB, more than localStorage holds) are kept in IndexedDB and read back after a reload', where === 'IndexedDB' && wrote && n === 1000 && left === null, `${where} · ${n} read back`);
-  const p2 = await open(c); await count(p2);
-  await p.evaluate(id => window.__vetlock.ledgerSet(id, { 'DON-ABCDEF01': { token: 'cashuBnew', amount: 50, date: '2026-11-12', parts: [] } }), ID);
-  let seen = 0; for (let i = 0; i < 30 && seen !== 1001; i++) { await p2.waitForTimeout(100); seen = await count(p2); }
-  check('a second tab of the same browser sees a donation the first kept, without a reload', seen === 1001, `${seen} there`);
+  await p.evaluate(id => window.__vetlock.ledgerSet(id, { 'DON-ABCDEF01': { token: 'cashuBnew', amount: 50, date: '2026-11-12', parts: [] } }), ID); await p.close();
+  const p2 = await open(c); await p2.waitForFunction(() => !!window.__vetlock, null, { timeout: 15000 }).catch(() => {}); const seen = await count(p2).catch(() => 0);
+  check('the next tab of the same browser (the first one closed: the app runs in one tab at a time) sees every donation the first kept', seen === 1001, `${seen} there`);
   await c.close(); }
 
 // 3. a ledger still in localStorage, as the app kept it before 12 Nov: moved over at the next opening, and gone from localStorage

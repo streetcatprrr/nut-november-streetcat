@@ -1,7 +1,7 @@
 // The PIN that locks the private keys kept in the browser (app/vault.js, 11 Nov), on the real pages in Chromium. Needs the page
 // server only (8080); no mint, no relay. A partner makes its key and sets a PIN: what the browser keeps of the key is sealed, and
-// the app reads it as before. A key made afterwards is sealed as it is written. The same tab opened again asks nothing; another
-// tab shows "Keys locked" and nothing of the app runs behind it: a wrong PIN is refused in red, the right one starts the app with
+// the app reads it as before. A key made afterwards is sealed as it is written. The same tab opened again asks nothing; a new
+// tab (the first closed: one tab at a time) shows "Keys locked" and nothing of the app runs behind it: a wrong PIN is refused in red, the right one starts the app with
 // its keys. "private" shows the key on the page after the PIN, never in a browser dialog. A long list of refund keys is sealed
 // in pieces and read back whole. Export all asks the PIN, then carries the keys in the clear (it is the backup). A change of PIN cut short is
 // finished when the page opens again. The PIN removed, the keys are kept as before. A PIN forgotten: the keys can be erased, said
@@ -35,10 +35,10 @@ const long = await p1.evaluate(() => { const v = JSON.stringify(Array.from({ len
 check('a long list of refund keys is sealed in pieces and read back whole', long.ok && long.n > 100000 && long.pieces > 5 && long.same && !long.plain, JSON.stringify(long));
 await p1.evaluate(() => localStorage.removeItem('vetlock.donor.keys'));
 
-// the same tab again: nothing asked. Another tab: locked
+// the same tab again: nothing asked. A new tab (the first one closed: the app runs in one tab at a time, onetab.js): locked
 await p1.reload(); await p1.waitForFunction(() => !!window.__vetlock); check('the same tab opened again asks nothing', !(await p1.$('#pin-gate')) && (await skOf(p1)) === sk2 && !errors.length, errors.join(' | '));
-const p2 = await open(), gate = await p2.isVisible('#pin-gate'), ran = await p2.evaluate(() => typeof window.__vetlock), said = await txt(p2, '#pin-gate');
-check('another tab says "Keys locked", and nothing of the app runs behind it', gate && ran === 'undefined' && /^Keys locked/.test(said) && errors.length === 1 && /locked: the keys wait for the PIN/.test(errors[0]) && (await p2.evaluate(() => window.scVault.read('vetlock.clinic.sk'))) === null && (await p2.evaluate(() => window.scVault.write('vetlock.clinic.sk', 'x'))) === false, said.slice(0, 40) + ' · ' + errors.join(' | '));
+await p1.close(); const p2 = await open(); await p2.waitForSelector('#pin-gate', { timeout: 10000 }).catch(() => {}); const gate = await p2.isVisible('#pin-gate'), ran = await p2.evaluate(() => typeof window.__vetlock), said = await txt(p2, '#pin-gate');
+check('a new tab says "Keys locked", and nothing of the app runs behind it', gate && ran === 'undefined' && /^Keys locked/.test(said) && errors.length === 1 && /locked: the keys wait for the PIN/.test(errors[0]) && (await p2.evaluate(() => window.scVault.read('vetlock.clinic.sk'))) === null && (await p2.evaluate(() => window.scVault.write('vetlock.clinic.sk', 'x'))) === false, said.slice(0, 40) + ' · ' + errors.join(' | '));
 await p2.fill('#pin-in', '000000'); await p2.click('#pin-go'); const wrong = await waitText(p2, '#pin-out', /✗/);
 check('a wrong PIN is refused in red, and the app stays locked', wrong === '✗ Wrong PIN' && await isRed(p2, '#pin-out') && await p2.isVisible('#pin-gate') && (await p2.evaluate(() => sessionStorage.getItem('vetlock.pin.k'))) === null, wrong);
 await p2.fill('#pin-in', PIN); await Promise.all([p2.waitForNavigation(), p2.click('#pin-go')]); await p2.waitForFunction(() => !!window.__vetlock);

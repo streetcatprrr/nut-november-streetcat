@@ -1,5 +1,6 @@
 // The private keys this browser keeps, locked with a PIN (11 Nov). Off until a PIN is set in Keys or in the partner's settings.
-// With a PIN, the eight places where private keys are kept hold them encrypted, and the app does not start until the PIN is given:
+// With a PIN, the eight places where private keys are kept hold them encrypted (and so do the Lightning invoices waiting here, which
+// name the refund key of their donation), and the app does not start until the PIN is given:
 // it opens them for this tab only, and a closed tab is locked again. The PIN makes a key (PBKDF2-SHA256, 600 000 rounds, a salt of
 // this browser's); each value is sealed with it as a NIP-44 v2 payload (ChaCha20 and HMAC-SHA256, the library the app already
 // carries for its messages), in pieces when it is long. Sealing is done at once, as the value is written: a key is never "saved"
@@ -10,10 +11,14 @@
 (() => {
   const META = 'vetlock.pin', NEXT = 'vetlock.pin.next', SESSION = 'vetlock.pin.k', PRE = 'pin1:', ITER = 600000, MIN = 8, CHUNK = 16000;  /* 8: a hundred million PINs to try, not a million (review of 12 Nov) */
   const SLOTS = ['vetlock.clinic.sk', 'vetlock.streetcat.sk', 'vetlock.donor.sk', 'vetlock.clinic.old', 'vetlock.streetcat.old', 'vetlock.donor.keys',
-    'vetlock.volunteer.sk', 'vetlock.walletreqs'];  /* the volunteer's key, and the keys a wallet's payment comes to (12 Nov: they were left out) */
+    'vetlock.volunteer.sk', 'vetlock.walletreqs',  /* the volunteer's key, and the keys a wallet's payment comes to (12 Nov: they were left out) */
+    'vetlock.pending'];  /* and the Lightning invoices waiting here: each names the refund key its donation is locked with, and one written
+    before 14 Nov held that key itself; sealed, one changed in the storage is not read (six scans, 15 Nov, 4.1 and 4.25) */
   const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), unhex = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
   const raw = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
-  const put = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); return raw(k) === (v == null ? null : v); } catch (_) { return false; } };
+  // only the tab that runs the app writes (onetab.js: one tab at a time, 15 Nov); a page without it, the status page, only reads
+  const appHere = () => !!(window.scOneTab && window.scOneTab.held());
+  const put = (k, v) => { if (!appHere()) return false; try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); return raw(k) === (v == null ? null : v); } catch (_) { return false; } };
   const box = () => window.nostrkit.nip44.v2;
   // a long value goes in pieces (a payload holds 65 535 bytes), never cut inside a character
   const enc = (s, K) => { const parts = []; for (let i = 0; i < s.length;) { let j = Math.min(s.length, i + CHUNK); const c = s.charCodeAt(j - 1); if (j < s.length && c >= 0xd800 && c <= 0xdbff) j--; parts.push(box().encrypt(s.slice(i, j), K)); i = j; } return PRE + parts.join('.'); };
@@ -46,8 +51,11 @@
   const reopen = () => { if (again) return; again = true; setTimeout(() => { try { location.reload(); } catch (_) {} }, 0); };
   const keyOk = () => { if (!K) return false; const r = raw(META); if (r === KM) return true; const m = meta(); if (m && fits(m, K)) { KM = r; return true; }
     useKey(null); try { sessionStorage.removeItem(SESSION); } catch (_) {} if (m) reopen(); return false; };
-  const load = () => { finish(); useKey(null); const m = meta(); if (!m) return; try { const h = sessionStorage.getItem(SESSION); if (h && /^[0-9a-f]{64}$/.test(h) && fits(m, unhex(h))) { useKey(unhex(h)); sealAll(); } } catch (_) {} };
-  load();
+  // as the page opens, only the key this tab was given (its session) is taken up, and nothing is written; a change of PIN cut short is
+  // finished, and a key found in the clear sealed, once this tab runs the app (start, from index.js: onetab.js has given it the app)
+  const peek = () => { useKey(null); const m = meta(); if (!m) return; try { const h = sessionStorage.getItem(SESSION); if (h && /^[0-9a-f]{64}$/.test(h) && fits(m, unhex(h))) useKey(unhex(h)); } catch (_) {} };
+  const load = () => { finish(); peek(); sealAll(); };
+  peek();
   const on = () => !!meta(), locked = () => on() && !keyOk();
   try { addEventListener('storage', e => { if ((e.key === META || e.key === null) && on() && !keyOk() && typeof document !== 'undefined' && !document.getElementById('pin-gate')) reopen(); }); } catch (_) {}  /* a PIN set in another tab locks this one at once */
   const read = k => { const v = raw(k); if (v == null || !v.startsWith(PRE)) return v; if (!keyOk()) return null; const was = seen.get(k); if (was && was[0] === v) return was[1];
@@ -102,5 +110,5 @@
     const lab = el('div', 'text-align:center;color:var(--bad,#ff4d4d)', label); b.appendChild(lab); b.appendChild(code); row.appendChild(cp); row.appendChild(x); b.appendChild(row);
     const t = setTimeout(() => o.remove(), 30000); x.onclick = () => { clearTimeout(t); o.remove(); };
     cp.onclick = async () => { try { await navigator.clipboard.writeText(text); cp.textContent = 'Copied'; } catch (_) { cp.textContent = 'Select it'; } }; };
-  window.scVault = { MIN, SLOTS, on, locked, read, write, check: async pin => !!(await check(pin)), unlock, set, clear, lock, erase, gate, askPin, reveal };
+  window.scVault = { MIN, SLOTS, start: load, on, locked, read, write, check: async pin => !!(await check(pin)), unlock, set, clear, lock, erase, gate, askPin, reveal };
 })();

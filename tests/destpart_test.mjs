@@ -105,4 +105,21 @@ const lkS = await byLink(qS);
 check('…and the one Streetcat signed has no such problem and can be confirmed', !lkS.problems.length && !/signed/.test(lkS.warn) && !lkS.ok && LN.length === n0, JSON.stringify(lkS.problems));
 const tooLong = await mk('LONG', d9, { note: 'x'.repeat(2001) }).then(() => 'made', e => e.message), longQ = C.requestProblems({ ...qS, patient: 'p'.repeat(121) });
 check('a request\'s texts have a length: a note of 2 001 letters is not made, a cat\'s name of 121 is a problem', /too long: note/.test(tooLong) && longQ.some(p => /patient is too long/.test(p)), tooLong + ' · ' + longQ.join('; '));
+// ---------- was it that very transaction, signed by Streetcat and the partner (six scans, 15 Nov, 2.9, 3.2, 3.13)? ----------
+// C.destProven reads the witness the mint keeps with a transaction's first input. A payment found under a transaction's outputs
+// counts, for the partner's app and for Rescue's, only when it holds: outputs found signed, or inputs spent, say less.
+{ const tx = r1.txs[0], tx2 = r1.txs[1], ys = t => t.inputs.map(x => C.yOf(x.secret)), wit = (o = {}) => JSON.stringify({ signatures: [C.destSign(tx, S.sk), r1.a.sigs[0]], outputs: tx.open, inputs: ys(tx), ...o }), keys = [S.pk, A.pk], third = key();
+  const atMint = (await w.checkProofsStates(tx.inputs))[0].witness;
+  check('a release is proven by the mint\'s own record of it: these inputs, these outputs, Streetcat\'s signature and the partner\'s', C.destProven(tx, atMint, keys) === true && C.destProven(tx, wit(), keys) === true);
+  check('…not by a witness that opens the same outputs with one signature missing, or with a stranger\'s in its place (a donation taken back opens them too)', C.destProven(tx, wit({ signatures: [C.destSign(tx, S.sk)] }), keys) === false && C.destProven(tx, wit({ signatures: [C.destSign(tx, S.sk), C.destSign(tx, third.sk)] }), keys) === false && C.destProven(tx, wit({ signatures: [] }), keys) === false);
+  check('…nor by one that names other inputs, or opens other outputs, or says nothing of its inputs', C.destProven(tx, wit({ inputs: ys(tx2) }), keys) === false && C.destProven(tx, wit({ outputs: tx2.open }), keys) === false && C.destProven(tx, JSON.stringify({ signatures: [C.destSign(tx, S.sk), r1.a.sigs[0]], outputs: tx.open }), keys) === false && C.destProven(tx, '', keys) === false && C.destProven(tx, atMint, []) === false); }
+// ---------- a payment written down before `took` was kept (six scans, 15 Nov, 3.39) ----------
+{ const dA = await donate(64), dB = await donate(32), r = await ask('NIEVE', [[64, dA], [32, dB]]); await r.take(0); await look(); await look();
+  await partner.evaluate(id => { const k = 'vetlock.clinic.payouts', a = JSON.parse(localStorage.getItem(k) || '[]'); for (const m of a) if (m.req === id) delete m.took; localStorage.setItem(k, JSON.stringify(a)); }, r.q.id);
+  await r.take(1); const o = await other(r.txs[1]); await look(); await look(); const p = await payOf(r.q.id);
+  check('a payment of before, with no record of how much it took, no longer makes what another hand collected count as sent from here: 32 sat said as collected elsewhere', o === 32 && !!p && p.state === 'paid' && p.sent === 64 && p.gone === 32, JSON.stringify(p)); }
+// ---------- a pot closed more than a week ago is still looked at (six scans, 15 Nov, 3.1) ----------
+{ const dC = await donate(32), r = await ask('TARDE', [[32, dC]]); await partner.evaluate(() => { const real = Date.now.bind(Date); Date.now = () => real() + 38 * 86400e3; });  /* 38 days on: the pot closed 8 days ago */
+  await r.take(0); await look(); await look(); const p = await payOf(r.q.id); await partner.evaluate(id => window.__vetlock.cCollectAll(), 0); const again = await payOf(r.q.id);
+  check('a payment that comes more than a week after the pot closed is still found and sent on', !!p && p.state === 'paid' && p.sent === 32 && JSON.stringify(again) === JSON.stringify(p), JSON.stringify(p)); }
 say(bad ? `destpart: ${bad} check${bad > 1 ? 's' : ''} FAILED` : 'destpart: every check passed'); await b.close(); process.exit(bad ? 1 : 0);

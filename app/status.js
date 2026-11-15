@@ -181,6 +181,11 @@ async function checkToken(c, token){
   // the mint's state of every proof; when part of a proof was released, the rest went back under the same lock in proofs derived from
   // it (core.js), which the mint hands back (NUT-09): they are followed too, so a split donation adds up from the mint alone
   const now = Date.now() / 1000, per = [], trace = await scCore.traceDonation(w, dec.proofs);
+  // SIGNED WHOLE (SIG_ALL, every donation since 15 Nov): its signatures are on whole transactions, so who signed is read spend by spend,
+  // from the text each spend's witness gives back (core.js wholeSpends): RELEASED only where Streetcat and the clinic signed that very
+  // transaction, REFUNDED where the donor's key did, and any other spend (another wallet's refund, whose witness says nothing more)
+  // NOT PROVEN, counted as nothing released
+  const how = trace.some(x => scCore.isWhole(scCore.lockOf(x.proof.secret))) ? await scCore.wholeSpends(trace) : null;
   for (const x of trace) {
     const p = x.proof, st = { state: x.state, witness: x.witness }, l = lockOf(p), bad = lockProblem(l, c);
     let issued = false; try { issued = cashu.hasValidDleq(p, await w.keyChain.ensureKeysetKeys(p.id)); } catch (_) { issued = false; }
@@ -188,10 +193,11 @@ async function checkToken(c, token){
     if (st.state === 'UNSPENT') s = now <= c.deadline ? 'LOCKED' : 'REFUNDABLE';
     else if (st.state === 'PENDING') s = 'IN FLIGHT';
     else if (st.state !== 'SPENT') s = 'UNKNOWN';
+    else if (how && scCore.isWhole(l && l.core)) { const h = how.get(yOf(p.secret).toLowerCase()); s = h === 'released' ? 'RELEASED' : h === 'refunded' ? 'REFUNDED' : 'SPENT · NOT PROVEN'; }
     else if (!st.witness) s = 'SPENT · NO WITNESS';
     else { const pw = { ...p, witness: scCore.witnessClean(st.witness) };  /* its signatures as the mint reads them (core.js) */ const byClinic = cashu.hasP2PKSignedProof(c.clinic, pw), byStreetcat = cashu.hasP2PKSignedProof(c.streetcat, pw), byDonor = !!l && l.refund.some(k => cashu.hasP2PKSignedProof(k, pw));
       s = byClinic && byStreetcat ? 'RELEASED' : byDonor ? 'REFUNDED' : 'SPENT · OTHER KEYS'; }
-    per.push({ y: yOf(p.secret).toLowerCase(), amount: amt(p.amount) - (s === 'RELEASED' ? x.putBack : 0), put: x.depth > 0, s, issued, bad, raw: st.state });  /* released: what did not go back */
+    per.push({ y: yOf(p.secret).toLowerCase(), amount: amt(p.amount) - (s === 'RELEASED' || s === 'SPENT · NOT PROVEN' ? x.putBack : 0), put: x.depth > 0, s, issued, bad, raw: st.state });  /* released: what did not go back (followed apart) */
   }
   r.per = per; return verdict(r, per);
 }

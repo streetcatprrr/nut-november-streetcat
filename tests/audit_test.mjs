@@ -8,6 +8,7 @@
 // a09 (integrity): a split donation released whole was invisible on the status page when its ledger entry left out its parts. Now every
 //   sat the mint shows as released must be covered by the clinic's signed declaration for it, or it is flagged in red.
 // F5 (robustness): the clinic's paste-certify path (gone since 12 Nov) signed without core.js lockProblem, and the lock parsers accepted SIG_ALL and more
+// (SIG_ALL is today's lock signed whole since 15 Nov; a signature rule the app does not know is still refused)
 //   than one refund signature. Now there is no such path (the partner signs only from a request), and the status page does not count it.
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -79,7 +80,13 @@ const base = () => new cashu.LockBuilder().addMainPubkey([C.pubOf(scF), clinicPk
 const sigAll = tokOf(await locked(21, base().addRefundPubkey(C.pubOf(newSk())).sigAll()));
 const gone = await clinic.evaluate(() => !document.getElementById('certify') && !document.getElementById('c-go') && !document.getElementById('w-certify') && !document.querySelector('nav [data-t="certify"]'));
 check('F5: the paste-certify path is gone: nothing in the partner\'s app signs a pasted token without a request (review of 12 Nov)', gone);
-const campF = { name: 'F5', op: 'test', mint: MINT, streetcat: C.pubOf(scF), clinic: clinicPk, deadline: d }; await pin(campF.streetcat); s = await status(ledger(campF, [{ ref: 'DON-00000000', amount: 21, date: '2026-11-04', token: sigAll, parts: [], remainders: [] }]));
-check('F5: the status page does not count a SIG_ALL lock either', /NOT COUNTED/.test(s.list) && /lock: unusual signature rule/.test(s.list), (s.list.match(/lock: [^\n]*/) || [''])[0]);
+// SIG_ALL is today's lock signed whole since 15 Nov (core.js): counted. A signature rule the app does not know is not; the mint signs
+// a proof with any secret (it never sees an output's), so one is made here with "SIG_SOME" in it
+const oddLock = async n => { const ks = await w.keyChain.ensureKeysetKeys(w.keyChain.getCheapestKeyset().id), te = new TextEncoder(), ins = await mintPlain(n);
+  const sec = JSON.stringify(['P2PK', { nonce: C.pubOf(newSk()).slice(2), data: C.pubOf(scF), tags: [['pubkeys', clinicPk], ['n_sigs', '2'], ['locktime', String(d)], ['refund', C.pubOf(newSk())], ['sigflag', 'SIG_SOME']] }]), bm = cashu.blindMessage(te.encode(sec));
+  const o = new cashu.OutputData({ amount: cashu.Amount.from(n), id: ks.id, B_: bm.B_.toHex(true) }, bm.r, te.encode(sec)), res = await w.mint.swap({ inputs: ins.map(p => ({ id: p.id, amount: C.amt(p.amount), secret: p.secret, C: p.C })), outputs: [{ amount: n, id: ks.id, B_: o.blindedMessage.B_ }] });
+  return tokOf([o.toProof(res.signatures[0], ks)]); };
+const campF = { name: 'F5', op: 'test', mint: MINT, streetcat: C.pubOf(scF), clinic: clinicPk, deadline: d }; await pin(campF.streetcat); s = await status(ledger(campF, [{ ref: 'DON-00000000', amount: 21, date: '2026-11-04', token: sigAll, parts: [], remainders: [] }, { ref: 'DON-00000001', amount: 16, date: '2026-11-04', token: await oddLock(16), parts: [], remainders: [] }]));
+check('F5: the status page counts a SIG_ALL lock with the campaign\'s keys (today\'s lock signed whole, since 15 Nov), and not one with a signature rule it does not know', /LOCKED/.test(s.list) && /NOT COUNTED/.test(s.list) && /lock: unusual signature rule/.test(s.list), (s.list.match(/lock: [^\n]*/) || [''])[0]);
 
 await b.close(); say(bad ? `audit: ${bad} check(s) failed` : 'audit: every check passed'); process.exit(bad ? 1 : 0);

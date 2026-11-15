@@ -108,7 +108,7 @@ const donated = async n => w.ops.receive(cashu.getEncodedToken({ mint: MINT, pro
   const pr = await openRequest(13), off = MINT + '/v1/**'; await donor.route(off, r => r.abort());  /* the mint out of reach from this phone, for a moment */
   const id1 = await pay(pr, await plain(13)); await donor.evaluate(() => window.__vetlock.wCheck()); const st1 = await waitText(donor, '#dw-state', /It is tried again by itself|LOCKED|✗/, 30000);
   const r1 = await donor.evaluate(id => window.__vetlock.wreqs().find(x => x.id === id), pr.id);
-  check('H10 · a payment that fails for a moment is not marked as seen: it says it is tried again, and the request still waits', /✗ .*It is tried again by itself\./.test(st1) && r1.state === 'waiting' && !(r1.seen || []).includes(id1) && (r1.tries || {})[id1] >= 1, st1.slice(0, 100));
+  check('H10 · a payment that fails for a moment is not marked as seen: it says it is tried again, and the request still waits', /✗ .*It is tried again by itself\./.test(st1) && r1.state === 'waiting' && !(r1.seen || []).includes(id1) && ((r1.pending || {})[id1] || {}).n >= 1, st1.slice(0, 100));  /* kept with its request, with its tries (15 Nov: walletpay_test) */
   await donor.unroute(off); await donor.evaluate(() => window.__vetlock.wCheck()); const o1 = await waitText(donor, '#d-out', /LOCKED 13 sat|Failed/, 40000);
   const r1b = await donor.evaluate(id => window.__vetlock.wreqs().find(x => x.id === id), pr.id);
   check('…the mint back, the next check takes it: locked', /LOCKED 13 sat for MOCHI/.test(o1) && r1b.state === 'done' && (r1b.seen || []).includes(id1), o1.split('\n')[0]);

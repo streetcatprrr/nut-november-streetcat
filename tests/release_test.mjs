@@ -5,7 +5,7 @@
 // and the same token pasted again says at once that it was released, before anyone presses anything. (The clinic's signature is
 // made in the page: its "Certify a token" screen is gone, review of 12 Nov.)
 import { chromium } from 'playwright';
-import { Wallet, getEncodedToken, schnorrSignMessage, createRandomSecretKey } from '@cashu/cashu-ts';
+import { Wallet, getEncodedToken, schnorrSignMessage, createRandomSecretKey, LockBuilder, getPubKeyFromPrivKey } from '@cashu/cashu-ts';
 import { pinBrowser } from './pin.mjs';
 const BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 const say = (...a) => console.log(...a), now = () => Math.floor(Date.now() / 1000);
@@ -30,7 +30,14 @@ let swaps = 0; await streetcat.route('**/v1/swap', r => { swaps++; return r.cont
 await tab(clinic, 'csettings'); await clinic.click('#cs-new'); await clinic.waitForTimeout(1500); const clinicPk = await clinic.evaluate(() => window.__vetlock.pubOf(window.__vetlock.key('clinic', false)));
 await tab(streetcat, 'release'); await streetcat.click('#s-new'); await streetcat.waitForTimeout(1500); const scPk = await out(streetcat, 's-pk');
 const signed = c => streetcat.evaluate(c => window.scCore.signCampaign(c, window.__vetlock.heldKeys('streetcat')[0]), c);  /* an unsigned link takes no donation */
-const donate = async (camp, n) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(await signed(camp))); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
+// The release of a token certified that way is for donations made before 15 Nov, locked proof by proof (SIG_INPUTS): the donor's page
+// now locks them signed whole (SIG_ALL), released from a request only. So the donations here are locked as they were then, in Node,
+// each with a refund key of its own; one made by the donor's page is pasted in at the end.
+const refundOf = new Map();
+const donate = async (camp, n) => { const d = createRandomSecretKey(), q = await w.createMintQuoteBolt11(n); let ps = null; for (let i = 0; i < 40 && !ps; i++) { try { ps = await w.mintProofsBolt11(n, q); } catch { await new Promise(r => setTimeout(r, 300)); } }
+  const locked = await w.ops.receive(getEncodedToken({ mint: MINT, proofs: ps })).asLocked(new LockBuilder().addMainPubkey([camp.streetcat, camp.clinic]).requireMainSignatures(2).addRefundPubkey(hex(getPubKeyFromPrivKey(d))).lockUntil(camp.deadline)).run();
+  const tok = getEncodedToken({ mint: MINT, proofs: locked, memo: `${camp.name} · donation` }); refundOf.set(tok, hex(d)); return tok; };
+const donatePage = async (camp, n) => { await donor.goto(BASE + 'index.html'); await tab(donor, 'donate'); await donor.fill('#d-camp', JSON.stringify(await signed(camp))); await donor.evaluate(() => { window.__vetlock.openTab('decash'); }); await donor.fill('#d-token', await plain(n)); await donor.click('#d-go');
   const s = await waitOut(donor, 'd-out', /LOCKED|Failed/); if (!/LOCKED/.test(s)) throw new Error(s); return lastToken(s); };
 // What the partner's "Certify a token" did, before it was removed (review of 12 Nov: it signed any pasted token, with no request): its key
 // signs every proof of a donation locked to it. Release still takes a token certified that way, so this test makes one in the page.
@@ -64,7 +71,7 @@ await streetcat.click('#s-again a'); await streetcat.waitForTimeout(300); say('"
 // 4) past TEO's deadline the donor takes part of B back; the clinic still signs B; the release leaves that part out
 await donor.waitForTimeout(Math.max(0, teo.deadline - now() + 1) * 1000);
 const part = getEncodedToken({ mint: MINT, proofs: [decB.proofs[0]], memo: decB.memo });
-await tab(donor, 'refund'); await donor.fill('#r-receipt', part); await donor.click('#r-go'); say('donor takes back', amt(decB.proofs[0].amount), 'sat of B:', (await waitOut(donor, 'r-out', /REFUNDED|refused|Not yet/)).split('\n')[0]);
+await tab(donor, 'refund'); await donor.fill('#r-receipt', JSON.stringify({ campaign: teo, lockedToken: part, refundKey: refundOf.get(B), created: new Date().toISOString() })); await donor.click('#r-go'); say('donor takes back', amt(decB.proofs[0].amount), 'sat of B:', (await waitOut(donor, 'r-out', /REFUNDED|refused|Not yet/)).split('\n')[0]);
 const cB = await certify(B); say('clinic, past the deadline:', cB.out);
 const r4 = await release(cB.token); say('release B:', r4.out);
 
@@ -76,4 +83,7 @@ await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById
 const rows = await viewer.evaluate(() => [...document.querySelectorAll('.row')].map(x => `${x.dataset.amount} ${x.dataset.status}` + ([...x.querySelectorAll('.mut')].map(e => e.textContent).find(t => /earlier entry/.test(t)) ? ' (' + [...x.querySelectorAll('.mut')].map(e => e.textContent).find(t => /earlier entry/.test(t)) + ')' : '')));
 const tot = await viewer.evaluate(() => document.querySelector('#tot div:nth-child(2) b').textContent);
 say('status, a proof listed three times:', rows.join(' | '), '| released total:', tot, '| expected', total(decA.proofs.slice(0, 2)), '+', total(decA.proofs.slice(2)), '=', total(decA.proofs));
+// 6) a donation the donor's page makes now (signed whole), pasted here: released from its request, and nothing goes to the mint
+{ const W = await donatePage(mochi, 11), before = swaps, r6 = await release(W); const ok = /signed whole/.test(r6.out) && /from its request/.test(r6.out) && swaps === before;
+  say('a donation signed whole pasted here:', r6.out.split(':').slice(0, 2).join(':'), '| swaps sent:', swaps - before); if (!ok) { say('✗ a donation signed whole was not turned away with its reason'); process.exitCode = 1; } }
 await b.close();

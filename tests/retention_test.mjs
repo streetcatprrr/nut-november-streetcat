@@ -1,7 +1,8 @@
 // What holds money or a key is never dropped for being old or many (review of 9 Nov, A01/A02), and nothing is taken for kept that the
 // phone's storage refused. Before, the lists kept only their last 50, 60, 40 or 30 entries, open ones too: released ecash not moved yet,
 // Rescue's payments to its Lightning address still waiting for the mint, the donor's refunds by Lightning not settled (or failed, their
-// ecash still good), and payment requests to a Cashu wallet still waiting (each holds the key its payment comes to). Now what is open
+// ecash still good), and payment requests to a Cashu wallet still open (waiting, paid while their campaign is open, or holding a payment
+// not taken yet: each holds the key its payments come to). Now what is open
 // stays, however many; only the oldest of what is finished goes past that number. And a swap's record stays until what came back is
 // kept where it goes: a release whose copy the storage refuses is said in red, its token stays on screen, and the page asks the mint
 // for it again each time it opens, until it can keep it; with no room even for the record, nothing goes to the mint; and a donation is
@@ -45,8 +46,12 @@ const red = (p, sel) => p.evaluate(s => document.querySelector(s).classList.cont
     const ml = V.melts(); out.melt = { pending: ml.filter(x => x.state === 'pending').length, failed: ml.filter(x => x.state === 'failed').length, paid: ml.filter(x => x.state === 'paid').length, firstPending: ml.some(x => x.id === 'mp0') };
     const sk = 'ab'.repeat(32), camp = { name: 'X', mint: 'http://127.0.0.1:3338', streetcat: '02' + 'cd'.repeat(32), clinic: '03' + 'ef'.repeat(32), deadline: Math.floor(Date.now() / 1000) + 86400 };
     for (let i = 0; i < 45; i++) V.saveWreq({ id: 'wo' + i, sk, pk: '02' + '11'.repeat(32), c: camp, amount: 0, relays: [], created: Date.now(), state: 'waiting', seen: [] });
-    for (let i = 0; i < 40; i++) V.saveWreq({ id: 'wd' + i, sk, pk: '02' + '11'.repeat(32), c: camp, amount: 0, relays: [], created: Date.now(), state: 'done', seen: [] });
-    const wr = V.wreqs(); out.wreq = { waiting: wr.filter(x => x.state === 'waiting').length, done: wr.filter(x => x.state !== 'waiting').length, firstWaiting: wr.some(x => x.id === 'wo0') };
+    const shut = { ...camp, deadline: Math.floor(Date.now() / 1000) - 86400 }, held = { e1: { payload: 'x', n: 1, next: Date.now() + 3600e3, at: Date.now() } };  /* a payment written down, its next try in an hour */
+    for (let i = 0; i < 35; i++) V.saveWreq({ id: 'wp' + i, sk, pk: '02' + '11'.repeat(32), c: camp, amount: 0, relays: [], created: Date.now(), state: 'done', seen: [] });
+    for (let i = 0; i < 5; i++) V.saveWreq({ id: 'wq' + i, sk, pk: '02' + '11'.repeat(32), c: shut, amount: 0, relays: [], created: Date.now(), state: 'done', seen: [], pending: held });
+    for (let i = 0; i < 40; i++) V.saveWreq({ id: 'wd' + i, sk, pk: '02' + '11'.repeat(32), c: shut, amount: 0, relays: [], created: Date.now(), state: 'done', seen: [] });
+    const wr = V.wreqs(), n = re => wr.filter(x => re.test(x.id)).length;
+    out.wreq = { waiting: n(/^wo/), paidOpen: n(/^wp/), pending: n(/^wq/), done: n(/^wd/), firstWaiting: wr.some(x => x.id === 'wo0'), firstPaid: wr.some(x => x.id === 'wp0'), firstDone: wr.some(x => x.id === 'wd0'), lastDone: wr.some(x => x.id === 'wd39') };
     return out; });
   await p.reload(); await p.waitForTimeout(600); await p.evaluate(() => window.__vetlock.openTab('release')); const shown = await p.evaluate(() => { const box = document.getElementById('s-saved'); return box ? [...box.querySelectorAll('button')].filter(x => /sat/.test(x.textContent)).length : -1; });
   check('released ecash not moved yet: all 120 kept (before: the last 50, open ones too)', r.rel.open === 120 && r.rel.firstOpen, JSON.stringify(r.rel));
@@ -54,7 +59,7 @@ const red = (p, sel) => p.evaluate(s => document.querySelector(s).classList.cont
   check('…and every one not moved yet is on screen to copy, not only the newest 10 ("forget all" never forgets one not shown)', shown === 120, 'shown ' + shown);
   check('Rescue\'s payments still waiting for the mint: all 80 kept; finished ones, the last 60', r.pay.pending === 80 && r.pay.firstPending && r.pay.done === 60, JSON.stringify(r.pay));
   check('the donor\'s refunds by Lightning not settled, or failed (their ecash still good): all kept; settled ones, the last 40', r.melt.pending === 50 && r.melt.failed === 10 && r.melt.firstPending && r.melt.paid === 40, JSON.stringify(r.melt));
-  check('payment requests to a Cashu wallet still waiting (each holds its key): all 45 kept; finished ones, the last 30', r.wreq.waiting === 45 && r.wreq.firstWaiting && r.wreq.done === 30, JSON.stringify(r.wreq));
+  check('payment requests to a Cashu wallet still open (each holds the key its payments come to): all kept, the 45 waiting, the 35 paid while their campaign is open, the 5 holding a payment not taken yet; finished ones (paid, the campaign closed), the last 30', r.wreq.waiting === 45 && r.wreq.firstWaiting && r.wreq.paidOpen === 35 && r.wreq.firstPaid && r.wreq.pending === 5 && r.wreq.done === 30 && r.wreq.lastDone && !r.wreq.firstDone, JSON.stringify(r.wreq));
   await refuse(p, ['vetlock.released']);
   const full = await p.evaluate(() => { const V = window.__vetlock, saved = V.addReleased({ token: 'cashuBfull', amount: 21, at: new Date().toISOString() }); return { saved, there: V.releasedList().some(x => x.token === 'cashuBfull') }; });
   check('with the storage full, keeping a released token says it could not (false): it is not taken for kept', full.saved === false && !full.there, JSON.stringify(full));

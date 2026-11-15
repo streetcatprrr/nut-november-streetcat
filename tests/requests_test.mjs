@@ -90,7 +90,7 @@ await fits(clinic, 'the answer, sent'); await shot(clinic, 'r13-clinic-answer-se
 
 // Streetcat: the answer arrives, it is checked, and the release puts the rest back under the lock
 await tab(sc, 'scamp'); await sc.click('#sc-check'); await waitText(sc, '#sc-net', /answer/); await sc.click('#sc-reqs .item');
-const steps = await txt(sc, '#sq-state'); check('Streetcat checks the answer: every proof and the declaration (in full under "Details")', /✓ certified: all \d+ proofs signed with MOCHI's clinic key, and its declaration names exactly them/.test(steps) && /✓ certified by the clinic · /.test(await txt(sc, '#sq-steps')), steps.split('\n').find(l => /certified/.test(l)) || '');
+const steps = await txt(sc, '#sq-state'); check('Streetcat checks the answer: each donation\'s payment, signed whole, and the declaration (in full under "Details")', /✓ certified: all \d+ payments signed whole with MOCHI's clinic key, and its declaration names exactly them/.test(steps) && /✓ certified by the clinic · /.test(await txt(sc, '#sq-steps')), steps.split('\n').find(l => /certified/.test(l)) || '');
 check('…and sees that the clinic received the request', /received by the clinic · /.test(await txt(sc, '#sq-steps')));
 await tab(clinic, 'work'); await clinic.click('#w-check'); await clinic.waitForTimeout(1500); await showW(clinic, 'w-dn'); await clinic.locator('#w-list .item', { hasText: 'MOCHI' }).click(); const recd = await waitText(clinic, '#cr-out', /✓ Streetcat has it/, 20000);
 check('…and the clinic\'s answer then says "received by Streetcat"', /✓ sent to Streetcat · 2\/3[\s\S]*✓ Streetcat has it · /.test(recd), recd.split('\n').slice(-2).join(' / '));
@@ -138,7 +138,7 @@ await clinic.check('#cr-ok'); await clinic.click('#cr-go'); await waitText(clini
 await clinic.locator('#cr-out button', { hasText: 'show as QR' }).click(); await clinic.waitForSelector('#cr-out .term .qr'); const fans = await clinic.evaluate(() => document.querySelector('#cr-out .term')._frames || []);
 await fits(clinic, 'the answer as a QR'); await shot(clinic, 'r10-clinic-answer-qr'); await clinic.evaluate(() => window.__vetlock.tick()); await clinic.waitForTimeout(300); check('…and shows its answer as a QR, which stays on screen', fans.length >= 1 && !!(await clinic.$('#cr-out .term .qr')), fans.length + ' part' + (fans.length > 1 ? 's' : ''));
 await tab(sc, 'scamp'); await sc.evaluate(() => { document.getElementById('sc-add').open = true; }); await sc.click('#sc-scan'); await scanIn(sc, fans);
-await waitText(sc, '#sq-steps', /certified|✗/); const st3 = await txt(sc, '#sq-state'); check('Streetcat scans the answer and checks it like any other', /✓ certified: all \d+ proofs signed with MOCHI's clinic key/.test(st3));
+await waitText(sc, '#sq-steps', /certified|✗/); const st3 = await txt(sc, '#sq-state'); check('Streetcat scans the answer and checks it like any other', /✓ certified: (its payment|all \d+ payments) signed whole with MOCHI's clinic key/.test(st3));
 await sc.click('#sq-go'); const rel3 = await waitText(sc, '#sq-out', /RELEASED|Not possible|refused|Interrupted/, 40000);
 const back3 = Number((rel3.match(/(\d+) sat went back under the same lock/) || [0, 0])[1]);
 check('…and releases it: what a split gives back, if any, is small again (under 128 sat)', /^RELEASED/.test(rel3) && back3 < 128, rel3.split('\n')[0].slice(0, 90));

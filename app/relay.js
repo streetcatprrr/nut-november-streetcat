@@ -112,34 +112,40 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
 // request not here yet, or no room to keep it): a read never starts after it, so it comes again. A relay that does not answer, refuses
 // (CLOSED) or whose pages do not end moves no mark: an unknown answer is not an empty one. Returns the new marks, and the wraps it deferred.
 const LIMIT = 500, SLACK = 600, PAGES = 20, TRIES = 3, TRIED = new Map(), retry = () => TRIED.clear();
+const toOf = ev => ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1];
+// ONE RELAY, PAGE BY PAGE: the inbox's walk (on its own since 15 Nov, so that a wallet's payments, below, are read the same way).
+// A relay that sends the limit holds more: the older ones are asked for, page by page (`until` the oldest received), so a flood of
+// wraps to a key (anyone can send them) does not bury a real message (audit of 10 Nov). `full`: the keys whose pages did not end.
+// A FLOOD LONGER THAN THE PAGES (Daybreak, 14 Nov: after 20 pages the next read began again at the newest, so a message under more
+// than that was never reached): a walk that had to stop leaves in the marks where it stopped (`<` and the key) and when it began
+// (`^`); the next read goes on from there, older, so a message under a flood of any size is reached a few checks later. A walk that
+// reaches the end moves the mark to when it began: what came meanwhile, dated up to two days back, is read again from there.
+// EQUAL DATES (Daybreak, 14 Nov; M03 of the first scan): a page whose wraps all bore one second came back the same when what is
+// older was asked for, and the walk stopped there with no cursor, so a flood dated in a single second hid every older message for
+// good. A full page that reaches no further back now moves on to the second before. What one second holds beyond a page cannot be
+// paged at all (NIP-01 has no offset): a flood aimed at the very second of a message can hide it on that relay, not on the others.
+async function walk(u, pubs, { sinceFor, markOf, limit = LIMIT, timeout }){ const evs = await fetchEach(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout }), full = new Set(), stop = {}, ids = new Set(evs.map(e => e && e.id));
+  for (const p of pubs) { const page = evs.filter(e => toOf(e) === p), cur = markOf(u, '<' + p); let n = 0, jumped = false, until = page.length >= limit ? Math.min(...page.map(e => e.created_at)) : 0;
+    if (until && cur && cur < until) { until = cur; jumped = true; }  /* on from where the last walk stopped */
+    while (until) { if (!evs.complete) { full.add(p); break; } if (n++ >= PAGES) { full.add(p); stop[p] = until; break; } let more;
+      try { more = await fetchFrom(u, { kinds: [WRAP], '#p': [p], since: sinceFor(u, p), until, limit }, { timeout }); } catch (_) { full.add(p); break; }
+      const fresh = more.filter(e => e && e.id && !ids.has(e.id)); for (const e of fresh) { ids.add(e.id); evs.push(e); }
+      if (!more.complete || more.some(e => e && e.created_at > until)) { full.add(p); break; }  /* cut short, or not held to `until`: these pages cannot be walked */
+      const old = more.length >= limit ? Math.min(...more.map(e => e.created_at)) : 0; until = !old ? 0 : old < until ? old : until - 1; }  /* a page all of one second: on to the second before */
+    if (!full.has(p) && jumped) stop[p] = -1; }  /* a walk begun before has reached its end */
+  return { url: u, ok: true, complete: !!evs.complete, full, stop, events: evs }; }
+// the marks the relays have earned (above): when each last answered all it held for a key, where a walk that had to stop goes on from
+// (`<`), and when that walk began (`^`); a relay that did not answer whole moves none
+function marksAfter(per, pubs, t0, markOf){ const next = {}; for (const r of per) { if (!r.complete) continue; const m = next[r.url] = {};
+    for (const p of pubs) { if (!r.full.has(p)) { m[p] = r.stop[p] === -1 ? markOf(r.url, '^' + p) || t0 : t0; if (markOf(r.url, '<' + p)) { m['<' + p] = 0; m['^' + p] = 0; } }
+      else if (r.stop[p] > 0) { m['<' + p] = r.stop[p]; if (!markOf(r.url, '^' + p)) m['^' + p] = t0; } } }
+  return next; }
 async function receive(sks, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), expect, timeout, marks = null, floor = 0, limit = LIMIT } = {}){
   const mine = await Promise.all(sks.map(keysOf)), byPub = new Map(mine.map(k => [k.pub, k])), pubs = [...byPub.keys()], t0 = now(), base = Math.max(0, since - TWO_DAYS);
   const sinceFor = (u, p) => { const m = Number(marks && marks[u] && marks[u][p]) || 0; let s = m - TWO_DAYS - SLACK > base ? m - TWO_DAYS - SLACK : base; if (floor > 0) s = Math.min(s, floor - SLACK); return Math.max(base, s); };
-  // A relay that sends the limit holds more: the older ones are asked for, page by page (`until` the oldest received), so a flood of
-  // wraps to a key (anyone can send them) does not bury a real message (audit of 10 Nov). `full`: the keys whose pages did not end.
-  // A FLOOD LONGER THAN THE PAGES (Daybreak, 14 Nov: after 20 pages the next read began again at the newest, so a message under more
-  // than that was never reached): a walk that had to stop leaves in the marks where it stopped (`<` and the key) and when it began
-  // (`^`); the next read goes on from there, older, so a message under a flood of any size is reached a few checks later. A walk that
-  // reaches the end moves the mark to when it began: what came meanwhile, dated up to two days back, is read again from there.
-  // EQUAL DATES (Daybreak, 14 Nov; M03 of the first scan): a page whose wraps all bore one second came back the same when what is
-  // older was asked for, and the walk stopped there with no cursor, so a flood dated in a single second hid every older message for
-  // good. A full page that reaches no further back now moves on to the second before. What one second holds beyond a page cannot be
-  // paged at all (NIP-01 has no offset): a flood aimed at the very second of a message can hide it on that relay, not on the others.
-  const toOf = ev => ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1], markOf = (u, k) => Number(marks && marks[u] && marks[u][k]) || 0;
-  const readAll = async u => { const evs = await fetchEach(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout }), full = new Set(), stop = {}, ids = new Set(evs.map(e => e && e.id));
-    for (const p of pubs) { const page = evs.filter(e => toOf(e) === p), cur = markOf(u, '<' + p); let n = 0, jumped = false, until = page.length >= limit ? Math.min(...page.map(e => e.created_at)) : 0;
-      if (until && cur && cur < until) { until = cur; jumped = true; }  /* on from where the last walk stopped */
-      while (until) { if (!evs.complete) { full.add(p); break; } if (n++ >= PAGES) { full.add(p); stop[p] = until; break; } let more;
-        try { more = await fetchFrom(u, { kinds: [WRAP], '#p': [p], since: sinceFor(u, p), until, limit }, { timeout }); } catch (_) { full.add(p); break; }
-        const fresh = more.filter(e => e && e.id && !ids.has(e.id)); for (const e of fresh) { ids.add(e.id); evs.push(e); }
-        if (!more.complete || more.some(e => e && e.created_at > until)) { full.add(p); break; }  /* cut short, or not held to `until`: these pages cannot be walked */
-        const old = more.length >= limit ? Math.min(...more.map(e => e.created_at)) : 0; until = !old ? 0 : old < until ? old : until - 1; }  /* a page all of one second: on to the second before */
-      if (!full.has(p) && jumped) stop[p] = -1; }  /* a walk begun before has reached its end */
-    return { url: u, ok: true, complete: !!evs.complete, full, stop, events: evs }; };
-  const per = await Promise.all(relays.map(u => readAll(u).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
-  const next = {}; for (const r of per) { if (!r.complete) continue; const m = next[r.url] = {};
-    for (const p of pubs) { if (!r.full.has(p)) { m[p] = r.stop[p] === -1 ? markOf(r.url, '^' + p) || t0 : t0; if (markOf(r.url, '<' + p)) { m['<' + p] = 0; m['^' + p] = 0; } }
-      else if (r.stop[p] > 0) { m['<' + p] = r.stop[p]; if (!markOf(r.url, '^' + p)) m['^' + p] = t0; } } }
+  const markOf = (u, k) => Number(marks && marks[u] && marks[u][k]) || 0;
+  const per = await Promise.all(relays.map(u => walk(u, pubs, { sinceFor, markOf, limit, timeout }).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  const next = marksAfter(per, pubs, t0, markOf);
   const deferred = [];
   // each wrap once, and the copy kept is one that holds (Daybreak, 14 Nov): the first copy of an id was kept and checked only later, so
   // one relay's bad copy (another body under the same id, which no signature covers) hid the good one the other relays gave. A copy is
@@ -228,13 +234,21 @@ function bech32(hrp, data){ const words = []; let acc = 0, bits = 0; for (const 
   const h = [...hrp].map(ch => ch.charCodeAt(0) >> 5).concat([0], [...hrp].map(ch => ch.charCodeAt(0) & 31)), p = mod(h.concat(words, [0, 0, 0, 0, 0, 0])) ^ 1;
   return hrp + '1' + words.concat(Array.from({ length: 6 }, (_, i) => (p >>> (5 * (5 - i))) & 31)).map(x => B32[x]).join(''); }
 const nprofile = (pub, relays = []) => { const tlv = [0, 32, ...unhex(pub)]; for (const r of relays) { const b = new TextEncoder().encode(r); if (b.length < 256) tlv.push(1, b.length, ...b); } return bech32('nprofile', tlv); };
-async function receivePayments(skHex, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), timeout } = {}){ const sk = unhex(skHex), pub = K.getPublicKey(sk), filter = { kinds: [WRAP], '#p': [pub], since: Math.max(0, since - TWO_DAYS) };
-  const per = await Promise.all(relays.map(u => fetchFrom(u, filter, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
-  const out = [], ids = new Set();
+// THE PAYMENTS FROM A WALLET (NUT-18): what came to a payment request's key, read as the inbox is, page by page from each relay and on
+// from where its mark says (`marks`, kept with the request). Daybreak, 15 Nov (6.6, 6.13, 5.22): it was one query per relay, with no
+// limit and no pages, so a relay that sends only its newest few hid a payment under 60 messages to the same key, and every check read
+// all of it again. Pages of 50, under what relays send for a query, so that one that sends fewer than it holds is not taken for one that
+// holds no more. `junk`: what is not a payment, passed over next time without being opened again. What came in the last two days is
+// read again at each check (a wrap may be dated that far back), in pages: what one check costs has a bound.
+const PAY_LIMIT = 50;
+async function receivePayments(skHex, { relays = RELAYS, since = now() - 7 * 86400, seen = new Set(), timeout, marks = null, limit = PAY_LIMIT } = {}){ const sk = unhex(skHex), pub = K.getPublicKey(sk), pubs = [pub], t0 = now(), base = Math.max(0, since - TWO_DAYS);
+  const markOf = (u, k) => Number(marks && marks[u] && marks[u][k]) || 0, sinceFor = (u, p) => { const m = markOf(u, p); return m - TWO_DAYS - SLACK > base ? m - TWO_DAYS - SLACK : base; };
+  const per = await Promise.all(relays.map(u => walk(u, pubs, { sinceFor, markOf, limit, timeout }).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  const out = [], junk = [], ids = new Set();
   for (const r of per) for (const ev of r.events) { if (!ev || !ev.id || ids.has(ev.id) || seen.has(ev.id) || !K.verifyEvent(ev)) continue; ids.add(ev.id);  /* a bad copy does not hide the good one (receive, above) */
-    let rumor, p; try { rumor = K.unwrapEvent(ev, sk); p = JSON.parse(rumor.content); } catch (_) { continue; }
-    if (p && Array.isArray(p.proofs) && typeof p.mint === 'string') out.push({ payload: p, wrap: ev.id, at: rumor.created_at }); }
-  return { payments: out, relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
+    let rumor, p; try { rumor = K.unwrapEvent(ev, sk); p = JSON.parse(rumor.content); } catch (_) { junk.push(ev.id); continue; }
+    if (p && Array.isArray(p.proofs) && typeof p.mint === 'string') out.push({ payload: p, wrap: ev.id, at: rumor.created_at }); else junk.push(ev.id); }
+  return { payments: out, junk, marks: marksAfter(per, pubs, t0, markOf), relays: per.map(({ url, ok, msg, events }) => ({ url, ok, msg, events: events.length })) }; }
 
 // "received": what the app sends back as soon as a request or an answer arrives, so the sender knows it got there
 const receiptFor = payload => ({ t: 'streetcat.received', v: 1, id: payload.id, of: payload.t, at: new Date().toISOString() });
