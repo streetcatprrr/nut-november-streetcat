@@ -86,7 +86,8 @@ L = await linesUntil(sc, 1, /Refunds are open/);
 check('refunds open and no answer from the mint: in red, and the button does not send', (L[1] || {}).t === '✗ Refunds are open: donors can take these sats back now' && L[1].cls === 'bad' && (await sc.$eval('#sn-go', b => b.disabled)), JSON.stringify(L));
 
 // Donate: the invoice's own expiry; the mint's quote's only when it differs (the payment held back, so the page keeps waiting)
-const unpaid = async r => { if (r.request().method() !== 'GET') return r.continue(); const res = await r.fetch(), j = await res.json(); j.state = 'UNPAID'; if ('paid' in j) j.paid = false; await r.fulfill({ response: res, json: j }); };
+// A request still in flight when its page closes is let go: it is the page ending, not a failure
+const unpaid = async r => { if (r.request().method() !== 'GET') return r.continue(); try { const res = await r.fetch(), j = await res.json(); j.state = 'UNPAID'; if ('paid' in j) j.paid = false; await r.fulfill({ response: res, json: j }); } catch (e) { if (!/disposed|closed/i.test(String(e))) throw e; } };
 const lnStart = async (p, n) => { await p.route('**/v1/mint/quote/bolt11/*', unpaid); await p.goto(L30); await p.reload(); await p.fill('#d-amt', String(n)); await p.click('#d-ln'); return waitText(p, '#d-st', /expires/, 20000); };
 const st1 = await lnStart(donor, 21);
 check('Donate: "invoice expires …", read from the invoice, and nothing about the mint\'s quote when it ends at the same time', /^waiting for the payment… · invoice expires \d{1,2}:\d{2}( [AP]M)?$/.test(st1), st1);

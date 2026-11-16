@@ -5,7 +5,7 @@
 import fs from 'fs';
 import { chromium } from 'playwright';
 import { pinBrowser } from './pin.mjs';
-const APP = new URL('../app/', import.meta.url).pathname, BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
+const APP = new URL('../app/', import.meta.url).pathname, BASE = process.env.BASE || 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
 const C = globalThis.scCore, amt = C.amt, total = ps => ps.reduce((s, p) => s + amt(p.amount), 0), say = (...a) => console.log(...a);
 const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), newSk = () => hex(cashu.createRandomSecretKey());
@@ -25,7 +25,18 @@ const rest = await C.findRemainder(w, plan.split), partOf = { request: q.id, pat
 const eA = await C.ledgerEntry({ token: tok(A), proofs: A, date: '2026-11-04', parts: [{ ...partOf, amount: 1500 }], remainders: [tok(rest)] }), eB = await C.ledgerEntry({ token: tok(B), proofs: B, date: '2026-11-04', parts: [{ ...partOf, amount: total(B) }] });
 const ledgers = { v2: C.ledgerV2({ campaign: camp, entries: [eA, eB], certificates: [a] }), v1: { campaign: camp, donations: [tok(A), tok(B)] }, altered: C.ledgerV2({ campaign: camp, entries: [eA, eB], certificates: [{ ...a, statement: { ...a.statement, amount: 9999 } }] }), understated: C.ledgerV2({ campaign: camp, entries: [{ ...eA, parts: [{ ...partOf, amount: 1000 }] }, eB], certificates: [a] }),
   relabelled: C.ledgerV2({ campaign: camp, entries: [{ ...eA, parts: [{ ...partOf, patient: 'LOGO', amount: 1500 }] }, eB], certificates: [a] }),  /* the ledger names another cat than the clinic declared (Daybreak, 14 Nov) */
+  /* group 8 of the six scans, the third part (15 Nov) */
+  twice: C.ledgerV2({ campaign: camp, entries: [{ ...eA, parts: [{ ...partOf, amount: 1500 }, { ...partOf, amount: 1500 }] }, eB], certificates: [a] }),  /* 5.6, 5.20: the clinic's one declaration under two lines, and more said than the mint released */
+  relabelledB: C.ledgerV2({ campaign: camp, entries: [eA, { ...eB, parts: [{ ...partOf, patient: 'LOGO', amount: total(B) }] }], certificates: [a] }),  /* 5.15: a donation released whole, under another cat's name */
+  borrowed: null, shadow: null, norest: { campaign: camp, donations: [tok(A)] },
   badmint: { ...C.ledgerV2({ campaign: camp, entries: [eA, eB], certificates: [a] }), campaign: { ...camp, mint: MINT + "/$(touch /tmp/sc-x)'" } } };  /* a mint written to break out of the command offered to copy */
+
+// 5.30: a request the clinic signed for other ecash, with this donation's code written on it
+const E = await donate(21), q2 = await C.makeRequest({ campaign: camp, patient: 'NUBE', procedure: 'sterilisation (spay)', date: '2026-11-05', contributions: [{ release: total(E), proofs: E }] }); q2.contributions[0].ref = eB.ref;
+let a2 = null, a2why = ''; try { a2 = await C.certify(q2, cl); } catch (e) { a2why = e.message || String(e); }
+if (a2) ledgers.borrowed = C.ledgerV2({ campaign: camp, entries: [eA, { ...eB, parts: [{ request: q2.id, patient: q2.patient, procedure: q2.procedure, date: q2.date, amount: total(B) }] }], certificates: [a, a2] });
+// 5.16: an entry that cannot be counted (one of its proofs carries no proof of issue), listed before the donation it borrows a proof from
+const noDleq = p => { const x = { ...p }; delete x.dleq; return x; }; ledgers.shadow = { campaign: camp, donations: [tok([B[0], noDleq(E[0])]), tok(B)] };
 
 const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {})), viewer = await (await b.newContext({ serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'], ...(process.env.SHOT ? { viewport: { width: 390, height: 1100 }, deviceScaleFactor: 2 } : {}) })).newPage();  // SHOT=file.png saves the page (390 px)
 viewer.on('pageerror', e => say('PAGEERROR', e.message));
@@ -54,5 +65,36 @@ check('"ask the mint yourself" copies a command with the mint\'s address in quot
 await viewer.goto(BASE + 'status.html?l=campaigns/badmint.json'); await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById('l-out').textContent), null, { timeout: 60000 }).catch(() => {});
 const badOut = (await viewer.textContent('#l-out')).trim(), tools = await viewer.$eval('#tools', e => e.hidden);
 check('a ledger whose mint is not a web address is refused, and offers no command', /^Failed: the campaign's mint is not a web address/.test(badOut) && tools, badOut.slice(0, 80));
+// Group 8 of the six scans, the third part (15 Nov). Each of these fails on the code before, but the two that say what still holds.
+const lifeOf = ref => viewer.evaluate(ref => { const row = [...document.querySelectorAll('.row')].find(x => x.dataset.ref === ref); return row ? [...row.querySelectorAll('.life .on')].map(x => x.textContent).join(' ') : null; }, ref);
+await open('v2'); const lifeV2 = await lifeOf(eB.ref), trustFile = await viewer.$eval('#c-trust', e => e.innerText);
+check('as before: a donation released as the clinic declared shows "✓ confirmed", and this site\'s own file carries no warning', /✓ confirmed/.test(lifeV2 || '') && !/not signed by Streetcat/.test(trustFile), lifeV2);
+await open('relabelledB'); const lifeRel = await lifeOf(eB.ref);
+check('5.15: no "✓ confirmed" on a released donation whose line in the ledger is not what the clinic declared', lifeRel !== null && !/confirmed/.test(lifeRel), `"${lifeRel}"`);
+const tw = await open('twice'), rTw = tw.rows.find(r => r.ref === eA.ref), lifeTw = await lifeOf(eA.ref);
+check('5.6: the clinic\'s one declaration under two lines of the ledger: the second is in red, "listed again"', !!rTw && (rTw.text.match(/✓ declared by the clinic/g) || []).length === 1 && /listed again: the clinic declared it once/.test(rTw.text), rTw && rTw.text.split('\n').filter(l => /→/.test(l)).join(' / '));
+check('5.20: a ledger that says more went to procedures than the mint shows released: said in red, and no "✓ confirmed"', !!rTw && /the ledger says 3\s000 sat of it went to procedures, but the mint shows 1\s500 sat released/.test(rTw.text) && !/confirmed/.test(lifeTw || ''), lifeTw);
+if (ledgers.borrowed) { const bo = await open('borrowed'), rBo = bo.rows.find(r => r.ref === eB.ref), lifeBo = await lifeOf(eB.ref);
+  check('5.30: a declaration the clinic signed for other ecash, with this donation\'s code on it: not this donation\'s, in red', !!rBo && /NUBE[^\n]*names other ecash, not this donation's/.test(rBo.text) && !/NUBE[^\n]*✓ declared by the clinic/.test(rBo.text) && !/confirmed/.test(lifeBo || ''), rBo && rBo.text.split('\n').filter(l => /NUBE/.test(l)).join(' / '));
+} else check('5.30: the clinic\'s app does not sign a request whose code is not its ecash\'s (nothing to show on the page)', /./.test(a2why), a2why);
+const sh = await open('shadow'), shB = sh.rows.filter(r => r.status === 'RELEASED' && r.amount === total(B) && r.ok); await viewer.click('#m-open'); await viewer.fill('#m-tok', tok(B)); await viewer.click('#m-go'); await viewer.waitForFunction(() => /LISTED|Failed/.test(document.getElementById('m-out').textContent), null, { timeout: 30000 }); const lookB = (await viewer.textContent('#m-out')).trim();
+check('5.16: an entry that is not counted, listed first with a proof of a good donation in it: the donation is still counted whole, and found', sh.rows.some(r => r.status === 'NOT COUNTED') && shB.length === 1 && /^LISTED ✓/.test(lookB), sh.rows.map(r => `${r.amount} ${r.status}`).join(' | ') + ' · ' + lookB.split('\n')[0]);
+await viewer.fill('#m-tok', tok([B[0], noDleq(E[0])])); await viewer.click('#m-go'); await viewer.waitForTimeout(300); await viewer.waitForFunction(() => /LISTED|Failed/.test(document.getElementById('m-out').textContent), null, { timeout: 30000 }); const lookBad = (await viewer.textContent('#m-out')).trim();
+check('…and the entry that is not counted is not called listed', /^NOT LISTED/.test(lookBad), lookBad.split('\n')[0]);
+await open('norest'); await viewer.click('#m-open'); await viewer.fill('#m-tok', tok(rest)); await viewer.click('#m-go'); await viewer.waitForFunction(() => /LISTED|Failed/.test(document.getElementById('m-out').textContent), null, { timeout: 30000 }); const lookRest = (await viewer.textContent('#m-out')).trim();
+check('5.23: the rest of a listed donation, put back under its lock and not listed apart, is found as listed', /^LISTED ✓/.test(lookRest), lookRest.split('\n')[0]);
+// 5.4: a ledger pasted into the page is nobody's word
+await viewer.goto(BASE + 'status.html'); await viewer.waitForFunction(() => !!document.getElementById('l-src')); await viewer.evaluate(v => { const ta = document.getElementById('l-src'); ta.value = v; ta.dispatchEvent(new Event('input', { bubbles: true })); }, JSON.stringify(ledgers.v2));
+await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById('l-out').textContent), null, { timeout: 60000 }); await viewer.waitForTimeout(400); const pasted = await viewer.evaluate(() => ({ trust: document.getElementById('c-trust').innerText, green: document.getElementById('l-out').classList.contains('ok'), out: document.getElementById('l-out').innerText }));
+check('5.4: a pasted ledger says, in red, that it was pasted here and is not signed by Streetcat, and its result is not in green', /✗ This ledger was pasted here, not signed by Streetcat/.test(pasted.trust) && /pasted here/.test(pasted.out) && !pasted.green, pasted.trust.split('\n').slice(0, 2).join(' / '));
+// 5.12: this browser's donations are asked of the mint when their button is tapped, not as the page opens
+{ const ctx2 = await b.newContext({ serviceWorkers: 'block' }), pg = await ctx2.newPage(); pg.on('pageerror', e => { bad++; say('✗ PAGEERROR', e.message); }); let asked = 0; pg.on('request', r => { if (/\/v1\/(checkstate|restore)/.test(r.url())) asked++; });
+  await pg.addInitScript(t => { try { localStorage.setItem('vetlock.donor.keys', JSON.stringify([{ lockedToken: t, campaign: 'MOCHI' }])); } catch (_) {} }, tok(E));
+  await pg.goto(BASE + 'status.html'); await pg.waitForFunction(() => !!document.getElementById('here-list')); await pg.waitForTimeout(2500);
+  const before = await pg.evaluate(() => { const g = document.getElementById('here-go'); return { shown: !document.getElementById('here').hidden, button: !!g && !g.hidden ? g.textContent : '', rows: document.querySelectorAll('#here .hrow').length }; }), askedBefore = asked;
+  if (before.button) { await pg.click('#here-go'); await pg.waitForFunction(() => document.querySelectorAll('#here .hrow').length > 0, null, { timeout: 30000 }).catch(() => {}); }
+  const after = await pg.evaluate(() => ({ rows: [...document.querySelectorAll('#here .hrow')].map(x => x.dataset.status), go: document.getElementById('here-go') ? document.getElementById('here-go').hidden : null }));
+  check('5.12: "From this browser" opens closed, with a button, and the mint is asked nothing until it is tapped; then the donation is checked', before.shown && /at the mint/.test(before.button) && before.rows === 0 && askedBefore === 0 && after.rows.length === 1 && after.rows[0] === 'LOCKED' && asked > 0 && after.go === true, JSON.stringify({ before, askedBefore, after, asked }));
+  await ctx2.close(); }
 await b.close();
 say(bad ? `ledger: ${bad} check(s) failed` : 'ledger: every check passed'); process.exit(bad ? 1 : 0);  /* a failed check fails the run: it used to end with 0 either way, and two stale expectations went unseen from 9 Nov to 10 Nov */

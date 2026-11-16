@@ -139,7 +139,7 @@ details.mut summary{cursor:pointer;margin-top:calc(var(--u)*2)}
 .term-text.keys{overflow:auto;cursor:default;padding:14px 14px 26px}.kline{margin-bottom:8px}.kline small{position:static;display:block;font-size:12px;color:var(--mute)}.kline span{color:oklch(.8 .16 calc(var(--h) * 1deg));word-break:break-all;font-size:var(--code);line-height:var(--code-lh)}
 #d-out .term{margin-top:0}#donate.done .term{height:auto;min-height:0;padding:10px 14px}#donate.done .hero .fiat{min-height:0;margin-top:0}#donate.done .term .lock{margin-top:var(--u)}#donate.done .state{margin-top:var(--u)}#donate.done details.more{display:none}
 .pay>.term{height:auto;min-height:0;flex:1;margin-bottom:var(--u)}
-#cr-fund{display:none}#cr-act{position:relative}#cr-act.done #cr-prob{visibility:hidden}#cr-act.done label.chk{opacity:.85}#cr-slot{position:absolute;left:0;right:0;bottom:0}#cr-slot p{margin:0}#cr-act.done button.sm{opacity:.4;pointer-events:none}#cr-act.done .shot{pointer-events:none}#creq #cr-shots-st{margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cr-fund{display:none}#cr-act{position:relative}#cr-act.done #cr-prob{visibility:hidden}#cr-act.done label.chk{opacity:.85}#dk-amt-note{color:var(--bad)}#cr-slot{position:absolute;left:0;right:0;bottom:0}#cr-slot p{margin:0}#cr-act.done button.sm{opacity:.4;pointer-events:none}#cr-act.done .shot{pointer-events:none}#creq #cr-shots-st{margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .term.fill .row2,.term.fill .row1{flex:none;display:flex;gap:16px;margin:6px 0 0}.term.fill button.sm{height:auto;min-height:0;width:auto;border:0;padding:0;margin:0;text-decoration:underline;text-underline-offset:3px;color:var(--mute);font-size:12px;letter-spacing:.04em;line-height:18px}
 .out.fillbox{flex:1;display:flex;flex-direction:column;margin-top:var(--u)}.term.fill{flex:1;height:auto;min-height:150px;margin-top:0}.out.fillbox{margin-bottom:16px}.term.fill .ticker{flex:none}.out.fillbox button.go{margin-top:var(--u)}
 .life{display:grid;grid-template-columns:repeat(4,minmax(min-content,1fr));gap:4px;margin:16px 0 0}  /* a stretch grows to its word rather than cut it */
@@ -286,10 +286,10 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <label>Refunds after</label><div class="pchoose"><input id="k-dl" type="date" class="sm" aria-label="deadline: donors may take their sats back after this date"></div>
 <div class="code" id="k-keys"></div>
 <details class="mut" id="k-more"><summary>Operation, partner key and mint</summary>
-<label>Operation</label><input id="k-op" placeholder="sterilisation">
-<label>The partner's public key</label><input id="k-c" placeholder="02…">
-<label>Mint URL</label><input id="k-mint" placeholder="https://mint.minibits.cash/Bitcoin">
-<label>Where donors send the token (optional)</label><input id="k-to" placeholder="donaciones@streetcat.org">
+<label>Operation</label><input id="k-op">
+<label>The partner's public key</label><input id="k-c">
+<label>Mint URL</label><input id="k-mint">
+<label>Where donors send the token (optional)</label><input id="k-to">
 </details>
 <div class="out" id="k-out"></div>
 <button class="go big" id="k-go">Make the campaign</button>
@@ -377,10 +377,10 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <section id="snew">
 <div class="code" id="sn-from"></div><div id="sn-recent"></div>
 <label>What kind</label><div class="ptypes grid" id="sn-type"></div>
-<div id="sn-catbox"><label>Cat</label><input id="sn-cat" placeholder="MOCHI">
+<div id="sn-catbox"><label>Cat</label><input id="sn-cat">
 <label>Photos</label><div class="shots three" id="sn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button></div><input type="file" id="sn-file" accept="image/*" capture="environment" hidden>
 </div>
-<label id="sn-proc-l">Procedure</label><input id="sn-proc" placeholder="sterilisation (spay)">
+<label id="sn-proc-l">Procedure</label><input id="sn-proc">
 
 <label>Cost</label><input id="sn-cost" inputmode="numeric" autocomplete="off" placeholder="sat">
 <p class="mut code" id="sn-last"></p>
@@ -394,7 +394,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <div id="sn-more" hidden>
 <label id="sn-date-l">Date of the procedure</label><input id="sn-date" type="date">
 <label>Margin (days)</label><input id="sn-margin" type="number" min="0" max="60" step="1" inputmode="numeric" autocomplete="off">
-<label>Note for the partner (optional)</label><input id="sn-note" placeholder="invoice 2026-118" maxlength="200">
+<label>Note for the partner (optional)</label><input id="sn-note" maxlength="200">
 <label>Paid from these donations</label><div class="list" id="sn-dons"></div>
 </div>
 <div class="out" id="sn-out"></div>
@@ -417,7 +417,7 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <div id="pp-pbox"><label>What it is</label><div class="ptypes" id="pp-kind"></div>
 <label>What it confirms</label><div class="ptypes grid" id="pp-does"></div>
 <label>Days to confirm</label><input id="pp-days" type="number" min="0" max="60" step="1" inputmode="numeric" autocomplete="off">
-<label>Its public key</label><input id="pp-key" placeholder="02…" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></div>
+<label>Its public key</label><input id="pp-key" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off"></div>
 <div class="out" id="pp-out"></div>
 <button class="go" id="pp-save">Save</button>
 </div>
@@ -468,8 +468,8 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 
 <section id="dcard">
 <div id="dk-head" class="camp"></div>
-<label>Message (optional)</label><input id="dk-msg" maxlength="80" placeholder="for the cats of the marina">
-<label class="chk"><input type="checkbox" id="dk-amt" checked><span>Show the amount</span></label>
+<label>Message (optional)</label><input id="dk-msg" maxlength="80">
+<label class="chk"><input type="checkbox" id="dk-amt" checked><span>Show the amount</span><span id="dk-amt-note" hidden> · ✗ the link still shows it</span></label>
 <div class="card-img" id="dk-img"></div>
 <div class="out" id="dk-out"></div>
 <div class="row2"><button class="sm" id="dk-share">share the card</button><button class="sm" id="dk-save">save the image</button></div>
@@ -482,13 +482,13 @@ details.tech{margin:0 0 8px;text-align:left}details.tech summary{min-height:32px
 <div class="shots" id="cn-shots"><button type="button" class="shot" data-slot="face"><span>face</span></button><button type="button" class="shot" data-slot="left"><span>left side</span></button><button type="button" class="shot" data-slot="right"><span>right side</span></button><button type="button" class="shot" data-slot="nose"><span>nose</span></button></div><input type="file" id="cn-file" accept="image/*" capture="environment" hidden>
 <p class="mut" id="cn-shots-st" style="margin-top:var(--u)">Photos with the cat asleep: made small here, without location data.</p>
 <div id="cn-like" hidden><label>Check the cat</label><div id="cn-req" hidden><div class="pics" id="cn-req-pics"></div><p class="mut" id="cn-req-st"></p></div><div id="cn-recs" hidden style="margin-top:var(--u)"><div class="mut">Already in the records?</div><div class="alike" id="cn-like-list"></div></div><p class="mut" id="cn-like-st" style="margin-top:var(--u)"></p><div class="row1" id="cn-like-get" hidden style="margin-top:var(--u)"><button type="button" class="sm" id="cn-like-go">check the cat</button></div></div>
-<div id="cn-namebox"><label for="cn-name">Name</label><input id="cn-name" maxlength="40" placeholder="MOCHI" autocomplete="off" spellcheck="false"></div>
-<div id="cn-basics" hidden><label for="cn-proc">Procedure</label><input id="cn-proc" maxlength="80" placeholder="sterilisation (spay)"><label for="cn-date">Date</label><input id="cn-date" type="date"></div>
+<div id="cn-namebox"><label for="cn-name">Name</label><input id="cn-name" maxlength="40" autocomplete="off" spellcheck="false"></div>
+<div id="cn-basics" hidden><label for="cn-proc">Procedure</label><input id="cn-proc" maxlength="80"><label for="cn-date">Date</label><input id="cn-date" type="date"></div>
 <label for="cn-chip">Microchip</label><input id="cn-chip" inputmode="numeric" maxlength="19" placeholder="15 digits" autocomplete="off">
 <label>Sex</label><div class="row2 pick" id="cn-sex"><button type="button" class="sm" data-v="female">female</button><button type="button" class="sm" data-v="male">male</button></div>
 <label>Ear tip</label><div class="row3 pick" id="cn-ear"><button type="button" class="sm" data-v="left">left</button><button type="button" class="sm" data-v="right">right</button><button type="button" class="sm" data-v="none">none</button></div>
 <label for="cn-colony">Colony</label><input id="cn-colony" maxlength="60" placeholder="Choose colony" autocomplete="off">
-<details class="more" id="cn-more"><summary>coat and notes</summary><label for="cn-coat">Coat</label><input id="cn-coat" maxlength="80" placeholder="black and white, white chest" autocomplete="off"><label for="cn-notes">Notes</label><input id="cn-notes" maxlength="300" placeholder="weight 3.2 kg" autocomplete="off"></details>
+<details class="more" id="cn-more"><summary>coat and notes</summary><label for="cn-coat">Coat</label><input id="cn-coat" maxlength="80" autocomplete="off"><label for="cn-notes">Notes</label><input id="cn-notes" maxlength="300" autocomplete="off"></details>
 
 <div class="out" id="cn-out"></div>
 <button class="go big" id="cn-go">Sign and send to Streetcat</button>

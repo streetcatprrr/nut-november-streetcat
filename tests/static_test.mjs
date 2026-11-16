@@ -69,4 +69,11 @@ fs.writeFileSync(path.join(home, '.cashu', '.env'), 'MINT_BACKEND_BOLT11_SAT=Lnd
 fs.writeFileSync(path.join(data, '.env'), 'MINT_BACKEND_BOLT11_SAT=LndRestWallet\n'); const inData = !stray();
 check('a .env that Nutshell would read over the settings, in the folder it runs in or in .cashu in its home, stops the script', clean && inHome && inData, `none: ${clean} · in its home: ${inHome} · in its folder: ${inData}`);
 fs.rmSync(tmp, { recursive: true, force: true });
+// 5. NO EXAMPLE IN A BOX TO FILL IN (16 Nov): a box with a label above it is empty until something is written in it. The grey text
+// stays only where it is all that says what a box is for (a token to paste, a Lightning address, a PIN to repeat, "Choose name").
+{ const html = fs.readFileSync(APP + 'index.html', 'utf8'), js = fs.readFileSync(APP + 'index.js', 'utf8'), boxes = ['k-op', 'k-c', 'k-mint', 'k-to', 'sn-cat', 'sn-proc', 'sn-note', 'pp-key', 'pp-name', 'dk-msg', 'cn-name', 'cn-proc', 'cn-coat', 'cn-notes'];
+  const still = boxes.filter(id => { const m = html.match(new RegExp('<(?:input|textarea)[^>]*id="' + id + '"[^>]*>')); return !m || /placeholder=/.test(m[0]) || new RegExp("\\$\\('" + id + "'\\)\\.placeholder = '[^']").test(js) || new RegExp("\\$\\('" + id + "'\\)\\.placeholder = [a-z]").test(js); });
+  check('the boxes to fill in under a label carry no example text', still.length === 0, still.join(', ') || `${boxes.length} boxes`);
+  check('…and the ones with no label keep the text that says what they are for', /id="k-name"[^>]*placeholder="Choose name"|placeholder="Choose name"[^>]*id="k-name"/.test(html) && /id="cn-colony"[^>]*placeholder="Choose colony"|placeholder="Choose colony"[^>]*id="cn-colony"/.test(html) && /id="d-token"[^>]*placeholder=/.test(html)); }
+
 say(bad ? `static: ${bad} check(s) failed` : 'static: every check passed'); process.exit(bad ? 1 : 0);

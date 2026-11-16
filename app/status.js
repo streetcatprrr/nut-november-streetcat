@@ -142,20 +142,34 @@ const WALLETS = {}; async function wallet(mint){ mint = norm(mint); if (!WALLETS
 // ledger: { campaign: {name, op, mint, streetcat, clinic, deadline}, clinicKeySource, donations: ["cashuB…", …] }
 function parseLedger(j){ if (!j || typeof j !== 'object') throw new Error('not a ledger'); const c = j.campaign; if (!c) throw new Error('the ledger has no campaign');
   for (const k of ['name', 'mint', 'streetcat', 'clinic', 'deadline']) if (!c[k]) throw new Error('campaign is missing ' + k);
+  /* what a ledger says is shown letter by letter, so each text has a length (six scans, 15 Nov, 5.5: a campaign name of a million letters
+     held the page) */
+  for (const [k, n] of [['name', 120], ['op', 200], ['streetcat', 80], ['clinic', 80], ['type', 40], ['colony', 120], ['partner', 120], ['to', 200]]) if (c[k] != null && String(c[k]).length > n) throw new Error(`the campaign's ${k} is too long to be one of Streetcat's (${String(c[k]).length} characters)`);
   if (!mintUrlOk(c.mint)) throw new Error('the campaign\'s mint is not a web address');  /* it goes into requests and into a command offered to copy (renderRaw) */
   const donations = (Array.isArray(j.donations) ? j.donations : []).map(d => typeof d === 'string' ? d : d && d.token).filter(Boolean).map(s => String(s).trim());
   if (donations.length > LEDGER_TOKENS || (Array.isArray(j.entries) && j.entries.length > LEDGER_TOKENS)) throw new Error(`this ledger lists more than ${LEDGER_TOKENS} donations: too many to be one of Streetcat's, so it is not read`);
   // version 2 (core.js) also says, donation by donation (its DON- code), what each part paid for, with the clinic's signed declarations
-  const v2 = j.v === 2, entries = v2 && Array.isArray(j.entries) ? j.entries.filter(e => e && /^DON-[0-9A-F]{8}$/.test(String(e.ref))) : [], certificates = v2 && Array.isArray(j.certificates) ? j.certificates.filter(x => x && x.statement) : [];
-  return { campaign: { ...c, mint: norm(c.mint), deadline: Number(c.deadline) }, clinicKeySource: String(j.clinicKeySource || ''), donations, entries, certificates, more: j.more && Number.isInteger(j.more.n) && j.more.n > 0 ? { n: j.more.n, sat: Number(j.more.sat) || 0, used: Number.isInteger(j.more.used) && j.more.used > 0 ? j.more.used : 0 } : null }; }
+  /* an entry's parts and rests as the page reads them, whatever the ledger wrote there (six scans, 15 Nov, 5.26: `parts` that was not a
+     list stopped the whole page); a declaration has a size, there are no more of them than donations could have, and the same one
+     twice is one (5.8, 5.29) */
+  const short = (v, n) => String(v == null ? '' : v).slice(0, n), partOf = p => p && typeof p === 'object' ? { ...p, request: short(p.request, 40), patient: short(p.patient, 200), procedure: short(p.procedure, 200), date: short(p.date, 40), amount: Number(p.amount) || 0 } : null;
+  const v2 = j.v === 2, entries = v2 && Array.isArray(j.entries) ? j.entries.filter(e => e && typeof e === 'object' && /^DON-[0-9A-F]{8}$/.test(String(e.ref))).map(e => ({ ...e, parts: (Array.isArray(e.parts) ? e.parts : []).slice(0, 200).map(partOf).filter(Boolean), remainders: (Array.isArray(e.remainders) ? e.remainders : []).filter(t => typeof t === 'string').slice(0, 200) })) : [];
+  const certSeen = new Set(), certificates = (v2 && Array.isArray(j.certificates) ? j.certificates : []).filter(x => { if (!x || typeof x !== 'object' || !x.statement || typeof x.statement !== 'object') return false; let t = ''; try { t = JSON.stringify(x); } catch (_) { return false; } if (t.length > CERT_MAX || certSeen.has(t)) return false; certSeen.add(t); return true; });
+  if (certificates.length > LEDGER_TOKENS) throw new Error(`this ledger carries more than ${LEDGER_TOKENS} declarations: too many to be one of Streetcat's, so it is not read`);
+  return { campaign: { ...c, mint: norm(c.mint), deadline: Number(c.deadline) }, clinicKeySource: short(j.clinicKeySource, 300), donations, entries, certificates, more: j.more && Number.isInteger(j.more.n) && j.more.n > 0 ? { n: j.more.n, sat: Number(j.more.sat) || 0, used: Number.isInteger(j.more.used) && j.more.used > 0 ? j.more.used : 0 } : null }; }
 // A ledger too big to be one of Streetcat's is not read (Daybreak, 14 Nov: a huge one, from a link, held this page before a single
 // token was checked). The app keeps everything in some 5 MB, so its ledgers are well under these.
-const LEDGER_MAX = 4e6, LEDGER_TOKENS = 3000, tooBig = n => new Error(`this ledger is ${(n / 1e6).toFixed(1)} MB: too big to be one of Streetcat's, so it is not read`);
+const LEDGER_MAX = 4e6, LEDGER_TOKENS = 3000, CERT_MAX = 60000, tooBig = n => new Error(`this ledger is ${(n / 1e6).toFixed(1)} MB: too big to be one of Streetcat's, so it is not read`);
 async function loadLedger(src){ src = (src || '').trim(); if (!src) throw new Error('paste the ledger link or JSON');
   if (src.startsWith('{')) { if (src.length > LEDGER_MAX) throw tooBig(src.length); return parseLedger(JSON.parse(src)); }
   const res = await scCore.fetchT(src, { cache: 'no-store' }); if (!res.ok) throw new Error('could not load ' + src + ' (HTTP ' + res.status + ')');
   const said = Number(res.headers.get('content-length')) || 0; if (said > LEDGER_MAX) throw tooBig(said);
-  const t = await res.text(); if (t.length > LEDGER_MAX) throw tooBig(t.length); return parseLedger(JSON.parse(t)); }
+  const t = await readCapped(res, LEDGER_MAX); return parseLedger(JSON.parse(t)); }
+// a file is read piece by piece and let go of past the limit, whatever its header said of its length and however small it travelled
+// (six scans, 15 Nov, 5.1: a file that unpacks to hundreds of MB was read whole before its size was looked at)
+async function readCapped(res, max){ if (!res.body || !res.body.getReader) { const t = await res.text(); if (t.length > max) throw tooBig(t.length); return t; }
+  const rd = res.body.getReader(), parts = []; let n = 0; for (;;) { const { done, value } = await rd.read(); if (done) break; n += value.length; if (n > max) { try { await rd.cancel(); } catch (_) {} throw tooBig(n); } parts.push(value); }
+  const all = new Uint8Array(n); let at = 0; for (const x of parts) { all.set(x, at); at += x.length; } return new TextDecoder().decode(all); }
 
 // the vet's receipt behind a declaration: its fingerprint (SHA-256), and a file checked against it here, in this browser (nothing is sent)
 function evidenceLine(e){ const d = el('div', 'mut code ev'); if (!e || !/^[0-9a-f]{64}$/.test(String(e.sha256 || ''))) { d.textContent = 'no receipt fingerprint'; return d; }
@@ -228,9 +242,9 @@ function verdict(r, per){ r.amount = per.reduce((s, x) => s + x.amount, 0); r.pr
 // a proof counts once, however many entries list it: an entry whose proofs were all listed before is left out, and one that shares
 // some of them is judged on its new proofs only (a certified copy of a donation has the same proofs as the donation)
 function dedupe(r, seen){ if (!r.per) { if (seen.has(r.token)) return false; seen.add(r.token); return true; }
-  const fresh = r.per.filter(x => !seen.has(x.y)); if (!fresh.length) return false;
-  if (fresh.length < r.per.length) { verdict(r, fresh); r.note = `${r.per.length - fresh.length} of its ${r.per.length} proofs are counted in an earlier entry`; }
-  fresh.forEach(x => seen.add(x.y)); return true; }
+  const own = new Set(), fresh = r.per.filter(x => { if (seen.has(x.y) || own.has(x.y)) return false; own.add(x.y); return true; }); if (!fresh.length) return false;  /* one given twice in this very token counts once too (six scans, 15 Nov, 5.28) */
+  if (fresh.length < r.per.length) { verdict(r, fresh); r.note = `${r.per.length - fresh.length} of its ${r.per.length} proofs are counted already (in an earlier entry, or twice in this one)`; }
+  if (!r.problems.length) fresh.forEach(x => seen.add(x.y));  /* an entry that is not counted keeps nothing for itself: a good donation listed after it, with a proof of its own in it, is counted whole (six scans, 15 Nov, 5.16) */ return true; }
 
 const MEANING = { LOCKED: 'waiting for the clinic', REFUNDABLE: 'deadline passed: the donor can take it back', RELEASED: 'signed by the clinic and Streetcat', REFUNDED: 'taken back by the donor', 'IN FLIGHT': 'being spent at the mint right now', 'SPENT · NO WITNESS': 'spent, but the mint did not say who signed', 'SPENT · NOT PROVEN': 'spent, and not shown to be signed by Streetcat and the partner', 'SPENT · OTHER KEYS': 'spent with signatures that are not this campaign\'s', MIXED: 'its parts are in different states', UNKNOWN: 'the mint gave no state', UNREADABLE: '', 'OTHER MINT': '' };
 const GOOD = new Set(['LOCKED', 'REFUNDABLE', 'RELEASED', 'REFUNDED']);
@@ -253,31 +267,43 @@ function rowFor(r, L){ const ok = rowOk(r);
   const h = el('div', 'row-h'); h.appendChild(el('span', null, r.amount ? `${fmtSat(r.amount)}` : '—')); h.appendChild(el('span', 'st ' + (ok ? 'ok' : 'bad'), r.status)); row.appendChild(h);
   /* the donation's life: "confirmed" only where the clinic's declaration in the ledger covers what was released (none drawn otherwise:
      the red line below says why); "paid" only for a lock where the mint pays the partner, the older lock has three stretches (review of 12 Nov) */
-  { const three = !r.dest, n = r.status === 'LOCKED' || r.status === 'REFUNDABLE' ? 1 : r.status === 'RELEASED' && ok && releasedOf(r) <= declaredOf(L, r.ref) ? (three ? 3 : 4) : 0;
+  const entry = L && L.entries && L.entries.find(e => e.ref === r.ref), parts = partLines(r, L, entry), said = ((entry && entry.parts) || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+  /* six scans, 15 Nov: no "confirmed" where a line of the ledger is not what the clinic declared (5.15) or says more than the mint shows released (5.20); "paid" where the mint's record shows a payment to one of the campaign's partners, and none it cannot show signed */
+  { const three = !r.dest, rel = releasedOf(r), pays = three || (!Object.keys(r.loose || {}).length && (r.txs || []).some(tx => Object.keys(tx.paid || {}).some(k => scCore.payeesOf(L.campaign).includes(k)))),
+      n = r.status === 'LOCKED' || r.status === 'REFUNDABLE' ? 1 : r.status === 'RELEASED' && ok && parts.match && rel <= declaredOf(L, r.ref) && said <= rel ? (three || !pays ? 3 : 4) : 0;
     if (n) { const d = el('div', 'life'); if (three) d.style.gridTemplateColumns = 'repeat(3,minmax(min-content,1fr))'; [['donated', 'donate', 60], ['confirmed', 'confirm', 250], ['released', 'release', 150], ['paid', 'paid', 100]].slice(0, three ? 3 : 4).forEach(([a, b, hh], i) => { const x = el('span', i < n ? 'on' : '', i < n ? '✓ ' + a : '· ' + b); x.style.setProperty('--h', hh); d.appendChild(x); }); row.appendChild(d); } }
   const what = [r.dest && r.status === 'RELEASED' ? 'paid to its partner by the mint' : MEANING[r.status], r.problems.length ? '' : `lock ✓ · mint ✓ · ${r.detail}`].filter(Boolean).join(' · '); if (what) { const d = el('div', ok ? 'mut' : 'mut bad'), m = what.match(/^(.*?)(id [0-9a-f]+)$/); if (m) { d.appendChild(document.createTextNode(m[1])); d.appendChild(el('span', 'code', m[2])); } else d.textContent = what; if (r.ref) { d.appendChild(document.createTextNode(' · ')); const rf = el('span', 'code', r.ref); rf.style.whiteSpace = 'nowrap'; d.appendChild(rf); } row.appendChild(d); }  // the proof id and the donation's code are code
   if (r.counted && (r.status === 'MIXED' || r.counted.some(x => x.put))) row.appendChild(el('div', 'mut', byState(r.counted)));
   if (r.dest && L) for (const [k, v] of Object.entries(r.paid || {})) { const known = scCore.payeesOf(L.campaign).includes(k); row.appendChild(el('div', known ? 'mut' : 'mut bad', `${known ? '' : '✗ '}${fmtSat(v)} paid by the mint to ${partnerName(L.campaign, k)} ${abbrKey(k)}`)); }  /* where it went: the mint's word, signed by Streetcat and that partner */
   if (r.dest && L) for (const [k, v] of Object.entries(r.loose || {})) row.appendChild(el('div', 'mut bad', `✗ ${fmtSat(v)} went to ${partnerName(L.campaign, k)} ${abbrKey(k)} in a spend not shown to be signed by Streetcat and that partner`));
   if (r.dest && r.fees) row.appendChild(el('div', 'mut', `${fmtSat(r.fees)} of what was released: the mint's fee`));
-  const entry = L && L.entries && L.entries.find(e => e.ref === r.ref);
   /* "declared by the clinic" only for what the clinic signed: the cat, the procedure, the date and this donation's amount come from
      Streetcat's ledger, and are set against the clinic's declaration for that request (Daybreak, 14 Nov: a declaration for the request
      put "✓ declared by the clinic" beside whatever the ledger said of it). Where they differ, the ledger's line is in red and the
      clinic's own words are under it. */
-  for (const p of (entry && entry.parts) || []) { const st = L.declared && L.declared.get(p.request + '|' + r.ref), line = `→ ${fmtSat(p.amount)}: ${p.patient} · ${p.procedure} · ${p.date}`;
-    if (!st) { row.appendChild(el('div', 'mut bad', line + ' · the clinic\'s declaration is not in the ledger')); continue; }
-    const k = (st.contributions || []).find(x => x.ref === r.ref), rel = k ? Number(k.release) : NaN, same = String(p.patient) === String(st.patient) && String(p.procedure) === String(st.procedure) && String(p.date) === String(st.date) && Number(p.amount) === rel;
-    if (same) row.appendChild(el('div', 'mut', line + ' · ✓ declared by the clinic'));
-    else { row.appendChild(el('div', 'mut bad', line + ' · ✗ not what the clinic declared')); row.appendChild(el('div', 'mut', `✓ the clinic declared: ${Number.isFinite(rel) ? fmtSat(rel) + ': ' : ''}${st.patient} · ${st.procedure} · ${st.date}`)); }
-    row.appendChild(evidenceLine(st.evidence)); }
-  const released = releasedOf(r), declared = declaredOf(L, r.ref), said = ((entry && entry.parts) || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+  for (const x of parts.els) row.appendChild(x);
+  const released = releasedOf(r), declared = declaredOf(L, r.ref);
   if (released > declared) row.appendChild(el('div', 'mut bad', unaccounted(released, declared, said)));  /* what went back under the lock is not counted as released (traceDonation) */
   else if (entry && entry.parts && entry.parts.length && released > said) row.appendChild(el('div', 'mut bad', `✗ the mint shows ${fmtSat(released)} released from it, but the ledger says ${fmtSat(said)} went to procedures`));  /* declared, but the ledger's parts say less */
+  if (said > released) row.appendChild(el('div', 'mut bad', `✗ the ledger says ${fmtSat(said)} of it went to procedures, but the mint shows ${fmtSat(released)} released from it`));  /* the ledger says more than the mint (5.20) */
   if (r.note) row.appendChild(el('div', 'mut bad', r.note));  /* a duplicate */
   for (const pr of r.problems) row.appendChild(el('div', 'mut bad', '✗ ' + pr));
   return { row, ok }; }
 
+// THE LEDGER'S LINES FOR A DONATION, each set against the clinic's declaration for its request (six scans, 15 Nov). A declaration
+// answers for one line: the same request listed again is said, in red (5.6). And it is this donation's only if the ecash it names is
+// this donation's, as the mint traced it: the code alone (DON-…) can be written on any request (5.30). `match`: every line is as declared.
+function partLines(r, L, entry){ const els = [], used = new Set(), mine = new Set((r.per || []).map(x => x.y)); let match = true; const no = t => { match = false; return el('div', 'mut bad', t); };
+  for (const p of (entry && entry.parts) || []) { const st = L.declared && L.declared.get(p.request + '|' + r.ref), line = `→ ${fmtSat(p.amount)}: ${p.patient} · ${p.procedure} · ${p.date}`;
+    if (!st) { els.push(no(line + ' · the clinic\'s declaration is not in the ledger')); continue; }
+    if (used.has(p.request)) { els.push(no(line + ' · ✗ listed again: the clinic declared it once')); continue; } used.add(p.request);
+    const k = (st.contributions || []).find(x => x.ref === r.ref), rel = k ? Number(k.release) : NaN;
+    if (k && Array.isArray(k.proofs) && !(k.proofs.length && k.proofs.every(y => mine.has(String(y).toLowerCase())))) { els.push(no(line + ' · ✗ the clinic\'s declaration names other ecash, not this donation\'s')); continue; }
+    const same = String(p.patient) === String(st.patient) && String(p.procedure) === String(st.procedure) && String(p.date) === String(st.date) && Number(p.amount) === rel;
+    if (same) els.push(el('div', 'mut', line + ' · ✓ declared by the clinic'));
+    else { els.push(no(line + ' · ✗ not what the clinic declared')); els.push(el('div', 'mut', `✓ the clinic declared: ${Number.isFinite(rel) ? fmtSat(rel) + ': ' : ''}${st.patient} · ${st.procedure} · ${st.date}`)); }
+    els.push(evidenceLine(st.evidence)); }
+  return { els, match }; }
 // what left a donation's lock with the clinic's and Streetcat's signatures (the mint says it; what went back under the lock is not in it),
 // and what the clinic declared of it, in the declarations the ledger carries that are signed with its statement key (core.js)
 const releasedOf = r => (r.counted || []).filter(x => x.s === 'RELEASED').reduce((s, x) => s + x.amount, 0);
@@ -319,25 +345,31 @@ async function campaignTrust(c){ let st = 'broken'; try { st = await scCore.camp
 // l= takes any address: a file from another site can be written around a campaign Streetcat did sign, and the page then said
 // "✓ campaign signed by Streetcat" over a list of donations, and of what each paid for, that is nobody's word. Said in red, under the campaign.
 let LINKED = '';  /* a ledger that came written in the link (l={…}), as it came: audit of 10 Nov, it was taken for one the visitor pasted, and shown in green with no warning */
-const ledgerSource = src => { src = String(src || '').trim(); if (!src) return ''; if (src.startsWith('{')) return LINKED && src === LINKED ? '✗ This ledger was written into the link itself, not signed by Streetcat: which donations it lists, and what it says they paid for, is not Streetcat\'s word.' : ''; let u = null; try { u = new URL(src, location.href); } catch (_) {}
+/* and one pasted here is nobody's word either (six scans, 15 Nov, 5.4): only the one the relays gave, signed with the campaign's ledger key, and this site's own file go without the red line */
+const ledgerSource = src => { src = String(src || '').trim(); if (!src) return ''; if (src.startsWith('{')) return NOSTR && src === NOSTR.json ? '' : `✗ This ledger was ${LINKED && src === LINKED ? 'written into the link itself' : 'pasted here'}, not signed by Streetcat: which donations it lists, and what it says they paid for, is not Streetcat's word.`; let u = null; try { u = new URL(src, location.href); } catch (_) {}
   return u && u.origin !== location.origin ? `✗ This ledger is a file from ${u.host}, not signed by Streetcat: which donations it lists, and what it says they paid for, is not Streetcat's word.` : ''; };
-async function run(){ const btn = $('l-go'); btn.disabled = true; show($('l-out'), 'checking at the mint…');
+/* ONE CHECK AT A TIME COUNTS, THE LAST ONE ASKED FOR (six scans, 15 Nov, 5.18): a ledger pasted while another was being checked let the
+   slower one write its results, and the search, over the newer one's. Each check has its number and its own source; an older one
+   stops as soon as it sees it is not the last, and a new one starts from nothing. */
+let RUN = 0;
+async function run(){ const btn = $('l-go'), g = ++RUN, src = $('l-src').value, stale = () => g !== RUN; btn.disabled = true; LAST = null; show($('l-out'), 'checking at the mint…');
   let view = null; const t0 = Date.now();
-  try { const L = await loadLedger($('l-src').value); view = renderCampaign(L); const seen = new Set(), txs = new Set(), results = [];
-    for (const t of L.donations) { const r = await checkToken(L.campaign, t); if (dedupe(r, seen)) { payOnce(r, txs); results.push(r); } }
-    L.declared = new Map(); for (const x of L.certificates) if (await scCore.certificateOk(L.campaign, x)) for (const k of x.statement.contributions || []) L.declared.set(x.statement.request + '|' + k.ref, x.statement);  // signed with the clinic's statement key
-    LAST = { L, results, ys: new Set(results.flatMap(r => r.ys.map(y => y.toLowerCase()))) }; renderList(L.campaign, results, L);
+  try { const L = await loadLedger(src); if (stale()) return; view = renderCampaign(L); const seen = new Set(), txs = new Set(), results = [];
+    for (const t of [...new Set(L.donations)]) { const r = await checkToken(L.campaign, t); if (stale()) { view.close(); return; } if (dedupe(r, seen)) { payOnce(r, txs); results.push(r); } }  /* the same token listed again is not asked of the mint again (5.17) */
+    L.declared = new Map(); for (const x of L.certificates) { let ok = false; try { ok = await scCore.certificateOk(L.campaign, x); } catch (_) {} if (stale()) { view.close(); return; }  /* one that cannot be read is not signed, and stops nothing (5.29) */
+      if (ok) for (const k of Array.isArray(x.statement.contributions) ? x.statement.contributions : []) if (k && typeof k === 'object') L.declared.set(x.statement.request + '|' + k.ref, x.statement); }  // signed with the clinic's statement key
+    LAST = { L, results, ys: new Set(results.filter(r => !(r.problems || []).length).flatMap(r => [...r.ys, ...(r.per || []).map(x => x.y)].map(y => y.toLowerCase()))) };  /* what the search calls listed: the ecash of the entries that count, and what the mint traced from them, a rest put back under the lock too (six scans, 15 Nov, 5.16, 5.23) */ renderList(L.campaign, results, L);
     if (L.campaign.lock === 'dest') { let says = null; try { says = scCore.destMint(await (await scCore.fetchT(L.campaign.mint + '/v1/info')).json()); } catch (_) {}  /* the rule is the mint's: one that does not announce it lets the two signers send the ecash anywhere */
       if (says === false) addNote('✗ This mint does not say it enforces where these donations may go: what left the lock could have gone anywhere.', true);
       else if (says === null) addNote('✗ The mint could not be asked whether it enforces where these donations may go.', true); }  /* not known is said too (audit of 10 Nov: the page was silent, as if the mint had said yes) */ renderRaw(L.campaign, results); document.body.classList.add('loaded'); window.scrollTo(0, 0);
     setTimeout(() => view && view.close(), Math.max(0, 4400 - (Date.now() - t0)));  // the ledger stays while the mint is asked, then the totals show
-    const from = ledgerSource($('l-src').value), trust = (await campaignTrust(L.campaign)) + (from ? '\n' + from : ''); setLines($('c-trust'), trust + '\n' + HONEST);  /* under the campaign, where it stays in view */
+    const from = ledgerSource(src), trust = (await campaignTrust(L.campaign)) + (from ? '\n' + from : ''); if (stale()) return; setLines($('c-trust'), trust + '\n' + HONEST);  /* under the campaign, where it stays in view */
     show($('l-out'), `Checked ${results.length} donation${results.length === 1 ? '' : 's'} at ${hhmm(Date.now())}. ${HONEST}\n` + trust, from ? '' : 'ok'); addNote(`Checked at the mint ${hhmm(Date.now())}`);
-  } catch (e) { if (view) view.close(); $('term').querySelectorAll('.summary').forEach(x => x.remove()); $('camp').hidden = true; show($('l-out'), 'Failed: ' + (e.message || e), 'bad'); }
-  btn.disabled = false; }
+  } catch (e) { if (stale()) return; if (view) view.close(); $('term').querySelectorAll('.summary').forEach(x => x.remove()); $('camp').hidden = true; show($('l-out'), 'Failed: ' + (e.message || e), 'bad'); }
+  if (!stale()) btn.disabled = false; }
 $('l-go').onclick = run;
 // pasting a ledger checks it at once; a link typed by hand waits for the Check button
-$('l-src').addEventListener('input', e => { const v = $('l-src').value.trim(); $('l-go').hidden = !v; let json = false; if (v.startsWith('{')) { try { JSON.parse(v); json = true; } catch (_) {} } if (v && (json || e.inputType === 'insertFromPaste')) run(); });
+$('l-src').addEventListener('input', e => { const v = $('l-src').value.trim(); $('l-go').hidden = !v; let json = false; if (v.startsWith('{')) { if (v.length > LEDGER_MAX) json = true;  /* too big: not read here either, and run says so (six scans, 15 Nov, 5.11) */ else { try { JSON.parse(v); json = true; } catch (_) {} } } if (v && (json || e.inputType === 'insertFromPaste')) run(); });
 
 $('m-go').onclick = async () => { const btn = $('m-go'); btn.disabled = true; show($('m-out'), 'checking at the mint…'); try { if (!LAST) throw new Error('check a campaign first');
     let t = $('m-tok').value.trim();
@@ -345,7 +377,7 @@ $('m-go').onclick = async () => { const btn = $('m-go'); btn.disabled = true; sh
       show($('m-out'), r ? `LISTED ✓ · ${ref} · ${fmtSat(r.amount)} · ${r.status}` + (r.counted && r.counted.length > 1 ? '\n' + byState(r.counted) : '') + ((LAST.L.entries.find(e => e.ref === ref) || {}).parts || []).map(p => `\n→ ${fmtSat(p.amount)}: ${p.patient} · ${p.procedure} · ${p.date}`).join('') : (LAST.L.more ? `NOT LISTED HERE · ${ref}\nThis ledger is full: ${LAST.L.more.n} donation${LAST.L.more.n > 1 ? 's are' : ' is'} left out of it. Streetcat's ledger file has them all.` : `NOT LISTED ✗ · ${ref}\nThis ledger has no donation with that code.`), r ? (rowOk(r) ? 'ok' : 'bad') : LAST.L.more ? '' : 'bad');  /* a full ledger leaves some out: not said to be missing (review of 12 Nov) */ btn.disabled = false; return; }
     if (t.startsWith('{')) { const j = JSON.parse(t); t = String(j.lockedToken || (j.donation && j.donation.token) || ''); }  /* a receipt, of either version: its token only */ if (!t.startsWith('cashu')) throw new Error('paste a cashuB… token, your receipt, or the donation\'s code (DON-…)');
     const r = await checkToken(LAST.L.campaign, t); const listed = r.ys.length && r.ys.every(y => LAST.ys.has(y.toLowerCase()));
-    const head = listed ? `LISTED ✓ · ${fmtSat(r.amount)} · ${r.status}` : LAST.L.more ? `NOT LISTED HERE · ${fmtSat(r.amount)} · ${r.status}\nThis ledger is full: ${LAST.L.more.n} donation${LAST.L.more.n > 1 ? 's are' : ' is'} left out of it, and Streetcat's ledger file has them all.` : `NOT LISTED ✗ · ${fmtSat(r.amount)} · ${r.status}\nAsk Streetcat to add it. Your sats are safe either way: nobody can spend them without the clinic, and after the deadline you can take them back.`;
+    const head = listed ? `LISTED ✓ · ${fmtSat(r.amount)} · ${r.status}` : LAST.L.more ? `NOT LISTED HERE · ${fmtSat(r.amount)} · ${r.status}\nThis ledger is full: ${LAST.L.more.n} donation${LAST.L.more.n > 1 ? 's are' : ' is'} left out of it, and Streetcat's ledger file has them all.` : `NOT LISTED ✗ · ${fmtSat(r.amount)} · ${r.status}\nAsk Streetcat to add it. ` + (r.problems.length ? 'This token could not be checked as a donation of this campaign (see below), so nothing can be said here of who can spend it or of taking it back.' : 'Your sats are safe either way: nobody can spend them without the clinic, and after the deadline you can take them back.');  /* said only of a token that checked out (six scans, 15 Nov, 5.13) */
     show($('m-out'), head + (r.problems.length ? '\n✗ ' + r.problems.join('\n✗ ') : ''), r.problems.length ? 'bad' : listed ? 'ok' : LAST.L.more ? '' : 'bad');
   } catch (e) { show($('m-out'), 'Failed: ' + (e.message || e), 'bad'); } btn.disabled = false; };
 
@@ -391,7 +423,10 @@ const deepLook = () => { if (!deep || !LAST) return; document.body.classList.add
   if (src) { $('l-src').value = src; await run(); if (LAST && NOSTR) note(`ledger from Nostr, signed with the campaign's ledger key, published ${new Date(NOSTR.at * 1000).toLocaleString(EN, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (${NOSTR.relays} of ${NOSTR.of} relays)`); if (LAST && LAST.L && LAST.L.more) { const m = LAST.L.more; addNote(`✗ ${m.n} donation${m.n > 1 ? 's' : ''} (${fmtSat(m.sat)}) ${m.n > 1 ? 'are' : 'is'} not listed here: this ledger is full. Streetcat's ledger file has them all.` + (m.used ? ` ${m.used} of them paid for something, not shown here.` : ''), true); }  /* the page checked nothing (the mint down): nothing to add, and no error (review of 12 Nov) */ deepLook(); return; }
   if (q) { LINKED = String(q).trim().startsWith('{') ? String(q).trim() : ''; $('l-src').value = q; await run(); if (nid && LAST) note('not found on the relays: this is the ledger\'s file'); deepLook(); return; }
   if (nid) show($('l-out'), 'Failed: this campaign\'s ledger was not found on the relays.', 'bad'); })();
-runHere();
+/* THIS BROWSER'S DONATIONS ARE ASKED OF THE MINT ONLY WHEN ASKED FOR (six scans, 15 Nov, 5.12): opening the page asked about every one of
+   them at once, and a mint could tie them together as one visitor's. Counting them reads this browser only. */
+{ const n = savedTokens().length; if (n) { $('here').hidden = false; $('here-copy').hidden = true; $('here-go').textContent = `check ${n === 1 ? 'it' : 'all ' + n} at the mint`; }
+  $('here-go').onclick = async () => { const b = $('here-go'); b.disabled = true; try { await runHere(); } finally { b.hidden = true; $('here-copy').hidden = false; } }; }
 // the pages open without a connection (sw.js); a new version comes whole and, this page holding nothing under way, is taken at once
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) { let took = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (took) location.reload(); });

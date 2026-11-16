@@ -11,7 +11,7 @@
 import fs from 'fs';
 import { chromium } from 'playwright';
 import { pinBrowser, pin } from './pin.mjs';
-const APP = new URL('../app/', import.meta.url).pathname, BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
+const APP = new URL('../app/', import.meta.url).pathname, BASE = process.env.BASE || 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338';
 eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
 const C = globalThis.scCore, say = (...a) => console.log(...a), now = () => Math.floor(Date.now() / 1000);
 const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), newSk = () => hex(cashu.createRandomSecretKey());
@@ -113,6 +113,21 @@ await tab(dn, 'donate'); await dn.fill('#d-camp', JSON.stringify(camp)); await d
 await tab(dn, 'decash'); await dn.fill('#d-token', cashu.getEncodedToken({ mint: MINT, proofs: await mintPlain(8) })); await dn.click('#d-go');
 const o5 = await waitText(dn, '#de-out', /LOCKED|Failed|Not possible|could not/, 30000);
 check('no room for the refund key: nothing is swapped or paid, and it says so in red', dswaps === 0 && /could not save the key that takes these sats back/.test(o5) && await red(dn, '#de-out'), o5.slice(0, 160));
+
+// Six scans, 15 Nov, the mediums of part 3. 3.40: a message opened here that could not be taken yet is asked for as long as the relays
+// keep it (nine days), not two; one that is not for this app still holds the reading back two days only. 3.10: a photo whose parts are
+// all here and that cannot be saved is not acknowledged as taken. Both fail on the code before.
+{ const p = await page('streetcat', scSk); const marks = await p.evaluate(() => { const V = window.__vetlock, t = Math.floor(Date.now() / 1000);
+    V.relayMarksSave('sc', V.relayMarks('sc'), { marks: {}, deferred: [{ id: 'not-for-here', created: t - 3600 }] }, [], [{ id: 'ours-failed', created: t - 3600 }]);
+    const k = 'vetlock.sc.relaydefer', a = JSON.parse(localStorage.getItem(k)); for (const x of a) { x.first = t - 3 * 86400; x.created = t - 3 * 86400 - 60; } localStorage.setItem(k, JSON.stringify(a));
+    const m = V.relayMarks('sc'); return { ids: m.defer.map(x => x.id), floor: m.floor > 0 }; });
+  check('3.40: three days on, a message of ours that could not be taken is still asked for, and one that is not for this app is let go', marks.ids.join() === 'ours-failed' && marks.floor, JSON.stringify(marks));
+  const part = await p.evaluate(async () => { const V = window.__vetlock, C = window.scCore, bytes = new Uint8Array(300).map((_, i) => i % 251), sha = await C.sha256hex(bytes); let b64 = ''; for (const x of bytes) b64 += String.fromCharCode(x); b64 = btoa(b64);
+    const pk = '02' + 'ab'.repeat(32), msg = { t: 'streetcat.request-photo', v: 1, id: 'R-0123456789', slot: 'face', sha256: sha, of: 1, part: 0, kind: 'face.0', data: b64, from: pk, clinic: pk }, shape = C.reqPartOk(msg);
+    const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function (v, k) { if (this.name === 'photos') throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); return put.apply(this, arguments); };
+    let full = ''; try { full = 'returned ' + (await V.takeReqPart(msg)); } catch (e) { full = 'threw: ' + (e.message || e); } IDBObjectStore.prototype.put = put;
+    let after = ''; try { after = 'returned ' + (await V.takeReqPart(msg)); } catch (e) { after = 'threw: ' + (e.message || e); } return { shape, full, after }; });
+  check('3.10: a request\'s photo that cannot be saved (no room) is said, so that its message is asked for again; with room, the same message saves it', part.shape && /^threw: this phone has no room left/.test(part.full) && part.after === 'returned true', JSON.stringify(part)); }
 
 say(bad ? `retention: ${bad} check(s) failed` : 'retention: every check passed');
 await b.close(); process.exit(bad ? 1 : 0);

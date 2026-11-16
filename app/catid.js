@@ -39,7 +39,21 @@ const CATID = (() => {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = ((y + y0) * W + x + x0) * 3, p = y * w + x;
       t[p] = (px[o] / 255 - MEAN[0]) / STD[0]; t[n + p] = (px[o + 1] / 255 - MEAN[1]) / STD[1]; t[2 * n + p] = (px[o + 2] / 255 - MEAN[2]) / STD[2]; }
     return t; }
-  async function pixels(bytes){ const bmp = await createImageBitmap(new Blob([bytes])), w = bmp.width, h = bmp.height;
+  /* A PHOTO'S SIZE IS LOOKED AT BEFORE IT IS OPENED (six scans, 15 Nov, 5.21): a file of a few kilobytes can say it is tens of thousands of
+     pixels a side, and opening it whole, with its copies, took the phone's memory before anything was compared. Its size is read from its
+     first bytes (PNG, JPEG) and, whatever the format, again once opened; over PX_MAX it is refused, and one wider than SIDE_MAX is made
+     smaller before it is copied (a phone's own photos are under it, and compare as before). */
+  const PX_MAX = 50e6, SIDE_MAX = 4096, TOO_BIG = 'this photo is too large to compare here';
+  function dims(b){ try { const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      if (b.length > 24 && v.getUint32(0) === 0x89504e47) return { w: v.getUint32(16), h: v.getUint32(20) };
+      if (b.length > 4 && v.getUint16(0) === 0xffd8) { let i = 2; while (i + 9 < b.length) { if (b[i] !== 0xff) { i++; continue; } const m = b[i + 1]; if (m === 0xff) { i++; continue; }
+          if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: v.getUint16(i + 5), w: v.getUint16(i + 7) };
+          if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; } i += 2 + v.getUint16(i + 2); } }
+    } catch (_) {} return null; }
+  async function pixels(bytes){ const says = dims(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)); if (says && says.w * says.h > PX_MAX) throw new Error(TOO_BIG);
+    let bmp = await createImageBitmap(new Blob([bytes])); if (bmp.width * bmp.height > PX_MAX) { if (bmp.close) bmp.close(); throw new Error(TOO_BIG); }
+    if (Math.max(bmp.width, bmp.height) > SIDE_MAX) { const k = SIDE_MAX / Math.max(bmp.width, bmp.height), small = await createImageBitmap(bmp, { resizeWidth: Math.max(1, Math.round(bmp.width * k)), resizeHeight: Math.max(1, Math.round(bmp.height * k)), resizeQuality: 'high' }); if (bmp.close) bmp.close(); bmp = small; }
+    const w = bmp.width, h = bmp.height;
     const cv = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
     const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0); if (bmp.close) bmp.close(); const d = cx.getImageData(0, 0, w, h).data, px = new Uint8Array(w * h * 3);
     for (let i = 0, j = 0; i < d.length; i += 4, j += 3) { px[j] = d[i]; px[j + 1] = d[i + 1]; px[j + 2] = d[i + 2]; } return { px, w, h }; }

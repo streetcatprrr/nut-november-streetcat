@@ -68,7 +68,7 @@ say('status TEO:', await rows('teo'));
 say('status forged:', await rows('forged'));
 
 // the donor's own browser: status.html lists what it donated, from its own copies of the locked tokens, checked at the mint
-await donor.goto(BASE + 'status.html');
+await donor.goto(BASE + 'status.html'); await donor.click('#here-go');  /* asked of the mint when asked for (six scans, 15 Nov, 5.12) */
 await donor.waitForFunction(() => /Checked|could not/.test(document.getElementById('here-out').textContent), null, { timeout: 30000 });
 say('this browser\'s donations:', (await donor.evaluate(() => { const g = {}; for (const x of document.querySelectorAll('#here .hrow')) (g[x.dataset.campaign] = g[x.dataset.campaign] || []).push(`${x.dataset.amount} ${x.dataset.status}`); return Object.entries(g).map(([k, v]) => `${k}: ${v.join(' | ')}`); })).join(' / '));
 await donor.click('#here-copy'); const led = JSON.parse((await waitOut(donor, 'here-out', /^(Copied|Select)/)).replace(/^[^\n]*\n/, ''));

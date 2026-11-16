@@ -106,4 +106,15 @@ check('…and a tap, with it there, compares: with one record, that record, said
 await seed(q, [[1, 'SOCKS', 'the marina', 2]]); await shoot(q, 'left', await jpeg(q, 3, 1, .75)); const r2 = await until(q, DONE, 120000), T4 = await tiles(q);
 check('with two records: both, the most alike first', T4.length === 2 && T4[0].name === 'PEPPER' && r2.s === '[done]', T4.map(t => t.name).join(' · ') + ' · ' + r2.s);
 
+// A photo's size in pixels is looked at before it is opened (six scans, 15 Nov, 5.21): a PNG of some kilobytes that says it is 20 000
+// pixels a side (one bit a pixel, all of them the same) is refused at once, by its first bytes; a small one is read as before.
+{ const zlib = await import('zlib'), crc = buf => { let c, n = ~0; for (const x of buf) { c = (n ^ x) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; n = (n >>> 8) ^ c; } return (~n) >>> 0; };
+  const chunk = (t, d) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]), c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const png = (w, h) => { const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 1; ih[9] = 0; return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', zlib.deflateSync(Buffer.alloc(h * (Math.ceil(w / 8) + 1)), { level: 9 })), chunk('IEND', Buffer.alloc(0))]); };
+  const pg = await (await b.newContext({ serviceWorkers: 'block' })).newPage(); await pg.goto(BASE); await pg.waitForFunction(() => typeof CATID === 'object' && !!CATID.compute);
+  const tryIt = buf => pg.evaluate(async b64 => { const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)), t0 = performance.now(); try { await CATID.compute(bytes); return { ok: true, ms: Math.round(performance.now() - t0) }; } catch (e) { return { ok: false, why: String(e.message || e), ms: Math.round(performance.now() - t0) }; } }, buf.toString('base64'));
+  const huge = png(20000, 20000), big = await tryIt(huge), small = await tryIt(png(64, 64));
+  check('a photo of a few kilobytes that says it is 400 million pixels is refused before it is opened', !big.ok && /too large to compare/.test(big.why) && big.ms < 1000, `${huge.length} bytes · ${JSON.stringify(big)}`);
+  check('…and a small one is still read', small.ok || !/too large/.test(small.why || ''), JSON.stringify(small)); }
+
 await b.close(); say(bad ? `catid: ${bad} check(s) failed` : 'catid: every check passed'); process.exit(bad ? 1 : 0);

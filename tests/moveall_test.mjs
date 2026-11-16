@@ -62,5 +62,13 @@ check('importing it again adds nothing twice', /^Imported/.test(imp2) && camps2.
 const withQuotes = JSON.stringify({ ...exp, data: { ...data, 'vetlock.sc.colonies': JSON.stringify([{ name: 'colony «La Punta»' }]) } }, null, 1);
 const third = await page(); await asRescue(third); await third.evaluate(t => navigator.clipboard.writeText(t), withQuotes); await third.click('#x-imp'); const imp3 = await waitText(third, '#x-out', /Imported|✗/, 15000);
 check('a name with «» of its own comes as it is', /^Imported/.test(imp3) && (await stored(third, 'vetlock.sc.colonies')).some(c => c.name === 'colony «La Punta»'), imp3.slice(0, 60));
+// Second scan of 14 Nov, 9: what is under way in a browser does not travel with its export, and the export says so, in red, when there is any
+{ const quiet = await sc.evaluate(() => document.getElementById('x-out').textContent.trim());
+  await sc.evaluate(() => localStorage.setItem('vetlock.inflight', JSON.stringify([{ id: 'F-TEST', at: Date.now(), mint: 'http://127.0.0.1:1', outs: [] }])));
+  await sc.click('#x-exp'); await waitText(sc, '#x-term', /in your clipboard/, 20000); await sc.waitForTimeout(300);
+  const red = await sc.evaluate(() => { const o = document.getElementById('x-out'); return { text: o.textContent.trim(), bad: o.classList.contains('bad') }; }), exp2 = await sc.evaluate(() => navigator.clipboard.readText());
+  await sc.evaluate(() => localStorage.removeItem('vetlock.inflight'));
+  check('Export all with nothing under way says nothing more; with a swap under way it says, in red, that it does not travel and to keep this browser', quiet === '' && red.bad && /^✗ 1 payment or swap is still under way here and does not travel with the export\. Keep this browser until it is done\.$/.test(red.text) && !/F-TEST/.test(exp2), `"${quiet}" · ${JSON.stringify(red)}`); }
+
 say(bad ? `moveall: ${bad} check(s) failed` : 'moveall: every check passed');
 await b.close(); relays.forEach(r => r.close && r.close()); process.exit(bad ? 1 : 0);

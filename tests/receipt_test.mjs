@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 import { Wallet, getEncodedToken } from '@cashu/cashu-ts';
 import fs from 'fs';
 import { pinBrowser, pin } from './pin.mjs';
-const APP = new URL('../app/', import.meta.url).pathname, BASE = 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', TMP = process.env.TMPDIR || '/tmp', SHOT = process.env.SHOT_DIR, say = (...a) => console.log(...a);
+const APP = new URL('../app/', import.meta.url).pathname, BASE = process.env.BASE || 'http://127.0.0.1:8080/', MINT = process.env.MINT || 'http://127.0.0.1:3338', TMP = process.env.TMPDIR || '/tmp', SHOT = process.env.SHOT_DIR, say = (...a) => console.log(...a);
 eval(fs.readFileSync(APP + 'cashu-bundle.js', 'utf8') + ';globalThis.cashu = cashu;'); eval(fs.readFileSync(APP + 'core.js', 'utf8'));
 const C = globalThis.scCore, hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), newSk = () => hex(cashu.createRandomSecretKey());
 let bad = 0; const check = (label, ok, more = '') => { if (!ok) bad++; say((ok ? '✓ ' : '✗ ') + label + (more ? ' · ' + more : '')); };
@@ -45,6 +45,12 @@ const verify = async (bytes, name = 'receipt.png') => { await donor.evaluate(() 
 const screenshot = Buffer.from(await donor.evaluate(async b64 => { const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode(); const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; cv.getContext('2d').drawImage(img, 0, 0); const bl = await new Promise(r => cv.toBlob(r, 'image/png')); return Array.from(new Uint8Array(await bl.arrayBuffer())); }, png.toString('base64')));
 check('a screenshot of the receipt (the picture without its data) is refused', /✗ this picture holds no receipt: a screenshot or a photo of the receipt does not carry it/.test(await verify(screenshot)));
 const edited = JSON.stringify({ ...J, donation: { ...J.donation, amount: 2100 } }); check('an edited copy is refused: its check does not match', /✗ its check does not match: the file is damaged or was edited/.test(await verify(Buffer.from(edited), 'receipt.json')));
+// "Backup verified" means the file takes the donation back (six scans, 15 Nov, 6.7): a copy with no key in it, or with another token
+// under this donation's reference, each with its check worked out again, is not one
+const resign = async j => { const { check, ...r } = j; return { ...r, check: (await C.sha256hex(C.canon(r))).slice(0, 16) }; };
+const noKey = await verify(Buffer.from(JSON.stringify(await resign({ ...J, refund: { pub: J.refund.pub } }))), 'receipt.json'), swapped = await verify(Buffer.from(JSON.stringify(await resign({ ...J, donation: { ...J.donation, token: J.donation.token.slice(0, -6) + (J.donation.token.endsWith('AAAAAA') ? 'BBBBBB' : 'AAAAAA') } }))), 'receipt.json');
+check('a copy with no refund key in it is refused: it cannot take the donation back', /✗ this file holds no refund key: it cannot take the donation back/.test(noKey), noKey.slice(0, 90));
+check('…and so is one that carries another token under this donation\'s reference', /^✗ /.test(swapped) && !/Backup verified/.test(swapped), swapped.slice(0, 90));
 const tokB = await lock(8), rB = await donor.evaluate(t => window.__vetlock.receiptOf(t), tokB);  /* another donation, for the checks below */
 // verified at last with the real file
 const okv = await (async () => { const p = await page(); await tab(p, 'donate'); await p.fill('#d-camp', JSON.stringify(camp)); await p.evaluate(() => { window.__vetlock.openTab('decash'); }); await p.fill('#d-token', await plain(3)); await p.click('#d-go'); await waitText(p, '#d-out', /LOCKED|Failed/);
@@ -67,6 +73,24 @@ check('a password before anything was saved: no copy saved before to warn about'
 const [dp] = await Promise.all([pp.waitForEvent('download'), pp.click('#d-out .rcpt button:has-text("save private receipt")')]); const fp = `${TMP}/receipt-P.png`; await dp.saveAs(fp); const pngP = fs.readFileSync(fp);
 const tP = chunks(pngP).find(c => c.t === 'tEXt').data, JP = JSON.parse(tP.subarray(tP.indexOf(0) + 1).toString('latin1')), skP = await pp.evaluate(t => JSON.parse(localStorage.getItem('vetlock.donor.keys')).find(k => k.lockedToken === t).sk, tokP);
 check('with a password, the key inside is sealed: not in the file in any form', !JP.refund.key && JP.refund.sealed && JP.refund.sealed.kdf.iterations === 310000 && !pngP.toString('latin1').includes(skP) && (await pp.evaluate(() => window.__drawn)).some(t => /Protected with a password/.test(t)));
+
+// the sealed file checked: its key is opened with the password and compared, not taken on trust (6.7)
+await pp.check('#d-out .rcpt .rc-conf input[type=checkbox]'); await pp.click('#d-out .rcpt button:has-text("confirm")');
+const pickP = async (buf, name) => { await pp.evaluate(() => { document.querySelector('#d-out .rc-st').textContent = ''; }); const [fc] = await Promise.all([pp.waitForEvent('filechooser'), pp.click('#d-out .rcpt button:has-text("check the saved file")')]); await fc.setFiles({ name, mimeType: 'application/json', buffer: buf }); return waitText(pp, '#d-out .rc-st', /.+/, 15000); };
+const sealedOk = await pickP(pngP, 'receipt.png'), other = { ...JP.refund.sealed }; for (const k of Object.keys(other)) if (typeof other[k] === 'string' && other[k].length > 40) other[k] = other[k].slice(0, -4) + (other[k].endsWith('AAAA') ? 'BBBB' : 'AAAA');
+const sealedBad = await pickP(Buffer.from(JSON.stringify(await resign({ ...JP, refund: { ...JP.refund, sealed: other } }))), 'receipt.json');
+check('a receipt protected with a password is verified by opening its key with the password in force: "Backup verified · protected with a password"', /^✓ Backup verified · .* · protected with a password$/.test(sealedOk), sealedOk);
+check('…and one whose sealed key does not open is not verified: "the file reads, but its key does not open"', /✗ the file reads, but its key does not open with this password: it is not verified/.test(sealedBad), sealedBad.slice(0, 100));
+// the file on offer is the one made last, with the password in force (6.8): a receipt begun without a password that finishes after the
+// password was chosen does not go out in the clear
+{ const rq = await page(); await tab(rq, 'donate'); await rq.fill('#d-camp', JSON.stringify(camp)); await rq.evaluate(() => { const real = window.scCore.makeReceipt; let n = 0; window.scCore.makeReceipt = async a => { if (!a.password && n++ === 0) await new Promise(r => setTimeout(r, 2500)); return real(a); }; window.__vetlock.openTab('decash'); });  /* the first making, with no password, takes its time */
+  await rq.fill('#d-token', await plain(5)); await rq.click('#d-go'); const sq = await waitText(rq, '#d-out', /LOCKED|Failed/), tokQ = sq.match(/cashuB[A-Za-z0-9_\-=]+/g).pop();
+  await rq.evaluate(() => { document.querySelector('#d-out .rcpt details').open = true; }); const [q1, q2] = await rq.$$('#d-out .rcpt details input[type=password]'); await q1.fill(PW); await q2.fill(PW); await rq.click('#d-out .rcpt button:has-text("use this password")');
+  await waitText(rq, '#d-out .rc-st', /protected with your password/); await rq.waitForTimeout(3200);  /* the slow one has finished by now */
+  const [dq] = await Promise.all([rq.waitForEvent('download'), rq.click('#d-out .rcpt button:has-text("save private receipt")')]); const fq = `${TMP}/receipt-Q.png`; await dq.saveAs(fq); const pngQ = fs.readFileSync(fq); fs.unlinkSync(fq);
+  const tQ = chunks(pngQ).find(c => c.t === 'tEXt').data, JQ = JSON.parse(tQ.subarray(tQ.indexOf(0) + 1).toString('latin1')), kQ = await rq.evaluate(t => JSON.parse(localStorage.getItem('vetlock.donor.keys')).find(k => k.lockedToken === t), tokQ);
+  check('a receipt begun without a password, finished after one was chosen, does not go out: the file saved is sealed, and no copy in the clear is recorded', !JQ.refund.key && !!JQ.refund.sealed && !pngQ.toString('latin1').includes(kQ.sk) && !kQ.plainCopy && kQ.backup && kQ.backup.sealed === true, JSON.stringify({ key: !!JQ.refund.key, sealed: !!JQ.refund.sealed, plainCopy: !!kQ.plainCopy }));
+  await rq.close(); }
 
 // recovery in a browser that never had the key (Europe/Madrid)
 const fresh = await page(); await tab(fresh, 'refund'); const openFile = async (p, buf, name) => { const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click('#r-open')]); await fc.setFiles({ name, mimeType: 'image/png', buffer: buf }); return waitText(p, '#r-info', /Checked with the mint|cannot read/, 20000); };

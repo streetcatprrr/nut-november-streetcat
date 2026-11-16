@@ -97,6 +97,8 @@ const W = (png[16] << 24 | png[17] << 16 | png[18] << 8 | png[19]) >>> 0, H = (p
 check('the card is a 1080 × 1350 PNG with no text chunk (tEXt, iTXt, zTXt)', W === 1080 && H === 1350 && !chunks.some(t => /^(tEXt|iTXt|zTXt|eXIf)$/.test(t)), [...new Set(chunks)].join(' '));
 await donor.fill('#dk-msg', await plain(8)); const refused = await waitText(donor, '#dk-out', /looks like/, 5000);
 check('a token typed as the message is not put on the card', /looks like a token, a key or an invoice/.test(refused));
+{ const note = () => donor.evaluate(() => { const n = document.getElementById('dk-amt-note'); return { shown: !n.hidden, text: n.textContent, red: getComputedStyle(n).color }; }); const on = await note(); await donor.uncheck('#dk-amt'); const off = await note(), fg = await donor.evaluate(() => getComputedStyle(document.querySelector('#dcard label.chk span')).color); await donor.check('#dk-amt'); const back = await note();
+  check('the card without its amount says, in red, that its link still shows it (second scan of 14 Nov, 19); with the amount, nothing', !on.shown && off.shown && /the link still shows it/.test(off.text) && off.red !== fg && !back.shown, JSON.stringify({ on: on.shown, off, fg })); }
 await donor.fill('#dk-msg', 'for Mochi, from the corner shop'); await donor.waitForTimeout(900); check('…an ordinary message is', (await txt(donor, '#dk-out')) === ''); await fits(donor, 'the card'); await shot(donor, 'h7-donor-card');
 check('these filled screens fit at 320, 375, 390 and 430 px', !FITBAD.length, FITBAD.length ? 'wider: ' + FITBAD.join(' · ') : FIT.join(' · '));
 await b.close();

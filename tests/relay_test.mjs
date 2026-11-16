@@ -176,6 +176,31 @@ await Promise.all([late8, keep8, mute8, no8, k10].map(r => r.close()));
   check('a flood of wraps that all bear one second does not stop the paging: the message under it comes', got, `${got ? 'came' : 'never came'} · ${reads} read(s) · ${rc.stats.reqs.length} REQs`);
   check('…and the walk reaches the end: the key\'s mark is set', !!(marks[rc.url] || {})[to3], JSON.stringify(Object.fromEntries(Object.entries(marks[rc.url] || {}).map(([k, v]) => [k.slice(0, 9), v]))));
   await rc.close(); }
+// ---------- relays held to what was asked of them, and pages that may not be the last (six scans, 15 Nov, part 5) ----------
+{ const K = globalThis.nostrkit, t = Math.floor(Date.now() / 1000), to = (await R.keysOf(cl)).pub, other = (await R.keysOf(newSk())).pub, junk = (tags, at, n) => K.finalizeEvent({ kind: 1059, created_at: at, tags, content: 'junk ' + n }, K.generateSecretKey());
+  const put = async (url, evs) => { for (const e of evs) await R.publishTo(url, e, { timeout: 5000 }); }, gotQ = async (url, o = {}) => (await R.receive([cl], { relays: [url], seen: new Set(), expect: clinicExpects, timeout: 8000, ...o })).messages.some(m => m.payload.id === q.id);
+  // 5.7 · a relay that sends all it holds, whatever limit it is asked for
+  { const r = startRelay({ port: 7111, noLimit: true }); await r.ready; await put(r.url, Array.from({ length: 300 }, (_, i) => junk([['p', to]], t - i, i)));
+    const got = await R.fetchFrom(r.url, { kinds: [1059], '#p': [to], limit: 100 }, { timeout: 8000 });
+    check('a relay that sends 300 events to a query that asks for 100 is stopped at what was asked, and its answer is not taken for a whole one', got.length <= 120 && got.complete === false && got.over === true, `${got.length} kept · complete ${got.complete}`); await r.close(); }
+  // 5.19 · a refusal's reason is kept short
+  { const r = startRelay({ port: 7112, refuse: true, reason: 'blocked: ' + 'x'.repeat(50000) }); await r.ready; const [res] = await R.publish(junk([['p', to]], t, 0), [r.url], { timeout: 5000 });
+    check('a relay\'s reason for refusing is kept in a few words, however long it is', res.ok === false && res.msg.length === 200, `${res.msg.length} characters of 50 009`); await r.close(); }
+  // 5.14 · one flush at a time
+  { const r = startRelay({ port: 7113, okDelay: 300 }); await r.ready; const box = R.outbox(store()); await box.add(q, sc, camp.clinic, { relays: [r.url], label: 'twice' }); const [a1, a2] = await Promise.all([box.flush(), box.flush()]);
+    check('two flushes of the outbox at once: the second waits for the first, and what was sent is sent once', r.stats.received === 1 && a1.length === 1 && a2.length === 0 && box.list()[0].state === 'sent', `${r.stats.received} sent · ${a1.length} + ${a2.length} changed`); await r.close(); }
+  // 5.2 · wraps that name another key first still count as this key's page
+  { const r = startRelay({ port: 7114 }); await r.ready; const own = await R.wrap(q, sc, camp.clinic); own.created_at <= t || (own.created_at = t);
+    await put(r.url, [own, ...Array.from({ length: 10 }, (_, i) => junk([['p', other], ['p', to]], t + 100 + i, i))]);
+    check('ten wraps that name another key before this one do not hide the message under them: they count as this key\'s page, and the walk goes on', await gotQ(r.url, { limit: 10 }), `${r.stats.reqs.length} REQs`); await r.close(); }
+  // 5.3 · a relay that sends fewer than it is asked for and holds more
+  { const r = startRelay({ port: 7115, cap: 50 }); await r.ready; await put(r.url, [await R.wrap(q, sc, camp.clinic), ...Array.from({ length: 60 }, (_, i) => junk([['p', to]], t + 100 + i, i))]);
+    check('a relay that sends 50 events to a query for 500, and holds more: what is older is asked for, and the message under them comes', await gotQ(r.url), `${r.stats.reqs.length} REQs`); await r.close(); }
+  // 5.9 · the signed ledger, under events of other authors with the campaign's id
+  { const r = startRelay({ port: 7116, cap: 5 }); await r.ready; C.STREETCAT_KEYS.push(camp.streetcat); const L = { v: 2, campaign: camp, clinicKeySource: '', donations: [], entries: [], certificates: [] }, ev = await R.ledgerEvent(L, sc), id = await C.campaignId(camp);
+    await put(r.url, [ev, ...Array.from({ length: 8 }, (_, i) => K.finalizeEvent({ kind: R.LEDGER_KIND, created_at: ev.created_at + 100 + i, tags: [['d', id], ['t', 'streetcat-ledger']], content: '{}' }, K.generateSecretKey()))]);
+    const res = await R.latestLedger(id, { relays: [r.url], timeout: 8000 }); C.STREETCAT_KEYS.pop();
+    check('eight newer events of other authors under a campaign\'s id, on a relay that sends five: the ledger signed with Streetcat\'s ledger key is still found', !!res.found && res.found.ev.id === ev.id, res.found ? 'found' : `not found · ${res.ignored} ignored`); await r.close(); } }
 await Promise.all(relays.map(r => r.close()));
 say(bad ? `relay: ${bad} check(s) failed` : 'relay: every check passed');
 process.exit(bad ? 1 : 0);

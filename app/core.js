@@ -403,7 +403,9 @@ async function findRemainders(w, proofs){ const slots = [];
 const findRemainder = async (w, proof) => (await findRemainders(w, [proof])).get(yOf(proof.secret)) || [];
 // every proof of a donation as the mint sees it, the rest of what was released in part followed down: each with its state, its
 // witness, how deep it is (0: the donation's own proofs) and how much of it went back under the lock (`putBack`)
-async function traceDonation(w, proofs, depth = 0){ const states = await w.checkProofsStates(proofs), byY = new Map(states.map(s => [lc(s.Y), s])), out = [];
+// each proof once, whatever the list handed in repeats (six scans, 15 Nov, 2.7: a proof given twice was traced and counted twice)
+const onceEach = proofs => { const u = new Set(); return (proofs || []).filter(p => { const y = yOf(p.secret); if (u.has(y)) return false; u.add(y); return true; }); };
+async function traceDonation(w, proofs, depth = 0){ proofs = onceEach(proofs); const states = await w.checkProofsStates(proofs), byY = new Map(states.map(s => [lc(s.Y), s])), out = [];
   const spent = proofs.filter(p => (byY.get(yOf(p.secret)) || {}).state === 'SPENT'), rest = spent.length && depth < 48 ? await findRemainders(w, spent) : new Map();  /* each piece of a rest is at most half the proof it comes from, so no chain is longer than a proof has bits (the limit was 8: a rest of a rest nine deep was not found) */
   for (const p of proofs) { const s = byY.get(yOf(p.secret)) || {}, back = rest.get(yOf(p.secret)) || [];
     out.push({ proof: p, state: s.state || 'UNKNOWN', witness: s.witness || null, depth, putBack: back.reduce((a, x) => a + amt(x.amount), 0) });
@@ -591,7 +593,7 @@ async function destTrace(w, proofs){ const trace = [], bySecret = new Map(), ope
     x.how = gave ? 'unproven' : sigsOf(wit).length ? 'refunded' : ''; if (x.how === 'refunded') refunds = true; }
   const some = trace.some(x => x.how === 'unproven');
   for (const x of trace) if (x.state === 'SPENT' && !x.how) { takeBack(x, 0); x.how = refunds ? 'refunded' : some ? 'unproven' : 'unknown'; }
-  const sumOfHow = (...h) => trace.filter(x => h.includes(x.how)).reduce((a, x) => a + x.left, 0), total = (proofs || []).reduce((a, p) => a + amt(p.amount), 0);
+  const sumOfHow = (...h) => trace.filter(x => h.includes(x.how)).reduce((a, x) => a + x.left, 0), total = onceEach(proofs).reduce((a, p) => a + amt(p.amount), 0);
   return { trace, txs, total, locked: sumOfHow('locked'), pending: sumOfHow('pending', 'nostate'), released, paid, fees, refunds, refunded: sumOfHow('refunded'), unproven: sumOfHow('unproven'), loose, unknown: sumOfHow('unknown') }; }
 
 // ---------- today's lock, signed whole: SIG_ALL (15 Nov) ----------

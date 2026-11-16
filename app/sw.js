@@ -8,7 +8,7 @@
 // The cat recognition is kept apart (ai/1/: its engine and two models, 48 MB; ai/2/: two more, for the face, 72 MB; these files never
 // change), and only once the clinic or Streetcat has asked for it, so a donor's phone never downloads it: from that copy first, then the
 // network. Offline setup can fill that copy ahead of time (catid.js, keep(), under the same name).
-const BUILD = 'f06479f5f32e';
+const BUILD = '5b2980acc753';
 const CACHE = 'streetcat-app-' + BUILD, AI = 'streetcat-ai-1';
 const SHELL = ['index.html', 'index.js', 'status.html', 'status.js', 'fit.js', 'onetab.js', 'cashu-bundle.js', 'core.js', 'nostr-bundle.js', 'relay.js', 'vault.js', 'qrcode.min.js', 'jsqr.min.js', 'catid.js', 'catid-worker.js', 'fonts/DepartureMono-Regular.woff2', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(f => new Request(f, { cache: 'reload' }))))  /* whole, from the network, or not at all */

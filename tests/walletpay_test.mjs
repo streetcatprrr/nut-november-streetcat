@@ -62,6 +62,11 @@ const donor = await page(); await donor.goto(link); await donor.reload(); await 
   await payTo(r, pre); const out = await waitText(donor, '#d-out', /LOCKED 5 sat|Failed/, 40000);
   check('…the same ecash sent once is taken, for what it is worth', /LOCKED 5 sat for MOCHI/.test(out)); }
 
+// Ecash a wallet sends already locked the way of before 15 Nov (each proof signed apart): no new donation is made under that lock
+{ const r = await openRequest(donor, 4), oldWay = new cashu.LockBuilder().addMainPubkey([camp.streetcat, camp.clinic]).requireMainSignatures(2).addRefundPubkey(r.pk).lockUntil(Number(camp.deadline)), pre = await asLocked(w, MINT, await plain(4), oldWay);
+  await payTo(r, pre); const st = await waitText(donor, '#dw-state', /✗|LOCKED/, 30000), rr = await reqOf(donor, r.id), k = (await keysOf(donor)).find(x => x.pk === r.pk), held = k && k.lockedToken ? w.decodeToken(k.lockedToken).proofs.reduce((n, x) => n + C.amt(x.amount), 0) : 0;
+  check('ecash that comes locked the way of before 15 Nov: not taken as a donation, and said why; it is kept here for its refund, and the request stays open', /locked the way of before 15 Nov/.test(st) && /not taken as a donation/.test(st) && rr.state === 'waiting' && held === 4 && !/LOCKED 4 sat/.test(await txt(donor, '#d-out')), `${st.slice(0, 90)} · kept ${held}`); }
+
 // 6.5 · a second payment to the same request
 { const r = await openRequest(donor, 4); await payTo(r, await plain(4)); const o1 = await waitText(donor, '#d-out', /LOCKED 4 sat|Failed/, 40000), tok1 = lastToken(o1);
   await payTo(r, await plain(3)); await wcheck(donor); const o2 = await waitText(donor, '#d-out', /LOCKED 3 sat|Failed/, 40000), tok2 = lastToken(o2);

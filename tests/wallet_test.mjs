@@ -68,7 +68,7 @@ const toStreetcat = await w.ops.receive(cashu.getEncodedToken({ mint: MINT, proo
 await pay(pr, toStreetcat); const st = await waitText(donor, '#dw-state', /✗|LOCKED/, 40000);
 check('ecash already locked to other keys is refused, and says why', /✗ your wallet sent ecash that is already locked \(to /.test(st) && !/LOCKED 5 sat/.test(await txt(donor, '#d-out')), st.slice(0, 110));
 check('…and the request stays open for another payment', (await reqs()).find(x => x.id === pr.id).state === 'waiting');
-const p5b = await plain(5), exact = await w.ops.receive(cashu.getEncodedToken({ mint: MINT, proofs: p5b })).asLocked(new cashu.LockBuilder().addMainPubkey([camp.streetcat, camp.clinic]).requireMainSignatures(2).addRefundPubkey(await refundPkOf(pr.id)).lockUntil(Number(camp.deadline))).run();
+const p5b = await plain(5), exact = await w.ops.receive(cashu.getEncodedToken({ mint: MINT, proofs: p5b })).asLocked(new cashu.LockBuilder().addMainPubkey([camp.streetcat, camp.clinic]).requireMainSignatures(2).addRefundPubkey(await refundPkOf(pr.id)).lockUntil(Number(camp.deadline)).sigAll()).run();  /* today's lock, signed whole: one locked the way of before 15 Nov is not taken as a donation (walletpay_test) */
 await pay(pr, exact); out = await waitText(donor, '#d-out', /LOCKED 5 sat|Failed/, 40000);
 check('ecash that already carries exactly this lock is taken as it is', /LOCKED 5 sat for MOCHI/.test(out) && w.decodeToken((await donor.evaluate(t => window.__vetlock.receiptOf(t), out.match(/cashuB[A-Za-z0-9_\-=]+/g).pop())).donation.token).proofs.map(p => p.secret).join() === exact.map(p => p.secret).join());
 

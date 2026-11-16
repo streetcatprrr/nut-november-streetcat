@@ -33,22 +33,28 @@ function visit(url, onOpen, { timeout = 8000 } = {}){ return new Promise((resolv
   ws.onerror = () => end(new Error('could not connect')); ws.onclose = () => end(new Error('closed'));
   ws.onopen = () => onOpen(ws, v => end(null, v), e => end(e)); }); }
 // a failure says whether the event had been sent (`sent`): a relay that was sent it and did not answer may have taken it all the same
-const publishTo = (url, ev, o) => { let sent = false; return visit(url, (ws, ok) => { ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'OK' && x[1] === ev.id) ok({ url, ok: !!x[2], msg: String(x[3] || '') }); }; ws.send(JSON.stringify(['EVENT', ev])); sent = true; }, o)
+const publishTo = (url, ev, o) => { let sent = false; return visit(url, (ws, ok) => { ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'OK' && x[1] === ev.id) ok({ url, ok: !!x[2], msg: String(x[3] || '').slice(0, 200) }); };  /* a relay's reason is kept with what was sent: a few words of it (six scans, 15 Nov, 5.19: a long one, kept whole for every relay and message, filled the app's storage) */ ws.send(JSON.stringify(['EVENT', ev])); sent = true; }, o)
   .catch(e => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { sent }); }); };
 // a read: what the relay holds that matches `filter` (one, or several in one REQ). `complete` on the list: the relay said it sent all
 // it holds (EOSE); one that refuses (CLOSED: rate-limited, auth…) answered something, but not all
-const fetchFrom = (url, filter, o) => visit(url, (ws, ok) => { const id = 'sc' + Math.random().toString(36).slice(2, 10), got = [];
-  ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'EVENT' && x[1] === id && x[2]) got.push(x[2]); if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && x[1] === id) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} got.complete = x[0] === 'EOSE'; ok(got); } };
+// A RELAY IS HELD TO WHAT WAS ASKED OF IT (six scans, 15 Nov, 5.7 and 5.10): one that sends more events than the query's limit, or
+// frames of a size no event of this app has, or more bytes than a read can need, is stopped there, and its answer is not a whole
+// one (no mark moves on it: what it holds is asked for again). Before, whatever it sent was kept in memory until it stopped.
+const FRAME_MAX = 1e6, READ_MAX = 60e6, EVENTS_MAX = 2000, roomFor = f => (Number(f && f.limit) > 0 ? Number(f.limit) : EVENTS_MAX) + 20;
+const fetchFrom = (url, filter, o) => visit(url, (ws, ok) => { const id = 'sc' + Math.random().toString(36).slice(2, 10), got = [], room = (Array.isArray(filter) ? filter : [filter]).reduce((a, f) => a + roomFor(f), 0); let bytes = 0;
+  const over = () => { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} got.complete = false; got.over = true; ok(got); };
+  ws.onmessage = m => { const n = typeof m.data === 'string' ? m.data.length : 0; bytes += n; if (n > FRAME_MAX || bytes > READ_MAX) return over(); let x; try { x = JSON.parse(m.data); } catch (_) { return; } if (x[0] === 'EVENT' && x[1] === id && x[2]) { if (got.length >= room) return over(); got.push(x[2]); } if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && x[1] === id) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} got.complete = x[0] === 'EOSE'; ok(got); } };
   ws.send(JSON.stringify(['REQ', id, ...(Array.isArray(filter) ? filter : [filter])])); }, o);
 // several reads in one visit, one REQ each (Daybreak, 14 Nov): a relay that caps a REQ as a whole, and not each of its filters, let a
 // flood of wraps to one key fill the answer, and another key's messages were left out, its mark moved past them. `complete`: every
 // REQ was answered in full (EOSE).
-const fetchEach = (url, filters, o) => visit(url, (ws, ok) => { const subs = new Map(), got = []; let left = filters.length, all = true;
+const fetchEach = (url, filters, o) => visit(url, (ws, ok) => { const subs = new Map(), got = []; let left = filters.length, all = true, bytes = 0;
   if (!left) { got.complete = true; return ok(got); }
-  ws.onmessage = m => { let x; try { x = JSON.parse(m.data); } catch (_) { return; } const s = subs.get(x[1]); if (!s) return;
-    if (x[0] === 'EVENT' && x[2]) got.push(x[2]);
+  const over = () => { for (const id of subs.keys()) { try { ws.send(JSON.stringify(['CLOSE', id])); } catch (_) {} } got.complete = false; got.over = true; ok(got); };
+  ws.onmessage = m => { const n = typeof m.data === 'string' ? m.data.length : 0; bytes += n; if (n > FRAME_MAX || bytes > READ_MAX) return over(); let x; try { x = JSON.parse(m.data); } catch (_) { return; } const s = subs.get(x[1]); if (!s) return;
+    if (x[0] === 'EVENT' && x[2]) { if (++s.n > s.room) return over(); got.push(x[2]); }
     else if ((x[0] === 'EOSE' || x[0] === 'CLOSED') && !s.done) { s.done = true; all = all && x[0] === 'EOSE'; try { ws.send(JSON.stringify(['CLOSE', x[1]])); } catch (_) {} if (--left === 0) { got.complete = all; ok(got); } } };
-  for (const f of filters) { const id = 'sc' + Math.random().toString(36).slice(2, 10); subs.set(id, { done: false }); ws.send(JSON.stringify(['REQ', id, f])); } }, o);
+  for (const f of filters) { const id = 'sc' + Math.random().toString(36).slice(2, 10); subs.set(id, { done: false, n: 0, room: roomFor(f) }); ws.send(JSON.stringify(['REQ', id, f])); } }, o);
 
 // a payload, wrapped for one recipient: the rumor carries it packed (core.js), the seal is signed with the sender's messaging key
 async function wrap(payload, fromSk, toPk){ const from = await keysOf(fromSk), to = await pubOf(toPk), content = await C.pack(payload);
@@ -84,7 +90,7 @@ const NO_ROOM = 'this phone has no room left to save it: the app\'s storage is f
 const slim = a => { const done = a.filter(x => x.state !== 'sending'), drop = new Set(done.slice(0, Math.max(0, done.length - KEEP_DONE)).map(x => x.id));
   return a.filter(x => !drop.has(x.id)).map(x => x.state === 'sending' || !('ev' in x) ? x : (({ ev, ...rest }) => rest)(x)); };
 function outbox(store){ const all = () => { try { const a = JSON.parse(store.get(OUTBOX) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }, save = a => store.set(OUTBOX, JSON.stringify(slim(a))) !== false;
-  return {
+  let tail = Promise.resolve(); const box = {
     list: all,
     async add(payload, fromSk, toPk, { relays = RELAYS, label = '' } = {}){ const ev = await wrap(payload, fromSk, toPk), item = { id: ev.id, ev, relays, label, ref: payload.id || '', t: payload.t, acked: [], tries: 0, next: 0, created: Date.now(), state: 'sending' };
       if (!save([...all().filter(x => x.id !== item.id), item])) throw new Error(NO_ROOM); return item; },
@@ -92,7 +98,9 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
     // What was added while this ran is kept: the list is read again before it is saved (it was overwritten with the one read first).
     // Sent before and not confirmed, a relay may have it all the same (publish, above): one that was sent it last time and gave no answer
     // is asked first, and not sent it again if it has it (one that refused it, or could not be reached, has nothing to be asked)
-    async flush(o = {}){ const a = all(), t = Date.now(), changed = [];
+    /* one flush at a time (six scans, 15 Nov, 5.14: two at once each saved the list it had read, and one's confirmations were lost) */
+    flush(o = {}){ const run = () => box._flush(o); return tail = tail.then(run, run); },
+    async _flush(o = {}){ const a = all(), t = Date.now(), changed = [];
       for (const it of a) { if (it.state !== 'sending' || !it.ev || (it.next > t && !o.force)) continue;
         const ask = it.tries ? (it.last || []).filter(r => r && r.silent && !r.ok && !it.acked.includes(r.url)).map(r => r.url) : [];
         for (const [u, yes] of await Promise.all(ask.map(async u => [u, await has(u, it.ev.id, o)]))) if (yes) it.acked.push(u);
@@ -101,7 +109,7 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
         it.last = res; it.tries++; it.next = t + [15, 60, 300, 900, 3600][Math.min(it.tries - 1, 4)] * 1000;
         if (it.acked.length >= Math.min(2, it.relays.length)) it.state = 'sent'; else if (t - it.created > 86400e3) it.state = it.acked.length ? 'sent' : 'failed';
         changed.push(it); }
-      const done = new Map(changed.map(x => [x.id, x])); save(all().map(x => done.get(x.id) || x)); return changed; } }; }
+      const done = new Map(changed.map(x => [x.id, x])); save(all().map(x => done.get(x.id) || x)); return changed; } }; return box; }
 
 // THE INBOX: what waits for these spending keys (the messaging keys derived from them), from every relay, each message once.
 // `expect(payload)` names the spending key that must have sent it (the campaign's Streetcat key for a request, its clinic key for an
@@ -113,6 +121,13 @@ function outbox(store){ const all = () => { try { const a = JSON.parse(store.get
 // (CLOSED) or whose pages do not end moves no mark: an unknown answer is not an empty one. Returns the new marks, and the wraps it deferred.
 const LIMIT = 500, SLACK = 600, PAGES = 20, TRIES = 3, TRIED = new Map(), retry = () => TRIED.clear();
 const toOf = ev => ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1];
+// a wrap is of a key's page when it names that key, wherever among its recipients (six scans, 15 Nov, 5.2: only the first one named
+// was looked at, so wraps that named another key first filled a key's answer without counting as its page, and the walk stopped)
+const isTo = (ev, p) => !!(ev && Array.isArray(ev.tags) && ev.tags.some(t => t && t[0] === 'p' && t[1] === p));
+// A PAGE THAT MAY NOT BE THE LAST (5.3): a relay may send fewer events than a query's limit asks for and hold more (its own limit). A
+// page as long as the limit holds more; so may one whose length is a round number, as relays' limits are (50, 64, 100, 128, 250, 500…):
+// what is older is asked for, and an empty answer ends the walk. One query more now and then, against a message never reached.
+const mayHoldMore = (n, limit) => n >= limit || (n >= 50 && (n % 50 === 0 || (n & (n - 1)) === 0));
 // ONE RELAY, PAGE BY PAGE: the inbox's walk (on its own since 15 Nov, so that a wallet's payments, below, are read the same way).
 // A relay that sends the limit holds more: the older ones are asked for, page by page (`until` the oldest received), so a flood of
 // wraps to a key (anyone can send them) does not bury a real message (audit of 10 Nov). `full`: the keys whose pages did not end.
@@ -125,13 +140,13 @@ const toOf = ev => ev && ev.tags && (ev.tags.find(t => t[0] === 'p') || [])[1];
 // good. A full page that reaches no further back now moves on to the second before. What one second holds beyond a page cannot be
 // paged at all (NIP-01 has no offset): a flood aimed at the very second of a message can hide it on that relay, not on the others.
 async function walk(u, pubs, { sinceFor, markOf, limit = LIMIT, timeout }){ const evs = await fetchEach(u, pubs.map(p => ({ kinds: [WRAP], '#p': [p], since: sinceFor(u, p), limit })), { timeout }), full = new Set(), stop = {}, ids = new Set(evs.map(e => e && e.id));
-  for (const p of pubs) { const page = evs.filter(e => toOf(e) === p), cur = markOf(u, '<' + p); let n = 0, jumped = false, until = page.length >= limit ? Math.min(...page.map(e => e.created_at)) : 0;
+  for (const p of pubs) { const page = evs.filter(e => isTo(e, p)), cur = markOf(u, '<' + p); let n = 0, jumped = false, until = mayHoldMore(page.length, limit) ? Math.min(...page.map(e => e.created_at)) : 0;
     if (until && cur && cur < until) { until = cur; jumped = true; }  /* on from where the last walk stopped */
     while (until) { if (!evs.complete) { full.add(p); break; } if (n++ >= PAGES) { full.add(p); stop[p] = until; break; } let more;
-      try { more = await fetchFrom(u, { kinds: [WRAP], '#p': [p], since: sinceFor(u, p), until, limit }, { timeout }); } catch (_) { full.add(p); break; }
+      try { more = await fetchFrom(u, { kinds: [WRAP], '#p': [p], since: sinceFor(u, p), until, limit }, { timeout }); } catch (_) { full.add(p); if (n > 1) stop[p] = until; break; }  /* the relay went away mid-walk: the next read goes on from this page, not from the newest again (5.24) */
       const fresh = more.filter(e => e && e.id && !ids.has(e.id)); for (const e of fresh) { ids.add(e.id); evs.push(e); }
       if (!more.complete || more.some(e => e && e.created_at > until)) { full.add(p); break; }  /* cut short, or not held to `until`: these pages cannot be walked */
-      const old = more.length >= limit ? Math.min(...more.map(e => e.created_at)) : 0; until = !old ? 0 : old < until ? old : until - 1; }  /* a page all of one second: on to the second before */
+      const old = mayHoldMore(more.length, limit) && (more.length >= limit || fresh.length) ? Math.min(...more.map(e => e.created_at)) : 0; until = !old ? 0 : old < until ? old : until - 1; }  /* a page all of one second: on to the second before */
     if (!full.has(p) && jumped) stop[p] = -1; }  /* a walk begun before has reached its end */
   return { url: u, ok: true, complete: !!evs.complete, full, stop, events: evs }; }
 // the marks the relays have earned (above): when each last answered all it held for a key, where a walk that had to stop goes on from
@@ -192,7 +207,12 @@ async function ledgerOk(ev, id){ try { if (!ev || ev.kind !== LEDGER_KIND || (ev
   const L = JSON.parse(ev.content); if (!L || !L.campaign || await C.campaignId(L.campaign) !== id) return null;
   return ev.pubkey === (await C.derivedPub(C.TAG.ledger, C.campaignOf(L.campaign).streetcat)).slice(2) ? L : null; } catch (_) { return null; } }
 async function latestLedger(id, { relays = RELAYS, timeout } = {}){
-  const per = await Promise.all(relays.map(u => fetchFrom(u, { kinds: [LEDGER_KIND], '#d': [id] }, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  /* asked first of the ledger keys of Streetcat's published keys, the only ones whose ledger counts (six scans, 15 Nov, 5.9: anyone can
+     publish events under a campaign's id, and enough of them filled a relay's answer and left the signed ledger out); with nothing
+     from them, of anyone, as before: a campaign of another key is still found, and said not to be Streetcat's */
+  let authors = []; try { authors = await Promise.all((C.STREETCAT_KEYS || []).map(async k => (await C.derivedPub(C.TAG.ledger, k)).slice(2))); } catch (_) { authors = []; }
+  const ask = f => Promise.all(relays.map(u => fetchFrom(u, f, { timeout }).then(evs => ({ url: u, ok: true, events: evs })).catch(e => ({ url: u, ok: false, msg: String((e && e.message) || e), events: [] }))));
+  let per = authors.length ? await ask({ kinds: [LEDGER_KIND], '#d': [id], authors, limit: 50 }) : []; if (!per.some(r => r.events.length)) per = await ask({ kinds: [LEDGER_KIND], '#d': [id], limit: 200 });
   let best = null, ignored = 0;
   for (const r of per) for (const ev of r.events) { const L = await ledgerOk(ev, id); if (!L) { ignored++; continue; }
     if (!best || ev.created_at > best.ev.created_at) best = { ev, L, from: [r.url] }; else if (ev.id === best.ev.id && !best.from.includes(r.url)) best.from.push(r.url); }
