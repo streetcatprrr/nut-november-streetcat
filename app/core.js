@@ -658,8 +658,13 @@ function wholeProblems(tx, c, { pay }){ const p = [], ins = tx && Array.isArray(
 // A mint keeps at most 1 024 characters of witness per input (Nutshell's default; one more is refused), so what does not fit in the
 // first one goes on in the next inputs' witnesses, in the order of `i`: `i` and `o` only, as JSON (a mint refuses one that is not).
 // A refund writes all its outputs in `o`. null: it does not fit.
+// `plain` (16 Nov, found with real sats at Minibits): a mint that is not Nutshell reads a witness strictly. cdk-mintd refuses the whole
+// swap when an input's witness has no `signatures` ("data did not match any variant of untagged enum Witness"), and keeps of one
+// only what NUT-11 names. So there the spend goes as NUT-11 writes it: the signatures on the first input and no witness on the
+// others. The mint's record then cannot give the signed text back; who signed is read another way (the ledger's record of the spend).
 const WIT_MAX = 1024, y16 = secret => xOnly(yOf(secret)).slice(0, 16);
-function wholeWitnesses(tx, sigs){ const n = tx.inputs.length, nr = (tx.rests || []).length, R = tx.outputs.slice(tx.outputs.length - nr).map(o => amt(o.amount)), first = y16(tx.inputs[0].secret);
+function wholeWitnesses(tx, sigs, plain){ if (plain) return [JSON.stringify({ signatures: sigs }), ...tx.inputs.slice(1).map(() => null)];
+  const n = tx.inputs.length, nr = (tx.rests || []).length, R = tx.outputs.slice(tx.outputs.length - nr).map(o => amt(o.amount)), first = y16(tx.inputs[0].secret);
   const items = [...tx.inputs.map(x => ['i', y16(x.secret)]), ...tx.outputs.slice(0, tx.outputs.length - nr).map(o => ['o', String(amt(o.amount)) + o.B_])], out = []; let at = 0;
   for (let k = 0; k < n; k++) { const w = k ? { t: first } : { signatures: sigs, ...(R.length ? { r: R } : {}) };
     for (; at < items.length; at++) { const [key, v] = items[at]; (w[key] = w[key] || []).push(v); if (JSON.stringify(w).length > WIT_MAX) { w[key].pop(); if (!w[key].length) delete w[key]; break; } }
@@ -671,16 +676,29 @@ function wholeWitnesses(tx, sigs){ const n = tx.inputs.length, nr = (tx.rests ||
 // (not proven): a spend made by another wallet, whose witness holds the signatures alone, cannot be read back. Each proof's own
 // witness says which spend took it (the first input's text, or `t`); NOTHING IS COUNTED TWICE: an input two of them claim all the same
 // is neither's. Y → 'released' | 'refunded'.
-async function wholeSpends(trace){ const spent = (trace || []).filter(x => x && x.proof && x.state === 'SPENT'), by16 = new Map(), twice = new Set(), txs = [];
+// THE TEXT OF A SPEND, KEPT BESIDE IT (17 Nov). A mint that is not Nutshell keeps of a witness the signatures alone (wholeWitnesses,
+// `plain`), so its record cannot give the signed text back. Streetcat's ledger carries it with the part it paid: `i`, `o` and `r` as
+// a witness would (wholeText). It is only a text: the signatures are still the mint's record's, and they are over this text or they
+// are not, so a ledger that writes another one proves nothing. `texts`: such records, for the spends whose witness has no text.
+const TEXT_I = /^[0-9a-f]{16}$/, TEXT_O = /^[1-9][0-9]{0,15}0[23][0-9a-f]{64}$/;
+function wholeText(tx){ const nr = (tx.rests || []).length; return { i: tx.inputs.map(x => y16(x.secret)), o: tx.outputs.slice(0, tx.outputs.length - nr).map(o => String(amt(o.amount)) + o.B_), r: tx.outputs.slice(tx.outputs.length - nr).map(o => amt(o.amount)) }; }
+// a text as it comes from a file anyone can write: its lists as they must be, or null
+function textOk(t){ const list = (a, re) => Array.isArray(a) && a.length <= 2000 && a.every(v => typeof v === 'string' && re.test(v)); if (!t || typeof t !== 'object' || !list(t.i, TEXT_I) || !t.i.length || !list(t.o == null ? [] : t.o, TEXT_O)) return null;
+  const r = t.r == null ? [] : t.r; if (!Array.isArray(r) || r.length > 64 || !r.every(n => Number.isSafeInteger(n) && n > 0)) return null; return { i: t.i.slice(), o: (t.o || []).slice(), r: r.slice() }; }
+async function wholeSpends(trace, texts = []){ const spent = (trace || []).filter(x => x && x.proof && x.state === 'SPENT'), by16 = new Map(), twice = new Set(), txs = [];
+  const told = new Map(); for (const t of Array.isArray(texts) ? texts.slice(0, 5000) : []) { const k = textOk(t); if (k && !told.has(k.i[0])) told.set(k.i[0], k); }
   for (const x of spent) { const k = y16(x.proof.secret); if (by16.has(k)) twice.add(k); else by16.set(k, x); }
   const wit = x => { try { const j = JSON.parse(witnessClean(x.witness || '')); return j && typeof j === 'object' && !Array.isArray(j) ? j : null; } catch (_) { return null; } };
   const list = (a, re) => a == null ? [] : Array.isArray(a) && a.length <= 2000 && a.every(v => typeof v === 'string' && re.test(v)) ? a : null, I16 = /^[0-9a-f]{16}$/, O = /^[1-9][0-9]{0,15}0[23][0-9a-f]{64}$/;
   for (const x of spent) { const w0 = wit(x), l = lockOf(x.proof.secret); if (!w0 || !Array.isArray(w0.signatures) || !isWhole(l) || l.bad) continue;
-    let ins = list(w0.i, I16), outs = list(w0.o, O); const R = w0.r == null ? [] : w0.r;
+    /* the witness gives no text (a mint that keeps the signatures alone): the one kept beside this spend, if any, is tried in its place */
+    const kept = w0.i == null && w0.o == null && w0.r == null ? told.get(y16(x.proof.secret)) : null;
+    let ins = kept ? kept.i : list(w0.i, I16), outs = kept ? kept.o : list(w0.o, O); const R = kept ? kept.r : w0.r == null ? [] : w0.r;
     if (!ins || !outs || !ins.length || ins[0] !== y16(x.proof.secret) || twice.has(ins[0]) || !wholes(R)) continue; ins = ins.slice(); outs = outs.slice();
     const tx = [x]; let ok = true;
     for (let k = 1; k < ins.length && ok && k < 2000; k++) { const e = by16.get(ins[k]); if (!e || twice.has(ins[k]) || tx.includes(e) || lockShape(e.proof.secret) !== lockShape(x.proof.secret)) { ok = false; break; }
-      tx.push(e); const wk = e.witness ? wit(e) : null, mi = wk && list(wk.i, I16), mo = wk && list(wk.o, O);
+      tx.push(e); if (kept) { if (e.witness && wit(e) && Object.keys(wit(e)).some(f => f !== 'signatures')) { ok = false; break; } continue; }  /* told beside it: the other inputs carry no witness of their own */
+      const wk = e.witness ? wit(e) : null, mi = wk && list(wk.i, I16), mo = wk && list(wk.o, O);
       if (!wk || wk.t !== ins[0] || wk.signatures !== undefined || !mi || !mo) { ok = false; break; } ins.push(...mi); outs.push(...mo); }  /* its own witness names this spend's first input, or it was not this spend's */
     if (!ok || tx.length !== ins.length || (!outs.length && !R.length)) continue;
     let text = tx.map(e => e.proof.secret + e.proof.C).join('') + outs.join('');
@@ -707,22 +725,23 @@ async function wholeSwap(w, tx, witnesses){ if (!Array.isArray(witnesses) || wit
 // must be this transaction's word for word but for its signatures, which must include `keys`' over this very text; the others' word
 // for word. True, false, or it throws (no answer).
 async function wholeMine(w, tx, keys){ const st = await w.checkProofsStates(tx.inputs); if (st.length !== tx.inputs.length || !st.every(x => x.state === 'SPENT')) return false;
-  const mine = wholeWitnesses(tx, keys.map(() => '0'.repeat(128))); if (!mine) return false;
   const strip = s => { try { const j = JSON.parse(witnessClean(s || '')); if (!j || typeof j !== 'object' || Array.isArray(j)) return null; const { signatures, ...o } = j; return { o: canon(o), sigs: Array.isArray(signatures) ? signatures : [] }; } catch (_) { return null; } };
-  const a = strip(st[0].witness), b = strip(mine[0]); if (!a || !b || a.o !== b.o) return false;
-  for (let i = 1; i < mine.length; i++) if ((st[i].witness || null) !== mine[i]) return false;
+  /* the signatures say it: they are over this transaction's whole text, its inputs and its outputs, so `keys`' signatures in the mint's
+     record are this spend's and no other's. What else the record keeps of the witness is the mint's business (cdk-mintd keeps the
+     signatures alone), and is no longer compared word for word (16 Nov) */
+  const a = strip(st[0].witness); if (!a) return false;
   const text = destMessage(tx); return keys.every(k => a.sigs.some(g => typeof g === 'string' && verify(g, text, k))); }
 // A donor's refund of a donation signed whole, after its deadline: its proofs (all under its lock) and the outputs it gives them
 // (OutputData: plain ecash for the donor), signed whole with the refund key, with a witness that gives the text back (every output in
 // `o`) so that the status page can show it was taken back; when that does not fit, the signature alone, which is all the mint needs.
-function wholeRefundWitnesses(proofs, outs, sk){ const tx = { inputs: proofs.map(slim), outputs: outs.map(o => ({ amount: amt(o.blindedMessage.amount), id: o.blindedMessage.id, B_: o.blindedMessage.B_ })), rests: [] };
-  const sig = cashu.schnorrSignMessage(destMessage(tx), sk); return wholeWitnesses(tx, [sig]) || [JSON.stringify({ signatures: [sig] }), ...proofs.slice(1).map(() => null)]; }
+function wholeRefundWitnesses(proofs, outs, sk, plain){ const tx = { inputs: proofs.map(slim), outputs: outs.map(o => ({ amount: amt(o.blindedMessage.amount), id: o.blindedMessage.id, B_: o.blindedMessage.B_ })), rests: [] };
+  const sig = cashu.schnorrSignMessage(destMessage(tx), sk); return (!plain && wholeWitnesses(tx, [sig])) || [JSON.stringify({ signatures: [sig] }), ...proofs.slice(1).map(() => null)]; }
 
 // ---------- the published ledger, version 2 ----------
 // Each donation by its code: amount, date, what each part paid for, and the tokens of whatever was put back. The clinic's signed
 // declarations go with it, so anyone can check them. Version 1 readers keep working: "donations" lists every locked token.
 async function ledgerEntry({ token, proofs, date, parts = [], remainders = [] }){ const ys = proofs.map(p => yOf(p.secret));
-  return { ref: await donRef(ys), amount: proofs.reduce((s, p) => s + amt(p.amount), 0), date: String(date || '').slice(0, 10), token, parts: parts.map(x => ({ request: x.request, patient: x.patient, procedure: x.procedure, date: x.date, amount: Number(x.amount) })), remainders }; }
+  return { ref: await donRef(ys), amount: proofs.reduce((s, p) => s + amt(p.amount), 0), date: String(date || '').slice(0, 10), token, parts: parts.map(x => ({ request: x.request, patient: x.patient, procedure: x.procedure, date: x.date, amount: Number(x.amount), ...(textOk(x.tx) ? { tx: textOk(x.tx) } : {}) })), remainders }; }
 function ledgerV2({ campaign, clinicKeySource = '', entries = [], certificates = [], published = new Date().toISOString() }){ const c = campaignOf(campaign);
   return { v: 2, campaign: { ...c, ...(campaign.hue != null ? { hue: campaign.hue } : {}), ...(campaign.to ? { to: campaign.to } : {}), ...(campaign.sig ? { sig: campaign.sig } : {}) }, clinicKeySource, published, donations: entries.flatMap(e => [e.token, ...(e.remainders || [])]), entries, certificates: certificates.map(x => ({ statement: x.statement, sig: x.sig })) }; }
 // a declaration from a ledger: is it signed with the campaign's clinic statement key?
@@ -922,7 +941,7 @@ root.scCore = { TAG, canon, yOf, amt, pubOf, pointOk, sameKey, sha256hex, derive
   DEST, payeesOf, destMint, destSecret, destLockProblem, destTx, destBuild, destProblems, destMessage, destSign, destSigned, destSwap, destFind, destWhole, destProven, destOutputs, destTrace, lockShape, askedOf, reqTx, requestSplit,
   TZ, CONFIRM_DAYS, MARGIN_DAYS, madridStart, madridEnd, madridDay, addDays, dayOk, timing, invoiceExpiry, fetchT,
   makeRequest, signRequest, requestSig, requestProblems, amountProblems, requestAmount, statementOf, certify, report, checkAnswer, clinicSigsByY, clinicSigsOf, withSig, REASONS,
-  isWhole, contribWhole, wholeIn, wholePart, wholeBuild, reqWhole, wholeTx, wholeProblems, wholeWitnesses, wholeSpends, wholeOwn, wholeSwap, wholeMine, wholeRefundWitnesses, WIT_MAX,
+  isWhole, contribWhole, wholeIn, wholePart, wholeBuild, reqWhole, wholeTx, wholeProblems, wholeWitnesses, wholeSpends, wholeText, textOk, wholeOwn, wholeSwap, wholeMine, wholeRefundWitnesses, WIT_MAX,
   pack, unpack, linkFor, remainderPart, remainderSlots, donationSplit, planRelease, remainderOutputs, findRemainder, findRemainders, traceDonation,
   ledgerEntry, ledgerV2, certificateOk, handoverReceipt, handoverReceiptOk, witnessClean, campSigned, signCampaign, campaignSig, campaignId, evidenceOk, EVIDENCE, receivedByOk, receivedOk, RECV_MAX,
   CAT_SLOTS, CAT_CHUNK, CAT_PHOTO_MAX, REQ_SLOTS, reqPhotoParts, reqPartOk, ANS_SLOTS, ansPhotosOk, ansPhotoParts, ansPartOk, newCatId, catProblems, catStatement, signCat, catCheck, catPhotoParts, catPartOk,

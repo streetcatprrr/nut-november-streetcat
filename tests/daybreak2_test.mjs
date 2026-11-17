@@ -5,7 +5,7 @@
 //   was left sealed under a key nobody could make again).
 // · The partner: the request confirmed is the one tapped, though another is opened while its photos are saved (16), and nothing goes
 //   wrong after a confirmation with photos; a confirmation the outbox could not take goes in at "send again" (10); Streetcat's own copy
-//   of a request takes the place of a forged one opened first and reported (12).
+//   of a request takes the place of a forged one opened first (12; since 17 Nov nothing is signed about a forged copy, a report neither).
 // · Rescue: of a confirmation and a report, the one signed last stands, and once released the confirmation stays (11); a cat record's
 //   number signed by another clinic key does not take the record's place (14).
 // · The volunteer: a donation handed over under a campaign Streetcat did not sign is "Do not accept it" (7).
@@ -91,13 +91,13 @@ const linkOf = async q => hashOf(await C.linkFor(BASE + 'index.html?role=clinic'
   const shown = await again.count() > 0; if (shown) { await again.first().click(); await p.waitForTimeout(2500); }
   const box = await inBox(qd.id), rd = await creq(qd.id);
   check('10 · a confirmation the outbox could not take (no room) goes in when "send again" is tapped, and is sent', /no room/.test(e10) && !before.length && shown && box.length === 1 && !!rd.outbox && box[0] === 'sent', `${e10.slice(0, 60)} · "send again" ${shown ? 'there' : 'missing'} · outbox: ${box.join() || 'none'}`);
-  // 12 · a forged copy of a request opened first and reported; then Streetcat's own
+  // 12 · a forged copy of a request opened first; a report about it is not signed (six scans, 3.7, 17 Nov: before, it was); then Streetcat's own
   const qg = await request(camp, 'NUBE', 32), forged = { ...qg, patient: 'TIGRE' };
   await open(p, await linkOf(forged)); await p.waitForSelector('#creq.on');
   await p.evaluate(() => { document.querySelector('#cr-why button[data-r="wrong-data"]').click(); document.getElementById('cr-report').click(); });
-  await p.waitForFunction(id => { const r = window.__vetlock.creqs().find(x => x.id === id); return r && r.state === 'reported'; }, qg.id, { timeout: 15000 }).catch(() => {});
+  await p.waitForFunction(id => { const r = window.__vetlock.creqs().find(x => x.id === id); return r && r.state === 'reported'; }, qg.id, { timeout: 2500 }).catch(() => {});
   const was = await creq(qg.id); await open(p, await linkOf(qg)); await p.waitForTimeout(800); const now = await creq(qg.id);
-  check('12 · a forged copy opened first and reported gives way to Streetcat\'s own: to review, as Streetcat wrote it', !!was && was.state === 'reported' && !!now && now.state === 'review' && now.q.patient === 'NUBE' && !(now.unsigned || []).length, `${was && was.state} → ${now && now.state} · ${now && now.q.patient}`);
+  check('12 · a forged copy opened first, which cannot be reported, gives way to Streetcat\'s own: to review, as Streetcat wrote it', !!was && was.state === 'review' && !was.answer && was.q.patient === 'TIGRE' && (was.unsigned || []).length > 0 && !!now && now.state === 'review' && now.q.patient === 'NUBE' && !(now.unsigned || []).length, `${was && was.state} → ${now && now.state} · ${now && now.q.patient}`);
   await p.context().close(); }
 
 // ---- RESCUE (11, 14) ----

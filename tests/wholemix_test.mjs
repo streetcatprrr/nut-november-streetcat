@@ -16,6 +16,7 @@ const relays = [startRelay({ port: 7497 }), startRelay({ port: 7498 })]; await P
 const b = pinBrowser(await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {}));
 const page = async () => { const c = await b.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } }); await c.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   await c.addInitScript(r => { try { localStorage.setItem('vetlock.relays', r); } catch (_) {} }, RELAYS);
+  if (process.env.WITNESS === 'plain') await c.addInitScript(() => { try { localStorage.setItem('vetlock.witness', 'plain'); } catch (_) {} });  /* as at a mint that is not Nutshell: wholeplain_test.mjs */
   const p = await c.newPage(); p.on('pageerror', e => { bad++; say('✗ PAGEERROR', e.message); }); p.on('dialog', d => d.accept()); await p.route('**/api/v1/prices', r => r.fulfill({ json: { EUR: 88000, USD: 100000 } })); return p; };
 const donor = await page(), clinic = await page(), sc = await page(), viewer = await page();
 for (const p of [donor, clinic, sc]) await p.goto(BASE + 'index.html');
@@ -76,14 +77,33 @@ const rel2 = await sc.evaluate(() => { try { return JSON.parse(localStorage.getI
 check('…kept under Release as one token for the request, of what it released', rel2.length === 1 && rel2[0].amount === relAmt, rel2.map(x => `${x.amount} sat${x.request ? ' · ' + x.request : ''}`).join(' | '));
 
 // the ledger and the status page
+// where the released sats are (17 Nov, seen on a phone: released, and no screen said where the money was)
+{ const steps = await sc.evaluate(() => document.getElementById('sq-steps').innerText); await tab(sc, 'home');
+  const lab = await sc.evaluate(() => document.getElementById('h-rel').nextElementSibling.textContent); await sc.click('#h-rel'); await sc.waitForTimeout(400);
+  const onRel = await sc.evaluate(() => document.getElementById('release').classList.contains('on') && /Released/.test(document.getElementById('s-saved').textContent));
+  check('the released request says where its sats are (kept here, to be moved), Home calls its figure "to move", and a tap on it goes to them', /kept here · Home → to move/.test(steps) && lab === 'to move · tap' && onRel, `${steps.split('\n').pop()} · "${lab}" · ${onRel}`);
+  await sc.fill('#s-token', 'not a token at all'); await sc.click('#s-go'); const said = await waitText(sc, '#s-out', /Failed|Mint refused|Not possible|✗/, 15000);
+  check('a text pasted there that is no token is said as it is, not as the mint\'s refusal', !!said && !/Mint refused/.test(said), said.slice(0, 90)); }
 await tab(sc, 'home'); await sc.click('#h-kinds button.tile'); await sc.click('#kd-pots button.req'); await sc.locator('#kd-pots .row2 button', { hasText: 'copy ledger' }).click(); await sc.waitForTimeout(300); const L = JSON.parse(await clip(sc));
 const eW = L.entries.find(e => e.amount > 500), eO = L.entries.find(e => e.amount < 500);
 check('the ledger writes what each paid and what went back under its lock', !!eW && !!eO && eW.parts.map(x => x.amount).join() === '300' && eO.parts.map(x => x.amount).join() === '100' && eW.remainders.length === 1 && eO.remainders.length === 1, eW && eO && `${eW.amount} → ${eW.parts.map(x => x.amount)} + ${eW.remainders.length} rest · ${eO.amount} → ${eO.parts.map(x => x.amount)} + ${eO.remainders.length} rest`);
 await viewer.route('**/campaigns/mochi.json', r => r.fulfill({ json: L })); await viewer.goto(BASE + 'status.html?l=campaigns/mochi.json');
 await viewer.waitForFunction(() => /Checked|Failed/.test(document.getElementById('l-out').textContent), null, { timeout: 40000 }); await viewer.waitForTimeout(1500);
+if (process.env.WITNESS === 'plain') { const wk = await viewer.evaluate(async ({ mint, token }) => { const w = new cashu.Wallet(mint); await w.loadMint(); const st = await w.checkProofsStates(w.decodeToken(token).proofs); return st.filter(x => x.state === 'SPENT').map(x => x.witness ? Object.keys(JSON.parse(x.witness)).sort().join('+') : 'none'); }, { mint: L.campaign.mint, token: eW.token }), tx = eW.parts[0].tx;
+  check('as at a mint that is not Nutshell: the mint\'s record of the new donation\'s spend holds the signatures alone, on one input, and the ledger keeps the spend\'s text beside its part', wk.length > 0 && wk.filter(x => x === 'signatures').length === 1 && wk.every(x => x === 'signatures' || x === 'none') && !!tx && tx.i.length === wk.length && tx.o.length > 0, wk.join(',') + ' · text: ' + (tx ? `${tx.i.length} in, ${tx.o.length} out, ${tx.r.length} back` : 'none')); }
 const page2 = await viewer.evaluate(() => document.body.innerText), sumOn = re => [...page2.matchAll(re)].reduce((t, m) => t + num(m[1]), 0);
 const released = sumOn(/(\d[\d ]*) sat released/g), locked = sumOn(/(\d[\d ]*) sat locked/g);
 check('the status page reads both from the mint: 400 sat released (the mint\'s fee with it), and the rest still locked', released === 400 && locked === 1050 - 400, `released ${released} · locked ${locked}`);
+
+// The road a donor takes (17 Nov, seen on a phone at a mint that is not Nutshell: a release just made, "spent · not proven"): the status
+// page opened with no ledger, as the magnifier opens it, and "From this browser" checked. The ledger published itself when Rescue
+// released, so the page finds it on the relays and shows who signed the new donation's spend. BASE is an env so this can be run against
+// the code before, where it fails with NUT-11's witness (wholeplain_test.mjs).
+{ const pg = await donor.context().newPage(); pg.on('pageerror', e => { bad++; say('✗ PAGEERROR', e.message); }); await pg.goto(BASE + 'status.html'); await pg.click('#here-go');
+  await pg.waitForFunction(() => /Checked|could not/.test(document.getElementById('here-out').textContent), null, { timeout: 60000 }); await pg.waitForTimeout(500);
+  const rows = await pg.evaluate(() => [...document.querySelectorAll('#here .hrow')].map(x => x.dataset.status)), note = await pg.evaluate(() => document.getElementById('here-out').innerText);
+  const all = (await pg.evaluate(() => [...document.querySelectorAll('#here .hrow')].map(x => x.dataset.parts))).join(' / ');
+  check('the donor\'s own browser, with no ledger given: the page finds the ledger Rescue\'s release published and shows the new donation\'s spend as released, none "not proven"', rows.length > 0 && /RELEASED/.test(all) && !/NOT PROVEN/.test(all) && !/not proven/i.test(note), `${rows.join()} · ${note.split('\n')[0].slice(0, 70)}${/NOT PROVEN/.test(all) ? ' · NOT PROVEN shown' : ''} · ${all}`); await pg.close(); }
 
 say(bad ? `wholemix: ${bad} check(s) failed` : 'wholemix: every check passed');
 await b.close(); relays.forEach(r => r.close && r.close()); process.exit(bad ? 1 : 0);

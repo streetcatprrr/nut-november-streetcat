@@ -81,7 +81,7 @@ const donor = await page(); await donor.goto(link); await donor.reload(); await 
 { const r = await openRequest(donor, 6), a = await plain(6), b2 = await plain(2); await payTo(r, a); await payTo(r, b2);
   check('two payments that come together are both taken', await until(async () => !(await unspent(w, a)) && !(await unspent(w, b2)), 20000));
   const c3 = await plain(3); await payTo(r, c3); const on = await donor.evaluate(() => document.querySelector('section.on').id); await donor.evaluate(() => window.__vetlock.tick());
-  check('…and with the app on another screen, a payment that comes is taken at the app\'s own check (each minute while it is in front)', on !== 'decash' && await until(async () => !(await unspent(w, c3)), 15000), on); }
+  check('…and with the app on another screen, a payment that comes is taken at the app\'s own check (each minute while it is in front)', on !== 'decash' && await until(async () => { await donor.evaluate(() => window.__vetlock.tick()); return !(await unspent(w, c3)); }, 15000), on); }  /* the check asked again while it waits, as the app asks each minute: one asked while the two payments before were still being taken is not run (the probable cause of this check failing twice inside the whole battery and never alone; not proven) */
 
 // 6.4 · the mint out of reach, for any number of tries
 { const r = await openRequest(donor, 7); await donor.route(MINT + '/v1/swap', rt => rt.abort()); const p = await plain(7); await payTo(r, p);

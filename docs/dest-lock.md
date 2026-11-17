@@ -1,9 +1,17 @@
-# Destination-bound P2PK: the `dest` tag
+# NUT-XX: Destination-bound P2PK (the `dest` tag)
 
-`draft` · `experimental` · depends on NUT-10, NUT-11 (uses NUT-07, NUT-09)
+`optional` · `draft`
 
-Streetcat, Nut November 2026. Not reviewed by anyone outside this project. It runs on a patched test mint only
-(`mint/`, Nutshell 0.21.0) and is exercised by `tests/dest_test.mjs`. Do not lock real funds with it.
+`depends on: NUT-10, NUT-11` · `uses: NUT-07, NUT-09`
+
+---
+
+A proposal, written in the form of a NUT and not submitted as one: no number has been asked for. By Streetcat, for Nut
+November 2026. Nobody outside this project has reviewed it. It runs on a patched test mint only ([`mint/`](../mint/), a
+patch on Nutshell 0.21.0) and is exercised by `tests/dest_test.mjs`. Do not lock real funds with it.
+
+The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119. Worked examples, with a spend the mint accepts and
+the spends it refuses, are in [`dest-vectors.md`](dest-vectors.md).
 
 ## Why
 
@@ -153,6 +161,28 @@ A mint that enforces this says so in its NUT-06 info, under NUT-11:
   `dest` tag not at all. A mint has to weigh that before it announces the rule.
 - **Not covered.** HTLC secrets (a `dest` tag there is refused on the main path), melting to a fixed Lightning
   destination, and two transactions racing to create the same output secret.
+
+## Reference implementation and tests
+
+- The mint: [`mint/nutshell-0.21.0-dest.patch`](../mint/nutshell-0.21.0-dest.patch), a patch on Nutshell 0.21.0, and how
+  to run it in [`mint/README.md`](../mint/README.md).
+- A client: `app/core.js` (`destBuild`, `destProblems`, `destSwap`, `destFind`, `destTrace`), used by the three apps of
+  this repository.
+- The rule alone, spoken to the mint over HTTP: `tests/dest_test.mjs`. Many spends at once, on SQLite and on Postgres:
+  `tests/race_test.mjs`. Proofs of a retired keyset: `tests/keysets_test.mjs`.
+- Worked examples: [`dest-vectors.md`](dest-vectors.md), written by `tools/dest-vectors.mjs`.
+
+## Open questions
+
+- **Opening the outputs to the mint** is what lets this work on today's keysets, and it is what costs privacy and
+  witness size. A mint that checked the same rule over blinded outputs would need neither; the drafts under Related
+  work go that way.
+- **Other policies.** `pubkeys` is the only one defined. A lock that fixes amounts per payee, or a payee by Lightning
+  destination, would be other values of the same tag.
+- **Where the announcement belongs.** It is written under NUT-11 in the mint's info here; a NUT of its own would have
+  its own entry.
+- **Tags already in use.** A mint that adopts the rule changes what an existing secret with a tag named `dest` means
+  (see Limits).
 
 ## Related work
 

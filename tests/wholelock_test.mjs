@@ -135,4 +135,22 @@ if (!F) check('the fee mint (3339) answers', false, FEEMINT);
 else { const cf = camp(F, now() + 30 * 86400), H = await donate(F, cf, 2000), qH = await ask(F, cf, [pick(H, 1000)]), kH = qH.contributions[0], feeH = F.fee(kH.proofs), aH = await C.certify(qH, cl.sk), { parts: pH } = await releaseIt(F, qH, 0, aH);
   check(`at a mint that charges ${feeH} sat to spend these proofs: the request leaves exactly that, the partner's app finds it is the mint's fee, and the mint takes it`, feeH > 0 && !C.amountProblems(qH, keysOf(F), F.fee).length && pH.filter(x => !x.rest).reduce((a, x) => a + x.amount, 0) === 1000 - feeH && C.requestSplit(qH)[0].fee === feeH, `${pH.filter(x => !x.rest).map(x => x.amount).join('+')} paid`); }
 
+// ---------- the witness NUT-11 writes, for a mint that is not Nutshell (16 Nov, found with real sats at Minibits) ----------
+// cdk-mintd refuses a swap whose inputs carry this app's own witnesses. There the spend goes with the signatures on the first input
+// and nothing on the others; tried here against Nutshell, which takes that too. The app still tells its own spend by the signatures.
+{ const P = await donate(M, c1, 900), qP = await ask(M, c1, [pick(P, 700)]), aP = await C.certify(qP, cl.sk), kP = qP.contributions[0], txP = await C.wholeOwn(qP, kP, sc.sk), witP = C.wholeWitnesses(txP, [C.destSign(txP, sc.sk), C.clinicSigsOf(qP, aP)[0]], true);
+  const shape = witP.length === txP.inputs.length && Object.keys(JSON.parse(witP[0])).join() === 'signatures' && JSON.parse(witP[0]).signatures.length === 2 && witP.slice(1).every(x => x === null);
+  let partsP = [], whyP = ''; try { partsP = await C.wholeSwap(M.w, txP, witP); } catch (e) { whyP = String(e.message || e); }
+  check('the spend as NUT-11 writes it (signatures on the first input, no witness on the others): the mint takes it, the payment and the rest are what was asked', shape && !whyP && partsP.filter(x => !x.rest).reduce((n, x) => n + x.amount, 0) === 700 && C.destWhole(txP, partsP), whyP || witP.map(x => x ? x.length : 0).join(','));
+  check('…and Streetcat\'s app still tells it is its own spend, from the signatures in the mint\'s record, and that another transaction is not', await C.wholeMine(M.w, txP, [sc.pk, cl.pk]) && !(await C.wholeMine(M.w, { ...txP, outputs: txP.outputs.slice().reverse() }, [sc.pk, cl.pk])));
+  // who signed, where the mint's record gives the signatures alone: the spend's text is kept beside it (the ledger), and the signatures
+  // in the mint's record are over that text or they are not (17 Nov)
+  const trP = await C.traceDonation(M.w, P.proofs), spentP = trP.filter(x => x.state === 'SPENT'), textP = C.wholeText(txP), alone = await C.wholeSpends(trP), withText = await C.wholeSpends(trP, [textP]);
+  const other = { ...textP, o: textP.o.map((v, i) => i ? v : String(Number(v.slice(0, -66)) + 1) + v.slice(-66)) }, withOther = await C.wholeSpends(trP, [other]), junk = await C.wholeSpends(trP, [{ i: ['zz'], o: 7 }, null, 'x', { i: textP.i, o: textP.o, r: [-1] }]);
+  check('such a spend, read from the mint alone, is neither released nor taken back; with its text kept beside it, the mint\'s signatures show Streetcat and the partner signed it', spentP.length === kP.proofs.length && spentP.every(x => !alone.has(C.yOf(x.proof.secret))) && spentP.every(x => withText.get(C.yOf(x.proof.secret)) === 'released'), `${spentP.length} spent · alone ${alone.size} · with its text ${withText.size}`);
+  check('…and a text that is not the one signed (one sat more in an output), or one that is no text at all, proves nothing', spentP.every(x => !withOther.has(C.yOf(x.proof.secret))) && junk.size === 0 && C.textOk(textP) !== null && C.textOk({ i: [], o: [] }) === null);
+  const RP = await donate(M, cPast, 300), rpo = cashu.OutputData.createRandomData(sum(RP.proofs) - M.fee(RP.proofs), M.ks), rpw = C.wholeRefundWitnesses(RP.proofs, rpo, RP.sk, true);
+  const rpr = await M.w.mint.swap({ inputs: RP.proofs.map((p, i) => ({ id: p.id, amount: amt(p.amount), secret: p.secret, C: p.C, ...(rpw[i] ? { witness: rpw[i] } : {}) })), outputs: rpo.map(o => ({ amount: amt(o.blindedMessage.amount), id: o.blindedMessage.id, B_: o.blindedMessage.B_ })) }).catch(e => ({ e }));
+  check('a refund written the same way is taken too', !rpr.e && Object.keys(JSON.parse(rpw[0])).join() === 'signatures' && rpw.slice(1).every(x => x === null), rpr.e ? String(rpr.e.message || rpr.e) : ''); }
+
 say(bad ? `wholelock: ${bad} check(s) failed` : 'wholelock: every check passed'); process.exit(bad ? 1 : 0);

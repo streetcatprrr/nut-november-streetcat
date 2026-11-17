@@ -152,7 +152,7 @@ function parseLedger(j){ if (!j || typeof j !== 'object') throw new Error('not a
   /* an entry's parts and rests as the page reads them, whatever the ledger wrote there (six scans, 15 Nov, 5.26: `parts` that was not a
      list stopped the whole page); a declaration has a size, there are no more of them than donations could have, and the same one
      twice is one (5.8, 5.29) */
-  const short = (v, n) => String(v == null ? '' : v).slice(0, n), partOf = p => p && typeof p === 'object' ? { ...p, request: short(p.request, 40), patient: short(p.patient, 200), procedure: short(p.procedure, 200), date: short(p.date, 40), amount: Number(p.amount) || 0 } : null;
+  const short = (v, n) => String(v == null ? '' : v).slice(0, n), partOf = p => p && typeof p === 'object' ? { ...p, request: short(p.request, 40), patient: short(p.patient, 200), procedure: short(p.procedure, 200), date: short(p.date, 40), amount: Number(p.amount) || 0, tx: scCore.textOk(p.tx) || undefined } : null;  /* a spend's text, kept beside it: its lists as they must be, or dropped (17 Nov) */
   const v2 = j.v === 2, entries = v2 && Array.isArray(j.entries) ? j.entries.filter(e => e && typeof e === 'object' && /^DON-[0-9A-F]{8}$/.test(String(e.ref))).map(e => ({ ...e, parts: (Array.isArray(e.parts) ? e.parts : []).slice(0, 200).map(partOf).filter(Boolean), remainders: (Array.isArray(e.remainders) ? e.remainders : []).filter(t => typeof t === 'string').slice(0, 200) })) : [];
   const certSeen = new Set(), certificates = (v2 && Array.isArray(j.certificates) ? j.certificates : []).filter(x => { if (!x || typeof x !== 'object' || !x.statement || typeof x.statement !== 'object') return false; let t = ''; try { t = JSON.stringify(x); } catch (_) { return false; } if (t.length > CERT_MAX || certSeen.has(t)) return false; certSeen.add(t); return true; });
   if (certificates.length > LEDGER_TOKENS) throw new Error(`this ledger carries more than ${LEDGER_TOKENS} declarations: too many to be one of Streetcat's, so it is not read`);
@@ -184,7 +184,7 @@ function lockOf(p){ const l = scCore.lockOf(p.secret); return l && { pubkeys: l.
 function lockProblem(l, c){ return scCore.lockProblem(l && l.core, c); }
 
 // one donation token, checked against the mint
-async function checkToken(c, token){
+async function checkToken(c, token, texts = []){
   const r = { token, amount: 0, status: '', problems: [], ys: [], detail: '' };
   let meta; try { meta = cashu.getTokenMetadata(token); } catch (_) { r.status = 'UNREADABLE'; r.problems.push('cannot decode this token'); return r; }
   if (norm(meta.mint) !== c.mint) { r.status = 'OTHER MINT'; r.problems.push('this token is from ' + meta.mint); return r; }
@@ -199,7 +199,7 @@ async function checkToken(c, token){
   // from the text each spend's witness gives back (core.js wholeSpends): RELEASED only where Streetcat and the clinic signed that very
   // transaction, REFUNDED where the donor's key did, and any other spend (another wallet's refund, whose witness says nothing more)
   // NOT PROVEN, counted as nothing released
-  const how = trace.some(x => scCore.isWhole(scCore.lockOf(x.proof.secret))) ? await scCore.wholeSpends(trace) : null;
+  const how = trace.some(x => scCore.isWhole(scCore.lockOf(x.proof.secret))) ? await scCore.wholeSpends(trace, texts) : null;
   for (const x of trace) {
     const p = x.proof, st = { state: x.state, witness: x.witness }, l = lockOf(p), bad = lockProblem(l, c);
     let issued = false; try { issued = cashu.hasValidDleq(p, await w.keyChain.ensureKeysetKeys(p.id)); } catch (_) { issued = false; }
@@ -355,7 +355,8 @@ let RUN = 0;
 async function run(){ const btn = $('l-go'), g = ++RUN, src = $('l-src').value, stale = () => g !== RUN; btn.disabled = true; LAST = null; show($('l-out'), 'checking at the mint…');
   let view = null; const t0 = Date.now();
   try { const L = await loadLedger(src); if (stale()) return; view = renderCampaign(L); const seen = new Set(), txs = new Set(), results = [];
-    for (const t of [...new Set(L.donations)]) { const r = await checkToken(L.campaign, t); if (stale()) { view.close(); return; } if (dedupe(r, seen)) { payOnce(r, txs); results.push(r); } }  /* the same token listed again is not asked of the mint again (5.17) */
+    const texts = (L.entries || []).flatMap(e => (e.parts || []).map(p => p && p.tx).filter(Boolean));  /* the texts of the spends, as the ledger keeps them: for a mint whose record gives the signatures alone (17 Nov) */
+    for (const t of [...new Set(L.donations)]) { const r = await checkToken(L.campaign, t, texts); if (stale()) { view.close(); return; } if (dedupe(r, seen)) { payOnce(r, txs); results.push(r); } }  /* the same token listed again is not asked of the mint again (5.17) */
     L.declared = new Map(); for (const x of L.certificates) { let ok = false; try { ok = await scCore.certificateOk(L.campaign, x); } catch (_) {} if (stale()) { view.close(); return; }  /* one that cannot be read is not signed, and stops nothing (5.29) */
       if (ok) for (const k of Array.isArray(x.statement.contributions) ? x.statement.contributions : []) if (k && typeof k === 'object') L.declared.set(x.statement.request + '|' + k.ref, x.statement); }  // signed with the clinic's statement key
     LAST = { L, results, ys: new Set(results.filter(r => !(r.problems || []).length).flatMap(r => [...r.ys, ...(r.per || []).map(x => x.y)].map(y => y.toLowerCase()))) };  /* what the search calls listed: the ecash of the entries that count, and what the mint traced from them, a rest put back under the lock too (six scans, 15 Nov, 5.16, 5.23) */ renderList(L.campaign, results, L);
@@ -376,7 +377,7 @@ $('m-go').onclick = async () => { const btn = $('m-go'); btn.disabled = true; sh
     if (/^DON-[0-9A-F]{8}$/i.test(t)) { const ref = t.toUpperCase(), r = LAST.results.find(x => x.ref === ref);  /* a donation's code (on its receipt or card) */
       show($('m-out'), r ? `LISTED ✓ · ${ref} · ${fmtSat(r.amount)} · ${r.status}` + (r.counted && r.counted.length > 1 ? '\n' + byState(r.counted) : '') + ((LAST.L.entries.find(e => e.ref === ref) || {}).parts || []).map(p => `\n→ ${fmtSat(p.amount)}: ${p.patient} · ${p.procedure} · ${p.date}`).join('') : (LAST.L.more ? `NOT LISTED HERE · ${ref}\nThis ledger is full: ${LAST.L.more.n} donation${LAST.L.more.n > 1 ? 's are' : ' is'} left out of it. Streetcat's ledger file has them all.` : `NOT LISTED ✗ · ${ref}\nThis ledger has no donation with that code.`), r ? (rowOk(r) ? 'ok' : 'bad') : LAST.L.more ? '' : 'bad');  /* a full ledger leaves some out: not said to be missing (review of 12 Nov) */ btn.disabled = false; return; }
     if (t.startsWith('{')) { const j = JSON.parse(t); t = String(j.lockedToken || (j.donation && j.donation.token) || ''); }  /* a receipt, of either version: its token only */ if (!t.startsWith('cashu')) throw new Error('paste a cashuB… token, your receipt, or the donation\'s code (DON-…)');
-    const r = await checkToken(LAST.L.campaign, t); const listed = r.ys.length && r.ys.every(y => LAST.ys.has(y.toLowerCase()));
+    const r = await checkToken(LAST.L.campaign, t, (LAST.L.entries || []).flatMap(e => (e.parts || []).map(p => p && p.tx).filter(Boolean))); const listed = r.ys.length && r.ys.every(y => LAST.ys.has(y.toLowerCase()));
     const head = listed ? `LISTED ✓ · ${fmtSat(r.amount)} · ${r.status}` : LAST.L.more ? `NOT LISTED HERE · ${fmtSat(r.amount)} · ${r.status}\nThis ledger is full: ${LAST.L.more.n} donation${LAST.L.more.n > 1 ? 's are' : ' is'} left out of it, and Streetcat's ledger file has them all.` : `NOT LISTED ✗ · ${fmtSat(r.amount)} · ${r.status}\nAsk Streetcat to add it. ` + (r.problems.length ? 'This token could not be checked as a donation of this campaign (see below), so nothing can be said here of who can spend it or of taking it back.' : 'Your sats are safe either way: nobody can spend them without the clinic, and after the deadline you can take them back.');  /* said only of a token that checked out (six scans, 15 Nov, 5.13) */
     show($('m-out'), head + (r.problems.length ? '\n✗ ' + r.problems.join('\n✗ ') : ''), r.problems.length ? 'bad' : listed ? 'ok' : LAST.L.more ? '' : 'bad');
   } catch (e) { show($('m-out'), 'Failed: ' + (e.message || e), 'bad'); } btn.disabled = false; };
@@ -390,18 +391,28 @@ async function campaignOf(t){ const meta = cashu.getTokenMetadata(t.token), w = 
   return { name, op, mint: norm(meta.mint), streetcat: String(l.pubkeys[0]).toLowerCase(), clinic: String(l.pubkeys[1]).toLowerCase(), deadline: l.locktime, hue: t.hue }; }  // the app writes Streetcat's key first
 let HERE = [];
 const hereDetails = (c, r) => [`${c.name}${c.op ? ' · ' + c.op : ''}`, `${fmtSat(r.amount)} · ${r.status}`, MEANING[r.status] || '', r.problems.length ? r.problems.map(x => '✗ ' + x).join('\n') : 'lock ✓ · issued by the mint ✓', r.detail, `refund after ${fmtDate(c.deadline)}`, `mint ${c.mint.replace(/^https?:\/\//, '')}`, `Streetcat ${abbrKey(c.streetcat)}`, `clinic ${abbrKey(c.clinic)}`].filter(Boolean).join('\n');
-async function runHere(){ const saved = savedTokens(); if (!saved.length) return; $('here').hidden = false;
+// THE TEXTS OF A CAMPAIGN'S SPENDS, FROM ITS PUBLISHED LEDGER, for this browser's own donations (17 Nov, seen on a phone: a release just
+// made, opened here with no ledger, was "spent · not proven"). A mint that keeps a spend's signatures and not its text needs the text
+// from Streetcat's ledger: the newest one the relays give, signed with the campaign's ledger key (relay.js), asked for once a campaign.
+// `found`: whether there was one.
+const TEXTS = new Map();
+async function textsOf(c){ let id = ''; try { id = await scCore.campaignId(c); } catch (_) { return { texts: [], found: false }; } if (TEXTS.has(id)) return TEXTS.get(id); let out = { texts: [], found: false };
+  try { if (window.scRelay) { const res = await window.scRelay.latestLedger(id, { relays: relaysHere(), timeout: 8000 }); if (res && res.found) out = { found: true, texts: ((res.found.L || {}).entries || []).flatMap(e => ((e && e.parts) || []).map(p => p && p.tx).filter(Boolean)) }; } } catch (_) {}
+  TEXTS.set(id, out); return out; }
+async function runHere(){ const saved = savedTokens(); if (!saved.length) return; $('here').hidden = false; TEXTS.clear(); let unread = false;
   const groups = new Map(), seen = new Set(), errors = []; let n = 0; $('here-list').textContent = '';
-  for (const t of saved) { try { const c = await campaignOf(t); if (!c) continue; const r = await checkToken(c, t.token); if (!dedupe(r, seen)) continue; n++;
+  for (const t of saved) { try { const c = await campaignOf(t); if (!c) continue; const led = await textsOf(c), r = await checkToken(c, t.token, led.texts); if (!dedupe(r, seen)) continue; n++; if (!led.found && (r.status === 'SPENT · NOT PROVEN' || (r.per || []).some(x => x.s === 'SPENT · NOT PROVEN'))) unread = true;
       const g = JSON.stringify([c.name, c.mint, c.deadline, c.streetcat, c.clinic]); if (!groups.has(g)) groups.set(g, { c, results: [] }); groups.get(g).results.push(r);
     } catch (e) { errors.push(`${t.name || 'a donation'}: could not check it (${e.message || e})`); } }
   const list = $('here-list'); list.textContent = '';
   for (const { c, results } of groups.values()) { roleOf(c.streetcat, 'streetcat'); roleOf(c.clinic, 'clinic'); const hue = campHue(c);
-    for (const r of results) { const ok = rowOk(r); const row = el('div', 'hrow'); row.dataset.campaign = c.name; row.dataset.status = r.status; row.dataset.amount = r.amount;
+    for (const r of results) { const ok = rowOk(r); const row = el('div', 'hrow'); row.dataset.campaign = c.name; row.dataset.status = r.status; row.dataset.amount = r.amount; row.dataset.parts = [...new Set((r.per || []).map(x => x.s))].join('|');  /* each proof's state, as the row's tap shows them */
       const nm = el('span'), name = el('span', null, c.name); name.style.color = `oklch(.82 .16 ${hue}deg)`; nm.appendChild(name); nm.appendChild(document.createTextNode(` · ${fmtSat(r.amount)}`)); row.appendChild(nm); row.appendChild(el('span', 'st ' + (ok ? 'ok' : 'bad'), r.status));
       row.onclick = () => termShow(hereDetails(c, r), hue); list.appendChild(row); } }
   HERE = [...groups.values()].map(({ c, results }) => ({ campaign: c, clinicKeySource: '', donations: results.map(r => r.token) }));
-  show($('here-out'), `Checked ${n} donation${n === 1 ? '' : 's'} at ${hhmm(Date.now())}. Every state comes from the mint.` + (errors.length ? '\n✗ ' + errors.join('\n✗ ') : ''), errors.length ? 'bad' : 'ok'); }
+  /* "not proven" with no ledger to read is not a finding: it says what is missing */
+  const why = unread ? '\n✗ "Spent · not proven": this mint keeps who signed a spend but not what they signed, and Streetcat\'s ledger for it is not on the relays yet. Once it is published, this page checks the signatures.' : '';
+  show($('here-out'), `Checked ${n} donation${n === 1 ? '' : 's'} at ${hhmm(Date.now())}. Every state comes from the mint.` + why + (errors.length ? '\n✗ ' + errors.join('\n✗ ') : ''), errors.length || unread ? 'bad' : 'ok'); }
 $('here-copy').onclick = async () => { const text = JSON.stringify(HERE, null, 1), b = $('here-copy'), ok = await copyText(text);
   if (ok) doneLabel(b); else flapLabel(b, 'select it', 2500);
   termShow(ledgerTexts(HERE.map(ledgerView)), HERE.length ? campHue(HERE[0].campaign) : CAMP_HUES[0]);

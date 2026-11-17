@@ -1,6 +1,6 @@
 // Which cat is this? A hint on the phone, never a proof. A photo is cut down to its cat (YOLOS-tiny)
 // and turned into 384 numbers (DINOv2 small); photos of one cat give numbers close to each other. Chosen on 6 Nov among four models,
-// on 58 photos of 14 named cats from Wikimedia Commons (docs/HANDOFF.md). The models run in catid-worker.js; their files (ai/1/ and
+// on 58 photos of 14 named cats from Wikimedia Commons (README.md, Progress, 7 Nov). The models run in catid-worker.js; their files (ai/1/ and
 // ai/2/, 121 MB) come only when the clinic or Streetcat asks for them, and then the service worker keeps them, for without a connection.
 // A photo's numbers are kept here, in IndexedDB, under the photo's SHA-256, so each photo is worked out once.
 // VERSION 2 (7 Nov; in the app at Streetcat's decision, PetFace's weights being for non-commercial research: ai/2/LICENSES.txt): the cat's
@@ -8,7 +8,7 @@
 // is turned and scaled onto PetFace's cat template (224 × 224), and PetFace (ResNet-50, Shinoda and Shiohara, ECCV 2024) turns it into 512
 // numbers. Two photos are compared by both: each cosine is put on one scale (how far above the usual cosine of two different cats it is,
 // in their spread, Z below) and the two are averaged; when either photo has no face found, by DINOv2 alone. On 45 photos of 13 cats
-// (docs/HANDOFF.md) the right cat came first 89 % of the time, against 63 % with DINOv2 alone (the browser's numbers, 54 photos). Its two files are in ai/2/ (72 MB more).
+// (README.md, Progress, 7 Nov) the right cat came first 89 % of the time, against 63 % with DINOv2 alone (the browser's numbers, 54 photos). Its two files are in ai/2/ (72 MB more).
 const CATID = (() => {
   const ROOT = new URL('./', location.href).href, DIR = ROOT + 'ai/1/', TAG = 'catid2', CAT = 17;  // COCO's class 17: cat
   const MEAN = [.485, .456, .406], STD = [.229, .224, .225], PAD = MEAN.map(m => Math.trunc(m * 255));
@@ -139,7 +139,7 @@ const CATID = (() => {
   // without a face in either, DINOv2's alone. A face counts only from a score of 0.6 (FACE): on the evaluation's photos real cat faces
   // scored 0.69–0.99 but one (0.43), while AnyFace also "found" faces of 0.56–0.72 in the tests' drawn rings, and below 0.6 in a drawn
   // triangle, which hid another cat. The medians and spreads are those of the browser's own numbers for the evaluation's 54 photos of
-  // 13 cats (docs/HANDOFF.md). WARN: below it, a record "may not be the cat" of a request (index.js); at it, the right cat was flagged
+  // 13 cats (README.md, Progress, 7 Nov). WARN: below it, a record "may not be the cat" of a request (index.js); at it, the right cat was flagged
   // 5 % of the time with two or three photos a side, as v1's 0.40 was, and another cat 84–89 % (v1: 66–76 %).
   const Z = { e: [.2871, .1272], f: [.0793, .1445] }, WARN = 1.0, FACE = .6, face = v => v.f && v.fs >= FACE;
   const pair = (a, b) => { const d = (sim(a.e, b.e) - Z.e[0]) / Z.e[1]; return face(a) && face(b) ? (d + (sim(a.f, b.f) - Z.f[0]) / Z.f[1]) / 2 : d; };

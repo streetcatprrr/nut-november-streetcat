@@ -104,12 +104,17 @@ if (dest) { const dcamp = await C.signCampaign({ name: 'SOL', op: 'sterilisation
   check('4.28 · paid, and the mint stopped saying it enforces where donations go: the sats come back to the donor as plain ecash, kept here and said, and nothing is donated', /stopped saying it enforces where donations may go/.test(out) && /taken back to you as ecash/.test(out) && !!k && !k.lockedToken && (await liveSum(dw, tok)) === 8 && dw.decodeToken(tok).proofs.every(p => !String(p.secret).startsWith('[')) && left === 0, `${one(out)} · invoices waiting ${left}`); await d.context().close(); }
 
 // 4.8 · paid out to Streetcat's address, and the "paid" mark on the released ecash could not be written
-{ const R = await rescue({ init: refuser }); await R.setAddr(SCADDR);
+// The test mint's fake Lightning pays its own invoices 3 seconds after making them, and then refuses a payout to one ("mint quote
+// already paid"): with the machine busy the app gets there later than that. It is the harness, not the app (found 17 Nov), so the
+// scenario is run again, three times at most.
+for (let go = 1; go <= 3; go++) { const R = await rescue({ init: refuser }); await R.setAddr(SCADDR);
   await R.s.route('**/v1/melt/bolt11', async r => { await refuse(R.s, [{ key: 'vetlock.released' }]); return r.continue(); });
-  const out = await R.release(await R.certify(await R.donate(21))); await R.s.unroute('**/v1/melt/bolt11'); const before = await R.s.evaluate(() => window.__vetlock.releasedList().filter(x => !x.paid).length);
+  const out = await R.release(await R.certify(await R.donate(21))); await R.s.unroute('**/v1/melt/bolt11');
+  if (/mint quote already paid/.test(out) && go < 3) { say('  (4.8 · the test mint paid its own invoice before the app did: run again)'); await R.close(); continue; }
+  const before = await R.s.evaluate(() => window.__vetlock.releasedList().filter(x => !x.paid).length);
   await refuse(R.s, []); await R.s.reload(); await R.s.waitForTimeout(2500);
   const pay = await R.s.evaluate(() => window.__vetlock.payouts().slice(-1)[0] || {}), rel = await R.s.evaluate(t => window.__vetlock.releasedList().find(x => x.token === t) || null, pay.token), listed = await txt(R.s, '#s-saved').catch(() => '');
-  check('4.8 · a payout whose "paid" mark could not be written: once the app opens the spent ecash is marked paid, and is not offered under Release', before === 1 && pay.state === 'paid' && !!rel && rel.paid === SCADDR && !/sat/.test(listed), `unmarked before ${before} · payout ${pay.state} · marked ${rel && rel.paid} · Release: "${one(listed)}" · ${one(out)}`); await R.close(); }
+  check('4.8 · a payout whose "paid" mark could not be written: once the app opens the spent ecash is marked paid, and is not offered under Release', before === 1 && pay.state === 'paid' && !!rel && rel.paid === SCADDR && !/sat/.test(listed), `unmarked before ${before} · payout ${pay.state} · marked ${rel && rel.paid} · Release: "${one(listed)}" · ${one(out)}`); await R.close(); break; }
 
 // 4.17 · paid out with change, and the change could not be kept
 { const R = await rescue({ init: refuser }); await R.setAddr(SCADDR); LN.short = 3;
