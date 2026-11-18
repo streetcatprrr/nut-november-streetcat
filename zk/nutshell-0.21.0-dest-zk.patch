@@ -1,0 +1,299 @@
+diff -ruN a/cashu/mint/dest.py b/cashu/mint/dest.py
+--- a/cashu/mint/dest.py
++++ b/cashu/mint/dest.py
+@@ -18,8 +18,9 @@
+ 
+ import json
+ import re
+-from typing import List, Optional, Set, Tuple
++from typing import Any, List, NamedTuple, Optional, Set, Tuple, Union
+ 
++from . import dest_zk
+ from ..core.base import BlindedMessage, Proof
+ from ..core.crypto.b_dhke import hash_to_curve, step1_alice
+ from ..core.crypto.secp import PrivateKey, PublicKey
+@@ -34,6 +35,15 @@
+ DEST_POLICIES = ["pubkeys"]
+ 
+ Opening = Tuple[str, str]  # an output's secret and its blinding factor (hex)
++
++
++class Proved(NamedTuple):
++    """An output left blinded: the payee it pays and a proof of it (mint/dest_zk.py)."""
++
++    pay: str
++    proof: Any
++
++
+ # a blinding factor is written one way: 32 bytes, lower-case hex
+ _SCALAR_HEX = re.compile(r"[0-9a-f]{64}")
+ # and so is an output's blinded message: a compressed point, lower-case hex
+@@ -166,7 +176,27 @@
+ 
+         input_nonces = {Secret.deserialize(proof.secret).nonce for proof in proofs}
+         seen: Set[str] = set()
+-        for output, (secret, r) in zip(outputs, openings):
++        for output, opening in zip(outputs, openings):
++            if isinstance(opening, Proved):
++                # left blinded: a proof that it pays this payee, with no tags
++                # (experiment, mint/dest_zk.py). Nothing can be said about its
++                # secret, so neither repeats nor spent secrets are caught here.
++                if opening.pay not in payees:
++                    raise TransactionError(
++                        "dest: an output goes where the lock does not allow."
++                    )
++                if opening.pay.lower() not in signers:
++                    raise TransactionError(
++                        "dest: a payee is paid without its signature."
++                    )
++                if dest_zk.fingerprint() is None:
++                    raise TransactionError("dest: this mint takes no proofs.")
++                if not dest_zk.pays(opening.pay, output.B_, opening.proof):
++                    raise TransactionError(
++                        "dest: a proof does not show that its output pays the payee."
++                    )
++                continue
++            secret, r = opening
+             self._dest_check_opening(output, secret, r)
+             if secret in seen:
+                 raise TransactionError("dest: two outputs have the same secret.")
+@@ -251,7 +281,9 @@
+             return []
+         return listed
+ 
+-    def _dest_witness(self, witness: Optional[str]) -> Tuple[List[str], List[Opening]]:
++    def _dest_witness(
++        self, witness: Optional[str]
++    ) -> Tuple[List[str], List[Union[Opening, Proved]]]:
+         """The signatures and the opened outputs of a witness."""
+         if not witness:
+             return [], []
+@@ -271,9 +303,17 @@
+         if not isinstance(opened, list):
+             raise TransactionError("dest: malformed witness.")
+ 
+-        openings: List[Opening] = []
++        openings: List[Union[Opening, Proved]] = []
+         for entry in opened:
+             if (
++                isinstance(entry, dict)
++                and set(entry) == {"pay", "proof"}
++                and isinstance(entry["pay"], str)
++                and isinstance(entry["proof"], dict)
++            ):
++                openings.append(Proved(entry["pay"], entry["proof"]))
++                continue
++            if (
+                 not isinstance(entry, dict)
+                 or not isinstance(entry.get("secret"), str)
+                 or not isinstance(entry.get("r"), str)
+@@ -344,9 +384,12 @@
+         if not openings or len(openings) != len(outputs):
+             return
+         Ys = [
+-            hash_to_curve(secret.encode("utf-8")).format().hex()
+-            for secret, _ in openings
++            hash_to_curve(opening[0].encode("utf-8")).format().hex()
++            for opening in openings
++            if not isinstance(opening, Proved)
+         ]
++        if not Ys:
++            return
+         async with self.db.get_connection(conn) as conn:  # type: ignore[attr-defined]
+             spent = await self.db_read._get_proofs_spent(Ys, conn)  # type: ignore[attr-defined]
+         if spent:
+diff -ruN a/cashu/mint/dest_zk.py b/cashu/mint/dest_zk.py
+--- a/cashu/mint/dest_zk.py
++++ b/cashu/mint/dest_zk.py
+@@ -0,0 +1,170 @@
++"""
++A `dest` output that stays blinded: a proof in place of its opening.
++
++Experiment on top of the `dest` patch (zk/README.md in
++github.com/streetcatprrr/nut-november). Not part of Nutshell, not reviewed by
++anyone outside this project, and its proving key comes from a local test
++setup, not from a ceremony: whoever made that setup can forge proofs. Fake
++money only.
++
++The proof (Groth16 over BN254, circuit zk/circuits/paydest.circom) says: this
++blinded message is hash_to_curve(secret) + r·G for a secret that is exactly
++["P2PK",{"nonce":"<48 hex digits>","data":"<this key>"}], with no tags. The
++mint learns the payee and nothing else about the output.
++
++Off unless MINT_DEST_ZK_VKEY names the circuit's verification key and py_ecc
++can be imported. Everything fails closed.
++"""
++
++import hashlib
++import json
++import os
++import re
++from typing import Any, List, Optional, Tuple
++
++from coincurve import PublicKey as _Point
++
++from ..core.crypto.b_dhke import hash_to_curve
++
++_KEY_HEX = re.compile(r"0[23][0-9a-f]{64}")
++_DECIMAL = re.compile(r"0|[1-9][0-9]{0,77}")
++_LIMB = 86
++_WINDOWS = 32
++# one offset per window of the blinding factor, as the circuit's tables have them
++_OFFSETS = _Point.combine_keys(
++    [
++        _Point(hash_to_curve(f"streetcat/dest-zk/offset/{i}".encode()).format())
++        for i in range(_WINDOWS)
++    ]
++)
++
++_vkey: Optional[Tuple[str, Any]] = None  # its fingerprint and its points, once read
++_tried = False
++
++
++def _g1(bn, p: Any):
++    if not isinstance(p, list) or len(p) != 3 or p[2] != "1":
++        raise ValueError("not an affine G1 point")
++    x, y = (_field(bn, c) for c in p[:2])
++    point = (bn.FQ(x), bn.FQ(y), bn.FQ(1))
++    if not bn.is_on_curve(point, bn.b):
++        raise ValueError("G1 point not on the curve")
++    return point
++
++
++def _g2(bn, p: Any):
++    if not isinstance(p, list) or len(p) != 3 or p[2] != ["1", "0"]:
++        raise ValueError("not an affine G2 point")
++    for c in p[:2]:
++        if not isinstance(c, list) or len(c) != 2:
++            raise ValueError("not an affine G2 point")
++    x = bn.FQ2([_field(bn, p[0][0]), _field(bn, p[0][1])])
++    y = bn.FQ2([_field(bn, p[1][0]), _field(bn, p[1][1])])
++    point = (x, y, bn.FQ2.one())
++    if not bn.is_on_curve(point, bn.b2):
++        raise ValueError("G2 point not on the curve")
++    # G2's curve has points outside the group the pairing is defined on
++    if not bn.is_inf(bn.multiply(point, bn.curve_order)):
++        raise ValueError("G2 point outside the group")
++    return point
++
++
++def _field(bn, c: Any) -> int:
++    if not isinstance(c, str) or not _DECIMAL.fullmatch(c):
++        raise ValueError("not a number written in decimal")
++    n = int(c)
++    if n >= bn.field_modulus:
++        raise ValueError("coordinate out of the field")
++    return n
++
++
++def _load() -> Optional[Tuple[str, Any]]:
++    global _vkey, _tried
++    if _tried:
++        return _vkey
++    _tried = True
++    path = os.environ.get("MINT_DEST_ZK_VKEY")
++    if not path:
++        return None
++    try:
++        import py_ecc.optimized_bn128 as bn
++        from py_ecc.optimized_bn128.optimized_pairing import (
++            final_exponentiate,
++            pairing,
++        )
++
++        raw = open(path, "rb").read()
++        vk = json.loads(raw)
++        if vk.get("protocol") != "groth16" or vk.get("curve") != "bn128":
++            raise ValueError("not a Groth16 key over BN254")
++        if vk.get("nPublic") != 9 or len(vk["IC"]) != 10:
++            raise ValueError("not this circuit's key")
++        fixed = pairing(
++            _g2(bn, vk["vk_beta_2"]), _g1(bn, vk["vk_alpha_1"]), final_exponentiate=False
++        )
++        _vkey = (
++            hashlib.sha256(raw).hexdigest(),
++            dict(
++                bn=bn,
++                pairing=pairing,
++                final=final_exponentiate,
++                fixed=fixed,
++                gamma=_g2(bn, vk["vk_gamma_2"]),
++                delta=_g2(bn, vk["vk_delta_2"]),
++                ic=[_g1(bn, p) for p in vk["IC"]],
++            ),
++        )
++    except Exception:
++        _vkey = None
++    return _vkey
++
++
++def fingerprint() -> Optional[str]:
++    """SHA-256 of the verification key in use, or None when proofs are off."""
++    loaded = _load()
++    return loaded[0] if loaded else None
++
++
++def _signals(payee: str, B_: str) -> List[int]:
++    """What the circuit takes as public, worked out from the key and the output."""
++    x = int(payee[2:], 16)
++    shifted = _Point.combine_keys([_Point(bytes.fromhex(B_)), _OFFSETS]).format(
++        compressed=False
++    )
++    bx, by = int.from_bytes(shifted[1:33], "big"), int.from_bytes(shifted[33:], "big")
++    mask = (1 << _LIMB) - 1
++    limbs = lambda v: [v & mask, (v >> _LIMB) & mask, v >> (2 * _LIMB)]  # noqa: E731
++    return [x >> 128, x & ((1 << 128) - 1), int(payee[:2] == "03"), *limbs(bx), *limbs(by)]
++
++
++def pays(payee: str, B_: str, proof: Any) -> bool:
++    """Whether `proof` shows that the blinded message `B_` pays `payee` and nothing else."""
++    loaded = _load()
++    if loaded is None:
++        return False
++    try:
++        if not _KEY_HEX.fullmatch(payee) or not _KEY_HEX.fullmatch(B_):
++            return False
++        if not isinstance(proof, dict) or set(proof) - {
++            "pi_a",
++            "pi_b",
++            "pi_c",
++            "protocol",
++            "curve",
++        }:
++            return False
++        v = loaded[1]
++        bn = v["bn"]
++        a, b, c = _g1(bn, proof["pi_a"]), _g2(bn, proof["pi_b"]), _g1(bn, proof["pi_c"])
++        acc = v["ic"][0]
++        for signal, point in zip(_signals(payee, B_), v["ic"][1:]):
++            acc = bn.add(acc, bn.multiply(point, signal))
++        product = (
++            v["pairing"](b, bn.neg(a), final_exponentiate=False)
++            * v["fixed"]
++            * v["pairing"](v["gamma"], acc, final_exponentiate=False)
++            * v["pairing"](v["delta"], c, final_exponentiate=False)
++        )
++        return v["final"](product) == bn.FQ12.one()
++    except Exception:
++        return False
+diff -ruN a/cashu/mint/features.py b/cashu/mint/features.py
+--- a/cashu/mint/features.py
++++ b/cashu/mint/features.py
+@@ -29,6 +29,7 @@
+     WEBSOCKETS_NUT,
+ )
+ from ..core.settings import settings
++from ..mint import dest_zk
+ from ..mint.dest import DEST_POLICIES
+ from ..mint.protocols import SupportsBackends, SupportsPubkey
+ 
+@@ -125,6 +126,9 @@
+         mint_features[SCRIPT_NUT] = supported_dict
+         # the `dest` tag (mint/dest.py) is announced with the policies it enforces
+         mint_features[P2PK_NUT] = dict(supported=True, dest=DEST_POLICIES)
++        # and, where the experiment is on, the key its proofs are checked with
++        if dest_zk.fingerprint() is not None:
++            mint_features[P2PK_NUT]["dest_zk"] = dest_zk.fingerprint()
+         mint_features[DLEQ_NUT] = supported_dict
+         mint_features[HTLC_NUT] = supported_dict
+         mint_features[MINT_QUOTE_SIGNATURE_NUT] = supported_dict

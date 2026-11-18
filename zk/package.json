@@ -1,0 +1,12 @@
+{
+  "name": "streetcat-dest-zk",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
+    "circom2": "0.2.23",
+    "circomlib": "2.0.5",
+    "snarkjs": "0.7.6"
+  }
+}

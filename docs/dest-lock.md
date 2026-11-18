@@ -175,8 +175,10 @@ A mint that enforces this says so in its NUT-06 info, under NUT-11:
 ## Open questions
 
 - **Opening the outputs to the mint** is what lets this work on today's keysets, and it is what costs privacy and
-  witness size. A mint that checked the same rule over blinded outputs would need neither; the drafts under Related
-  work go that way.
+  witness size. The drafts under Related work do not avoid it either: their outputs are quotes whose lock key and
+  amount the mint sees. Checking the rule over outputs that stay blinded would take a proof the mint can verify
+  without seeing them. [`zk/`](../zk/README.md) is an experiment in that, for the payment only: it runs against a test
+  mint, on a setup that is not fit for real use, and what it hides from the mint itself is little.
 - **Other policies.** `pubkeys` is the only one defined. A lock that fixes amounts per payee, or a payee by Lightning
   destination, would be other values of the same tag.
 - **Where the announcement belongs.** It is written under NUT-11 in the mint's info here; a NUT of its own would have
@@ -186,8 +188,19 @@ A mint that enforces this says so in its NUT-06 info, under NUT-11:
 
 ## Related work
 
-The Cashu drafts for version 3 keysets go the same way by another road: signatures that cover the whole transaction, and
-a "template leaf" whose outputs must go to listed keys ([nuts#443](https://github.com/cashubtc/nuts/pull/443),
-[nutshell#1198](https://github.com/cashubtc/nutshell/pull/1198), both open on 10 Nov 2026). This draft works on today's
-keysets by opening the outputs, and adds one thing those descriptions do not mention: an output that stays under the
-lock it came from.
+The Cashu drafts for version 3 keysets reach the same end by another road (all open drafts, as read on 18 Nov 2026):
+
+- [nuts#443](https://github.com/cashubtc/nuts/pull/443), "Nutroot secrets": a secret commits to a tree of condition
+  leaves, and every input carries a witness over the whole transaction.
+- [nuts#457](https://github.com/cashubtc/nuts/pull/457), "fixed txout quotes and the template leaf", stacked on the
+  one above: a leaf lists signing keys and destination keys, and every output of the spend must be a fixed quote
+  locked to a listed destination. Mint side in [nutshell#1198](https://github.com/cashubtc/nutshell/pull/1198).
+
+What differs here:
+
+- This draft works on today's keysets and NUT-11 secrets, by opening ordinary blinded outputs to the mint. The template
+  leaf needs the new keysets and a new kind of output.
+- Neither hides the destination from the mint: there the quote's lock key and amount are in the clear, here the
+  output is opened.
+- There every output goes to a destination and the covenant ends at it. Here an output may also stay under the lock
+  it came from, so part of a donation can be paid and the rest remain locked.
