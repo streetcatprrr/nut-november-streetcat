@@ -54,7 +54,10 @@ under NUT-11: `"dest_zk": "<SHA-256 of that key>"`.
   without one.
 - **Nobody has reviewed the circuit.** It was written in a day. A circuit that passes its tests can still accept what
   it should not.
-- The proving key is 132 MB and a proof takes about 11 s and under 1 GB on a two-core server. Not tried on a phone.
+- The proving key is 132 MB and a proof takes about 11 s and under 1 GB on a two-core server. On a phone it was
+  measured once, on one iPhone (iOS 18, in an in-app web view, with snarkjs in the browser): 59 s to prove, and the proof
+  verified. Fetching the key there took nine minutes, with the key sent as text; how much of that is the key's size and
+  how much the connection was not separated out. Only whoever pays out of a lock needs the key, not the donor.
 - Fake money only, like the patch under it.
 
 ## Run it

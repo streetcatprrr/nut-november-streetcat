@@ -2,12 +2,13 @@
 
 **Streetcat's entry for Nut November 2026.** Donations in Cashu ecash that nobody can spend, the charity included, until a veterinary clinic confirms that the work was done. If it never is, the donor takes the sats back after a deadline.
 
-**Where it stands (17 Nov).**
+**Where it stands (19 Nov).**
 
 - **With real sats, on a public mint:** a donation locked, confirmed with the clinic's key, released, and read back as released by the public status page (Minibits; test keys).
 - **With fake money only:** `dest`, a rule for the mint that says where locked ecash may go. It is written up as a [NUT-style proposal](docs/dest-lock.md) with [worked examples](docs/dest-vectors.md), and needs a patched mint.
-- **Checked by:** 87 test suites that drive the real pages, run as a whole before each release, and several security reviews whose findings, and what was done about each, are in [Progress](#progress).
-- **Not yet:** a real cat's sterilisation paid this way, and a refund after its deadline on a public mint that runs CDK.
+- **Checked by:** 88 test suites that drive the real pages, 84 of them run as a whole before each release (the other four are run apart), and several security reviews whose findings, and what was done about each, are in [Progress](#progress).
+- **Tried apart, not in the app:** a zero-knowledge proof that lets a `dest` payment stay blinded ([`zk/`](zk/README.md)). It runs against a test mint; its setup is not fit for real use and nobody has reviewed its circuit.
+- **Not yet:** a real cat's sterilisation paid this way, and a refund after its deadline with real sats at a mint that runs CDK (with fake money it has run at a public test mint that runs CDK).
 
 ## In two minutes
 
@@ -37,7 +38,7 @@ node tests/dest_test.mjs        # the rule itself: every spend it must refuse, w
 node tests/fuzz_test.mjs        # random spends, each judged against a model of the rule
 ```
 
-There are 87 suites ([`tests/README.md`](tests/README.md) says what each one covers and what it does not). To put a test mint with the rule on a server of your own: `sudo bash mint/install.sh mint.example.org`.
+There are 88 suites ([`tests/README.md`](tests/README.md) says what each one covers and what it does not). To put a test mint with the rule on a server of your own: `sudo bash mint/install.sh mint.example.org`.
 
 **What to be sceptical about.** The `dest` rule is new and unreviewed. The mint is trusted with the funds, as in all of Cashu. A clinic can still sign for work it did not do: the lock moves that trust from the charity to the clinic, it does not remove it. Each of these is spelled out below, with what the reviews so far found and how each finding was dealt with.
 
@@ -184,7 +185,9 @@ The public repository carries one commit per day, each the state of the project 
 - **17 Nov** — released with real sats, signed whole: 21 sat paid by Lightning, locked by Minibits, confirmed with the clinic's key, released by Rescue, the released ecash received in a wallet, and the status page saying "released · signed by the clinic and Streetcat" (on a phone, in a test copy of the app with test keys). Such a mint keeps of a witness the signatures alone, so the text of each spend travels in Streetcat's ledger, and the status page checks it against the mint's signatures. Rescue publishes the ledger to the relays by itself after each release, and the status page reads it for the donations kept in this browser: before that, the same release was shown as "spent · not proven" (`tests/wholemix_test.mjs`, the road a donor takes). A released request says where its sats are: sent, on their way, or kept in this browser to move. Known limit: a refund made at such a mint cannot be proven on the status page. Full battery: 86 suites, 1 389 checks, no failure. On `main` since this day.
 - **17 Nov** — the `dest` rule, written in the form of a NUT ([`docs/dest-lock.md`](docs/dest-lock.md): what a mint must check, what a wallet must and must not do, its limits and its open questions), with worked examples made against the patched test mint: one spend it accepts and eight it refuses, each with the mint's own answer ([`docs/dest-vectors.md`](docs/dest-vectors.md), written by `tools/dest-vectors.mjs`). It has not been submitted as a NUT.
 - **17 Nov** — the medium findings of part 3 of the six scans, gone through one by one: 21 had not been, and one high. Four no longer exist in the code. Six were reproduced and fixed (`tests/medium3_test.mjs`, six checks that fail on the code before): the partner's app kept a request with no list of donations, and its work list broke on it; it kept the photos any file carried, before checking whose request it was; it signed a report about a copy Streetcat had not signed, which then stood against Streetcat's own request; an invoice chosen for one request could land in another opened meanwhile; an answer the phone could not keep was sent all the same; and Rescue let a later confirmation take the place of the one a payment was released on. Four were not reproduced and are left untouched, eight are real and left as known limits or harmless; `tests/README.md` names them.
-- next — a refund after its deadline at a public mint that runs CDK, first cat with a real pending sterilisation.
+- **18 Nov** — an experiment kept apart from the app ([`zk/`](zk/README.md)): a `dest` payment that stays blinded. The spend carries a zero-knowledge proof (Groth16, a circuit written for this) that the blinded output pays the payee, in place of opening it, and a second patch makes the test mint check it. One payment accepted and spent by its payee, nine ways of showing it falsely refused, the `dest` suite unchanged on that mint; a proof takes about 11 s on a two-core server and took 59 s on one phone. What it hides from the mint itself is little, its setup is a local test one (whoever ran it can forge proofs) and nobody has reviewed the circuit: its README says so first.
+- **19 Nov** — a refund after its deadline at a mint that runs CDK, with fake money (`tests/cdkrefund_test.mjs`, at the CDK project's public test mint, cdk-mintd 0.18.0). A donation locked as the app locks one, with a deadline 40 s away: the donor is refused before it and takes it back after it, written as the app writes a refund for a mint that is not Nutshell; what comes back is spendable, it cannot be taken twice, a key that is not the donor's takes nothing, and a donation locked the earlier way comes back too. That run could not carry the whole of `app/core.js`: it used the same wallet library, byte for byte, and a stand-in for the few functions the test calls, checked against the real ones first (same signed text, each one's signature valid under the other's). With real sats it has not been tried.
+- next — a refund after its deadline with real sats at a public mint that runs CDK, first cat with a real pending sterilisation.
 
 ## Licence
 
