@@ -1,7 +1,7 @@
 {
-  "name": "Streetcat · Vet-certified donations",
+  "name": "Streetcat · Certified donations",
   "short_name": "Streetcat",
-  "description": "Ecash donations that nobody can spend until the clinic certifies the operation.",
+  "description": "Ecash donations that nobody can spend until whoever does the work certifies it.",
   "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#111111",

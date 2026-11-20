@@ -902,7 +902,7 @@ const lockBuilder = (c, refundPk) => new cashu.LockBuilder().addMainPubkey([c.st
 const newDonorKey = c => { const sk = newKey(), pk = pubOf(sk); campHue(c);  // saved before anything is paid or swapped, or nothing is
   if (!addDonorKey({ campaign: c.name, deadline: Number(c.deadline), hue: c.hue, pk, sk, created: new Date().toISOString() })) throw Object.assign(new Error('this browser could not save the key that takes these sats back (its storage is full or blocked), so nothing was paid: free some room in this browser and try again'), { byPage: true });
   return { sk, pk }; };
-const lockedOf = (c, locked) => cashu.getEncodedToken({ mint: c.mint, proofs: locked, memo: `${c.name} ${c.op || ''} — vet-certified donation` });
+const lockedOf = (c, locked) => cashu.getEncodedToken({ mint: c.mint, proofs: locked, memo: `${c.name} ${c.op || ''} — certified donation` });
 const keepLocked = (c, pk, fresh = false) => got => addDonorKey({ pk, lockedToken: lockedOf(c, got), amount: sum(got), mint: c.mint, ...(fresh ? { backup: null } : {}) });  // the swap's record stays until this browser has the token; `fresh`: a token that grew, whose backup is to be saved again
 function renderLocked(c, locked, sk){ const out = $('d-out');
   const lockedToken = lockedOf(c, locked);
@@ -1046,7 +1046,7 @@ $('d-ln').onclick = async () => { const btn = $('d-ln'); busy(btn, true); try { 
   show($('d-out'), 'asking the mint for an invoice…'); const w = await wallet(c.mint); if (!restores(w)) throw Object.assign(new Error(NO_RESTORE), { byPage: true });
   /* a campaign that says where its money may go: the mint is asked now whether it enforces that, not once the invoice is paid (audit of 10 Nov: a mint that had stopped saying so left the paid sats in a quote this page would not mint) */
   if (c.lock === 'dest') { const d = await mintDest(c.mint, true); if (d === null) throw Object.assign(new Error(DEST_UNSAID + ': try again in a moment'), { byPage: true }); if (!d) throw Object.assign(new Error(NO_DEST), { byPage: true }); }
-  const desc = `Streetcat · ${c.name} ${c.op || ''} · vet-certified donation`.slice(0, 100);
+  const desc = `Streetcat · ${c.name} ${c.op || ''} · certified donation`.slice(0, 100);
   let canDescribe = false; try { canDescribe = w.getMintInfo().supportsNut04Description('bolt11', 'sat'); } catch (_) {}
   const q = canDescribe ? await w.createMintQuoteBolt11(amount, desc) : await w.createMintQuoteBolt11(amount);
   const { pk } = newDonorKey(c);  /* the refund key is in the list of refund keys (newDonorKey), sealed by a PIN: the pending invoice names it by its public key only */
@@ -2728,7 +2728,7 @@ async function drawCard(){ const d = DONATION; if (!d) return; const msg = $('dk
   const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'), F = s => `${s}px "Departure Mono", ui-monospace, monospace`, FG = '#efede6', MUTE = '#8d8a81', CAMP = `oklch(.82 .16 ${hue}deg)`;
   g.fillStyle = '#111111'; g.fillRect(0, 0, W, H); g.textBaseline = 'alphabetic'; g.fillStyle = FG; g.font = F(44); g.fillText('STREETCAT', 80, 130); g.fillRect(80, 168, W - 160, 2);
   let y = 330; g.fillStyle = CAMP; let fs = 132; g.font = F(fs); while (g.measureText(d.c.name.toUpperCase()).width > W - 160 && fs > 48) { fs -= 8; g.font = F(fs); } g.fillText(d.c.name.toUpperCase(), 80, y);
-  g.fillStyle = MUTE; g.font = F(36); g.fillText(String(d.c.op || 'vet-certified donation'), 80, y + 70); y += 190;
+  g.fillStyle = MUTE; g.font = F(36); g.fillText(String(d.c.op || 'certified donation'), 80, y + 70); y += 190;
   if ($('dk-amt').checked) { g.fillStyle = FG; g.font = F(40); g.fillText('I donated', 80, y); g.font = F(120); g.fillText(fmtSat(d.amount), 80, y + 130); y += 210; }
   if (msg) { g.fillStyle = FG; g.font = F(42); for (const l of wrapLines(g, '“' + msg + '”', W - 160)) { g.fillText(l, 80, y); y += 58; } y += 30; }
   g.fillStyle = FG; g.font = F(36); for (const l of wrapLines(g, `Locked for ${d.c.name} — released only when the clinic confirms.`, W - 160)) { g.fillText(l, 80, y); y += 50; }
@@ -2865,7 +2865,7 @@ async function drawReceipt(r){ const c = r.campaign, hue = campHue(c), W = 1080,
   g.fillStyle = '#ff4d4d'; g.fillRect(80, 200, W - 160, 64); g.fillStyle = '#111111'; g.font = F(32); const band = 'PRIVATE · DO NOT SHARE'; g.fillText(band, (W - g.measureText(band).width) / 2, 244);
   let y = 340; g.fillStyle = FG; g.font = F(46); g.fillText('PRIVATE RECOVERY RECEIPT', 80, y); y += 120;
   g.fillStyle = `oklch(.82 .16 ${hue}deg)`; let fs = 110; g.font = F(fs); while (g.measureText(c.name.toUpperCase()).width > W - 160 && fs > 48) { fs -= 8; g.font = F(fs); } g.fillText(c.name.toUpperCase(), 80, y);
-  g.fillStyle = MUTE; g.font = F(34); g.fillText(String(c.op || 'vet-certified donation'), 80, y + 60); y += 180;
+  g.fillStyle = MUTE; g.font = F(34); g.fillText(String(c.op || 'certified donation'), 80, y + 60); y += 180;
   g.fillStyle = FG; g.font = F(100); g.fillText(fmtSat(r.donation.amount), 80, y); g.font = F(40); g.fillText(r.donation.ref, 80, y + 70); y += 160;
   g.font = F(34); g.fillText('Refund opens ' + fmtUTC(Number(c.deadline)), 80, y); const here = fmtHere(Number(c.deadline)); if (here) { g.fillStyle = MUTE; g.font = F(30); g.fillText(here, 80, y + 46); } y += 110;
   g.fillStyle = MUTE; g.font = F(28); g.fillText('Made ' + fmtUTC(Math.floor(Date.parse(r.created) / 1000)), 80, y); y += 50;

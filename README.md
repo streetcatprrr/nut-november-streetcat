@@ -1,4 +1,4 @@
-# Vet-certified donations in ecash
+# Certified donations in ecash
 
 **Streetcat's entry for Nut November 2026.** Donations in Cashu ecash that nobody can spend, the charity included, until a veterinary clinic confirms that the work was done. If it never is, the donor takes the sats back after a deadline.
 
@@ -14,7 +14,7 @@
 
 **The problem.** A charity publishes its receipts after the money has moved. Here the money cannot move until the receipt exists.
 
-**What is built.** One static web app ([`app/`](app/)), no server of its own: it talks to a Cashu mint and to Nostr relays, and every key stays in the browser.
+**What is built.** Three apps, one for each role, built from one static codebase ([`app/`](app/)) with no server of its own: they talk to a Cashu mint and to Nostr relays, and every key stays in the browser.
 
 | Who | Does what |
 |---|---|
@@ -28,7 +28,7 @@
 1. **Today's lock** works at any mint with NUT-11: two signatures (Streetcat and the clinic), and the donor's refund key after the deadline. Since 15 Nov its signatures cover the whole transaction (`SIG_ALL`): the clinic signs exactly what leaves the lock and what goes back under it. That has run with fake money at a stock Nutshell 0.21.0, and with real sats on a public mint that runs other software (Minibits, cdk-mintd; 16–17 Nov, in a test copy of the app with test keys): donated, confirmed, released, and read back as released on the status page.
 2. **The new one, `dest`, is an experiment** ([`docs/dest-lock.md`](docs/dest-lock.md), written in the form of a NUT; worked examples in [`docs/dest-vectors.md`](docs/dest-vectors.md)). NUT-11 says who must sign; it cannot say where the value may go, so two signers who agree can send it anywhere. `dest` is one tag and a rule for the mint: locked ecash can only be paid to the keys the lock names, or stay under its lock, or go back to the donor after the deadline. The clinic is then paid by the mint itself. Streetcat orders each payment and can never hold the money. It needs a patched mint ([`mint/`](mint/), a patch on Nutshell 0.21.0), nobody outside this project has reviewed it, and it has only run with fake money.
 
-**See it run.** A public mint with the rule is not up yet, so the quickest proof is the test suite, which drives the real pages in Chromium against local mints with fake money:
+**See it run.** A test mint with the rule is up at `https://mint.streetcat.org` (fake money, as it says of itself; 20 Nov). No mint with real sats has the rule, so the quickest proof is still the test suite, which drives the real pages in Chromium against local mints with fake money:
 
 ```
 # the patched test mint on port 3340: four commands in mint/README.md
