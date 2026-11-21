@@ -2,7 +2,7 @@
 
 **Streetcat's entry for Nut November 2026.** Donations in Cashu ecash that nobody can spend, the charity included, until a veterinary clinic confirms that the work was done. If it never is, the donor takes the sats back after a deadline.
 
-**Where it stands (19 Nov).**
+**Where it stands (21 Nov).**
 
 - **With real sats, on a public mint:** a donation locked, confirmed with the clinic's key, released, and read back as released by the public status page (Minibits; test keys).
 - **With fake money only:** `dest`, a rule for the mint that says where locked ecash may go. It is written up as a [NUT-style proposal](docs/dest-lock.md) with [worked examples](docs/dest-vectors.md), and needs a patched mint.
@@ -28,7 +28,19 @@
 1. **Today's lock** works at any mint with NUT-11: two signatures (Streetcat and the clinic), and the donor's refund key after the deadline. Since 15 Nov its signatures cover the whole transaction (`SIG_ALL`): the clinic signs exactly what leaves the lock and what goes back under it. That has run with fake money at a stock Nutshell 0.21.0, and with real sats on a public mint that runs other software (Minibits, cdk-mintd; 16–17 Nov, in a test copy of the app with test keys): donated, confirmed, released, and read back as released on the status page.
 2. **The new one, `dest`, is an experiment** ([`docs/dest-lock.md`](docs/dest-lock.md), written in the form of a NUT; worked examples in [`docs/dest-vectors.md`](docs/dest-vectors.md)). NUT-11 says who must sign; it cannot say where the value may go, so two signers who agree can send it anywhere. `dest` is one tag and a rule for the mint: locked ecash can only be paid to the keys the lock names, or stay under its lock, or go back to the donor after the deadline. The clinic is then paid by the mint itself. Streetcat orders each payment and can never hold the money. It needs a patched mint ([`mint/`](mint/), a patch on Nutshell 0.21.0), nobody outside this project has reviewed it, and it has only run with fake money.
 
-**See it run.** A test mint with the rule is up at `https://mint.streetcat.org` (fake money, as it says of itself; 20 Nov). No mint with real sats has the rule, so the quickest proof is still the test suite, which drives the real pages in Chromium against local mints with fake money:
+**See it run.** A demo with fake money is open at <https://demo.streetcat.org> (the three apps at `/donate`, `/streetcat` and `/clinic`), against a test mint with the rule at `https://mint.streetcat.org`. Nothing in it is real: it makes its own test keys and a partner called "Demo clinic", and a red bar at the top goes from one app to another.
+
+Try it in two minutes, on one phone:
+
+1. **RESCUE** → *Sterilisation* → **New campaign** → **Choose partner**, tick *Demo clinic*, **Done** → give it a name → **Make the campaign**. It gives a link.
+2. Open that link: it is the **DONOR**'s app. An amount, say 1000 → **Pay with Lightning**. Nothing is paid: the test mint marks its own invoice paid in a few seconds. It says *LOCKED*.
+3. **RESCUE** → *Sterilisation* → **New request**: a cat's name, a procedure, a cost (say 600) → **Send to the partner**.
+4. **PARTNER** → the pending request → tick the box → **Confirm procedure**.
+5. **RESCUE** → the request, now ready → **Release**. The mint pays the partner; what is left of the donation stays under the same lock.
+
+Each app hears of the others through the demo's relay: give it a few seconds between steps. To see the cat recognition (which cat is this, from a photo), tap *Cat recognition: get it* in the red bar, in Rescue or Partner: it is 121 MB and the app never brings it unasked.
+
+**The tests.** No mint with real sats has the rule, so the proof that can be repeated is the test suite, which drives the real pages in Chromium against local mints with fake money:
 
 ```
 # the patched test mint on port 3340: four commands in mint/README.md
@@ -187,6 +199,8 @@ The public repository carries one commit per day, each the state of the project 
 - **17 Nov** — the medium findings of part 3 of the six scans, gone through one by one: 21 had not been, and one high. Four no longer exist in the code. Six were reproduced and fixed (`tests/medium3_test.mjs`, six checks that fail on the code before): the partner's app kept a request with no list of donations, and its work list broke on it; it kept the photos any file carried, before checking whose request it was; it signed a report about a copy Streetcat had not signed, which then stood against Streetcat's own request; an invoice chosen for one request could land in another opened meanwhile; an answer the phone could not keep was sent all the same; and Rescue let a later confirmation take the place of the one a payment was released on. Four were not reproduced and are left untouched, eight are real and left as known limits or harmless; `tests/README.md` names them.
 - **18 Nov** — an experiment kept apart from the app ([`zk/`](zk/README.md)): a `dest` payment that stays blinded. The spend carries a zero-knowledge proof (Groth16, a circuit written for this) that the blinded output pays the payee, in place of opening it, and a second patch makes the test mint check it. One payment accepted and spent by its payee, nine ways of showing it falsely refused, the `dest` suite unchanged on that mint; a proof takes about 11 s on a two-core server and took 59 s on one phone. What it hides from the mint itself is little, its setup is a local test one (whoever ran it can forge proofs) and nobody has reviewed the circuit: its README says so first.
 - **19 Nov** — a refund after its deadline at a mint that runs CDK, with fake money (`tests/cdkrefund_test.mjs`, at the CDK project's public test mint, cdk-mintd 0.18.0). A donation locked as the app locks one, with a deadline 40 s away: the donor is refused before it and takes it back after it, written as the app writes a refund for a mint that is not Nutshell; what comes back is spendable, it cannot be taken twice, a key that is not the donor's takes nothing, and a donation locked the earlier way comes back too. That run could not carry the whole of `app/core.js`: it used the same wallet library, byte for byte, and a stand-in for the few functions the test calls, checked against the real ones first (same signed text, each one's signature valid under the other's). With real sats it has not been tried.
+- **20 Nov** — named for what it is: certified donations. The partner who certifies need not be a vet, so the title, the tab, the installed app's name, the invoice's text and the cards no longer say so; donations already made keep their memo. The test mint with the `dest` rule is up at `mint.streetcat.org`, with fake money.
+- **21 Nov** — a demo anyone can open, with fake money: <https://demo.streetcat.org>. It is this app with one small file added that points it at the test mint and its own relay and makes its test keys, under a red bar that says so; the three apps are at `/donate`, `/streetcat` and `/clinic`. Nothing in it is real: not the sats, not the keys, not the clinic.
 - next — a refund after its deadline with real sats at a public mint that runs CDK, first cat with a real pending sterilisation.
 
 ## Licence
